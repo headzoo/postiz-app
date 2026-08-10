@@ -28,9 +28,9 @@ services:
       # serving the `file` queue must use the same mount.
 
       # === Cloudflare (R2) Settings
-      CLOUDFLARE_ACCOUNT_ID: 5fa194b2aa6e21b29710fc1e1fdcc1fe
-      CLOUDFLARE_ACCESS_KEY: 9c9c1b0dd0da6739de6b184c8da1963f
-      CLOUDFLARE_SECRET_ACCESS_KEY: 56540a0c03e09a522da235b0a2487292271f4bdbbda892eef044a6cf945d0fd3
+      CLOUDFLARE_ACCOUNT_ID: xx
+      CLOUDFLARE_ACCESS_KEY: xx
+      CLOUDFLARE_SECRET_ACCESS_KEY: xxx
       CLOUDFLARE_BUCKETNAME: img-discimg-com
       CLOUDFLARE_BUCKET_URL: https://img.discimg.com
       CLOUDFLARE_REGION: auto

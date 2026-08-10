@@ -75,6 +75,7 @@ export const PipelineScheduleEditor: FC<{
                       label=""
                       type="time"
                       disableForm={true}
+                      removeError={true}
                       value={time}
                       onChange={(event) =>
                         updateSlot(day.dayOfWeek, index, event.target.value)
