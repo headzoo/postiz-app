@@ -20,7 +20,9 @@ import {
   MovePipelineQueueItemDto,
   PipelineItemActionDto,
   PipelineStatusDto,
+  ReorderPipelineQueueDto,
   ReorderPipelineQueueItemDto,
+  UpdatePipelineScheduleDto,
   UpdatePipelineDto,
 } from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
 
@@ -106,6 +108,24 @@ export class PipelinesController {
     @Body() body: UpdatePipelineDto
   ) {
     return this._pipelineService.updatePipeline(org.id, id, body);
+  }
+
+  @Put('/:id/schedule')
+  updatePipelineSchedule(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: UpdatePipelineScheduleDto
+  ) {
+    return this._pipelineService.updatePipelineSchedule(org.id, id, body);
+  }
+
+  @Post('/:id/items/reorder')
+  reorderQueue(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: ReorderPipelineQueueDto
+  ) {
+    return this._pipelineService.reorderQueue(org.id, id, body);
   }
 
   @Post('/:id/status')

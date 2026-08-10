@@ -15,6 +15,8 @@ import {
 const QUEUE_POSITION_INCREMENT = 1024;
 const TRANSACTION_ATTEMPTS = 3;
 
+class PipelineQueueChangedError extends Error {}
+
 export const pipelineIntegrationSelect = {
   id: true,
   internalId: true,
@@ -141,7 +143,6 @@ export class PipelineRepository {
         integrations: {
           create: body.integrations.map(({ id }) => ({ integrationId: id })),
         },
-        scheduleSlots: { create: body.scheduleSlots },
       },
     });
   }
@@ -172,7 +173,6 @@ export class PipelineRepository {
         data: {
           name: body.name,
           timezone: body.timezone,
-          scheduleRevision: { increment: 1 },
           ...(integrationsChanged
             ? {
                 integrations: {
@@ -183,13 +183,92 @@ export class PipelineRepository {
                 },
               }
             : {}),
+        },
+      });
+    });
+  }
+
+  async updatePipelineSchedule(
+    orgId: string,
+    id: string,
+    scheduleSlots: Array<{ dayOfWeek: number; minuteOfDay: number }>
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      const pipeline = await tx.pipeline.findFirst({
+        where: { id, organizationId: orgId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!pipeline) {
+        return null;
+      }
+      return tx.pipeline.update({
+        where: { id },
+        data: {
+          scheduleRevision: { increment: 1 },
           scheduleSlots: {
             deleteMany: {},
-            create: body.scheduleSlots,
+            create: scheduleSlots,
+          },
+        },
+        include: {
+          scheduleSlots: {
+            orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }],
           },
         },
       });
     });
+  }
+
+  async reorderQueuedItems(orgId: string, pipelineId: string, itemIds: string[]) {
+    try {
+      return await this.withSerializableRetry(async (tx) => {
+        const pipeline = await tx.pipeline.findFirst({
+          where: { id: pipelineId, organizationId: orgId, deletedAt: null },
+          select: { id: true },
+        });
+        if (!pipeline) {
+          return null;
+        }
+        const queuedItems = await tx.pipelineQueueItem.findMany({
+          where: {
+            pipelineId,
+            status: PipelineQueueItemStatus.QUEUED,
+            deletedAt: null,
+          },
+          orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          select: { id: true },
+        });
+        if (
+          queuedItems.length !== itemIds.length ||
+          queuedItems.some((item: any) => !itemIds.includes(item.id))
+        ) {
+          return false;
+        }
+        for (const [index, itemId] of itemIds.entries()) {
+          const updated = await tx.pipelineQueueItem.updateMany({
+            where: {
+              id: itemId,
+              pipelineId,
+              status: PipelineQueueItemStatus.QUEUED,
+              deletedAt: null,
+            },
+            data: { position: (index + 1) * QUEUE_POSITION_INCREMENT },
+          });
+          if (updated.count !== 1) {
+            throw new PipelineQueueChangedError();
+          }
+        }
+        return itemIds.map((id, index) => ({
+          id,
+          position: (index + 1) * QUEUE_POSITION_INCREMENT,
+        }));
+      });
+    } catch (error) {
+      if (error instanceof PipelineQueueChangedError) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async setActive(orgId: string, id: string, active: boolean) {

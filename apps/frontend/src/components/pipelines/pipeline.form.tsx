@@ -14,25 +14,10 @@ import { PickPlatforms } from '@gitroom/frontend/components/launches/helpers/pic
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import { Integrations } from '@gitroom/frontend/components/launches/calendar.context';
 import { PipelineDetail } from '@gitroom/frontend/components/pipelines/pipeline.types';
-import { PipelineScheduleEditor } from '@gitroom/frontend/components/pipelines/pipeline.schedule.editor';
-import {
-  dayTimesToSlots,
-  slotsToDayTimes,
-} from '@gitroom/frontend/components/pipelines/pipeline.utils';
 import { useCreatePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.create';
 import { useUpdatePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.update';
 
 dayjs.extend(timezone);
-
-const defaultDayTimes = (): Record<number, string[]> => ({
-  0: [],
-  1: ['09:00'],
-  2: [],
-  3: [],
-  4: [],
-  5: [],
-  6: [],
-});
 
 export const PipelineForm: FC<{
   pipeline?: PipelineDetail;
@@ -52,12 +37,6 @@ export const PipelineForm: FC<{
   const [selectedIntegrations, setSelectedIntegrations] = useState<Integrations[]>(
     pipeline?.channels?.map((channel) => ({ ...channel })) || []
   );
-  const [dayTimes, setDayTimes] = useState<Record<number, string[]>>(
-    pipeline?.scheduleSlots?.length
-      ? slotsToDayTimes(pipeline.scheduleSlots)
-      : defaultDayTimes()
-  );
-  const [scheduleError, setScheduleError] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -79,16 +58,9 @@ export const PipelineForm: FC<{
       setFormError('Select at least one channel for this Pipeline.');
       return false;
     }
-    const scheduleSlots = dayTimesToSlots(dayTimes);
-    if (!scheduleSlots.length) {
-      setScheduleError('Add at least one posting time.');
-      setFormError('Add at least one posting time.');
-      return false;
-    }
-    setScheduleError('');
     setFormError('');
     return true;
-  }, [dayTimes, name, selectedIntegrations.length, timezoneValue]);
+  }, [name, selectedIntegrations.length, timezoneValue]);
 
   const submit = useCallback(async () => {
     if (!validate()) {
@@ -102,7 +74,6 @@ export const PipelineForm: FC<{
         integrations: selectedIntegrations.map((integration) => ({
           id: integration.id,
         })),
-        scheduleSlots: dayTimesToSlots(dayTimes),
       };
       if (pipeline?.id) {
         await updatePipeline(pipeline.id, payload);
@@ -127,7 +98,6 @@ export const PipelineForm: FC<{
     }
   }, [
     createPipeline,
-    dayTimes,
     modal,
     name,
     onSaved,
@@ -192,11 +162,6 @@ export const PipelineForm: FC<{
           </div>
         )}
       </div>
-      <PipelineScheduleEditor
-        value={dayTimes}
-        onChange={setDayTimes}
-        error={scheduleError}
-      />
       <div className="flex gap-[10px] justify-end sticky bottom-0 bg-newBgColorInner pt-[12px]">
         <Button type="button" secondary onClick={() => modal.closeAll()}>
           {t('cancel', 'Cancel')}

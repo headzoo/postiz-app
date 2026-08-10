@@ -690,18 +690,17 @@ export class PostsRepository {
     }
 
     // keepGroup: the updated rows still carry the old group, so sweep only the
-    // rows dropped from it (removed comments) by id instead of by group.
+    // rows dropped from it (removed comments) by id instead of by group. Scope
+    // to this integration so sibling channels sharing the group (e.g. a Pipeline
+    // enqueue that creates one draft per channel before the queue item exists)
+    // are never swept away.
     if (body.group && keepGroup) {
       await this._post.model.post.updateMany({
         where: {
           group: body.group,
           deletedAt: null,
-          ...(pipelineQueueItemId
-            ? {
-                pipelineQueueItemId,
-                integrationId: body.integration.id,
-              }
-            : {}),
+          integrationId: body.integration.id,
+          ...(pipelineQueueItemId ? { pipelineQueueItemId } : {}),
           id: {
             notIn: posts.map((p) => p.id),
           },

@@ -158,7 +158,7 @@ export const Pipelines: FC = () => {
           <div className="text-[14px] opacity-70 max-w-[520px]">
             {t(
               'no_pipelines_description',
-              'Create a Pipeline to define channels, timezone, and weekly posting times. You can queue posts into it from the composer in a later step.'
+              'Create a Pipeline to define channels and timezone, then configure weekly posting times from its detail page.'
             )}
           </div>
           <Button onClick={openCreate}>{t('create_pipeline', 'Create Pipeline')}</Button>

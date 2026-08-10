@@ -51,15 +51,25 @@ export class CreatePipelineDto {
   @Type(() => PipelineIntegrationDto)
   @ValidateNested({ each: true })
   integrations: PipelineIntegrationDto[];
+}
 
+export class UpdatePipelineDto extends CreatePipelineDto {}
+
+export class UpdatePipelineScheduleDto {
   @IsArray()
-  @ArrayMinSize(1)
+  @IsDefined()
   @Type(() => PipelineScheduleSlotDto)
   @ValidateNested({ each: true })
   scheduleSlots: PipelineScheduleSlotDto[];
 }
 
-export class UpdatePipelineDto extends CreatePipelineDto {}
+export class ReorderPipelineQueueDto {
+  @IsArray()
+  @IsDefined()
+  @ArrayMinSize(2)
+  @IsString({ each: true })
+  itemIds: string[];
+}
 
 export class PipelineStatusDto {
   @IsBoolean()

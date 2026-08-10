@@ -53,7 +53,14 @@ export interface CreatePipelinePayload {
   name: string;
   timezone: string;
   integrations: { id: string }[];
-  scheduleSlots: PipelineScheduleSlot[];
 }
 
 export type UpdatePipelinePayload = CreatePipelinePayload;
+
+export interface UpdatePipelineSchedulePayload {
+  scheduleSlots: PipelineScheduleSlot[];
+}
+
+export interface ReorderPipelineQueuePayload {
+  itemIds: string[];
+}

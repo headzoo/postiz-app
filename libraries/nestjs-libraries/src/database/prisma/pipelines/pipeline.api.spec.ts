@@ -226,9 +226,141 @@ describe('Pipeline API boundaries', () => {
         name: 'Pipeline',
         timezone: 'UTC',
         integrations: [{ id: 'channel' }],
-        scheduleSlots: [{ dayOfWeek: 1, minuteOfDay: 60 }],
       })
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('creates Pipelines without schedule rows and preserves schedules during metadata updates', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'pipeline' });
+    const update = jest.fn().mockResolvedValue({ id: 'pipeline', scheduleRevision: 3 });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'pipeline',
+                integrations: [{ integrationId: 'channel' }],
+              }),
+              pipelineQueueItem: undefined,
+              update,
+            },
+            pipelineQueueItem: { findFirst: jest.fn().mockResolvedValue(null) },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: { pipeline: { create } } } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+    const body = {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+    };
+
+    await repository.createPipeline('org', body);
+    await repository.updatePipeline('org', 'pipeline', body);
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.not.objectContaining({ scheduleSlots: expect.anything() }),
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'pipeline' },
+      data: {
+        name: 'Pipeline',
+        timezone: 'UTC',
+      },
+    });
+  });
+
+  it('replaces schedules once and rejects duplicate slots', async () => {
+    const updatePipelineSchedule = jest.fn().mockResolvedValue({
+      id: 'pipeline',
+      scheduleRevision: 2,
+      scheduleSlots: [],
+    });
+    const repository = {
+      updatePipelineSchedule,
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(
+      service.updatePipelineSchedule('org', 'pipeline', { scheduleSlots: [] })
+    ).resolves.toMatchObject({ scheduleRevision: 2, scheduleSlots: [] });
+    expect(updatePipelineSchedule).toHaveBeenCalledWith('org', 'pipeline', []);
+
+    await expect(
+      service.updatePipelineSchedule('org', 'pipeline', {
+        scheduleSlots: [
+          { dayOfWeek: 1, minuteOfDay: 60 },
+          { dayOfWeek: 1, minuteOfDay: 60 },
+        ],
+      })
+    ).rejects.toMatchObject({
+      message: 'Pipeline schedule slots must be unique',
+    });
+  });
+
+  it('atomically clears schedule rows while incrementing its revision once', async () => {
+    const update = jest.fn().mockResolvedValue({
+      id: 'pipeline',
+      scheduleRevision: 2,
+      scheduleSlots: [],
+    });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'pipeline' }),
+              update,
+            },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(
+      repository.updatePipelineSchedule('org', 'pipeline', [])
+    ).resolves.toMatchObject({ scheduleRevision: 2, scheduleSlots: [] });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'pipeline' },
+      data: {
+        scheduleRevision: { increment: 1 },
+        scheduleSlots: { deleteMany: {}, create: [] },
+      },
+      include: {
+        scheduleSlots: {
+          orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }],
+        },
+      },
+    });
+  });
+
+  it('rejects duplicate bulk queue IDs before attempting a reorder', async () => {
+    const repository = { reorderQueuedItems: jest.fn() };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(
+      service.reorderQueue('org', 'pipeline', {
+        itemIds: ['item', 'item'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Pipeline queue item IDs must be unique',
+    });
+    expect(repository.reorderQueuedItems).not.toHaveBeenCalled();
   });
 
   it('uses only queued items for manual scheduling', async () => {

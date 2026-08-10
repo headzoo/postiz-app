@@ -102,6 +102,31 @@ export const buildQueueReorderBody = (
   return { afterItemId: items[toIndex - 1]?.id };
 };
 
+export const fisherYatesShuffle = <T>(items: T[]): T[] => {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index--) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+};
+
+export const shuffleQueuedOrder = <T extends { id: string }>(
+  queued: T[]
+): T[] => {
+  if (queued.length < 2) {
+    return [...queued];
+  }
+  const shuffled = fisherYatesShuffle(queued);
+  const unchanged = shuffled.every(
+    (item, index) => item.id === queued[index].id
+  );
+  if (unchanged) {
+    return [shuffled[1], shuffled[0], ...shuffled.slice(2)];
+  }
+  return shuffled;
+};
+
 export const parseApiError = async (response: Response): Promise<string> => {
   try {
     const body = await response.json();

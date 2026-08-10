@@ -71,6 +71,68 @@ function positionsOf(items: QueueItem[]) {
 }
 
 describe('Pipeline sparse ranking', () => {
+  it('persists only a complete queued-item permutation with deterministic positions', async () => {
+    const items: QueueItem[] = [
+      { id: 'first', position: 1024, status: 'QUEUED', deletedAt: null },
+      { id: 'second', position: 2048, status: 'QUEUED', deletedAt: null },
+      { id: 'published', position: 512, status: 'PUBLISHED', deletedAt: null },
+    ];
+    const updateMany = jest.fn(async ({ where, data }: any) => {
+      const item = items.find(
+        (candidate) =>
+          candidate.id === where.id &&
+          candidate.status === where.status &&
+          candidate.deletedAt === where.deletedAt
+      );
+      if (!item) return { count: 0 };
+      item.position = data.position;
+      return { count: 1 };
+    });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'pipeline' }),
+            },
+            pipelineQueueItem: {
+              findMany: jest.fn().mockResolvedValue([
+                { id: 'first' },
+                { id: 'second' },
+              ]),
+              updateMany,
+            },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(
+      repository.reorderQueuedItems('org', 'pipeline', ['second', 'first'])
+    ).resolves.toEqual([
+      { id: 'second', position: QUEUE_POSITION_INCREMENT },
+      { id: 'first', position: 2 * QUEUE_POSITION_INCREMENT },
+    ]);
+    expect(positionsOf(items).map((item) => item.id)).toEqual([
+      'published',
+      'second',
+      'first',
+    ]);
+    expect(updateMany).toHaveBeenCalledTimes(2);
+
+    await expect(
+      repository.reorderQueuedItems('org', 'pipeline', ['first', 'foreign'])
+    ).resolves.toBe(false);
+    expect(updateMany).toHaveBeenCalledTimes(2);
+  });
+
   it('prepends below a zero-position head without duplicating ranks', async () => {
     const { repository, items } = createRankingRepository([
       { id: 'first', position: 0 },

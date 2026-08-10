@@ -12,7 +12,8 @@ import { useToaster } from '@gitroom/react/toaster/toaster';
 import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import { ExistingDataContextProvider } from '@gitroom/frontend/components/launches/helpers/use.existing.data';
 import { PipelineDetail, PipelineQueueItem, PipelineSummary } from './pipeline.types';
-import { buildQueueReorderBody, formatPipelineSlot } from './pipeline.utils';
+import { buildQueueReorderBody, formatPipelineSlot, shuffleQueuedOrder } from './pipeline.utils';
+import { useReorderPipelineQueue } from './use.pipeline.queue.order';
 
 const queueDragType = 'pipeline-queue-item';
 
@@ -105,6 +106,7 @@ const QueueItem: FC<{
 
 export const PipelineQueue: FC<{ pipeline: PipelineDetail; pipelines: PipelineSummary[]; mutate: () => Promise<PipelineDetail | undefined> }> = ({ pipeline, pipelines, mutate }) => {
   const fetch = useFetch();
+  const reorderQueue = useReorderPipelineQueue();
   const modal = useModals();
   const decision = useDecisionModal();
   const toaster = useToaster();
@@ -134,6 +136,37 @@ export const PipelineQueue: FC<{ pipeline: PipelineDetail; pipelines: PipelineSu
       toaster.show(error?.message || 'Unable to reorder queue.', 'warning');
     } finally { setPending(false); }
   }, [fetch, otherItems, pending, pipeline.id, pipeline.queueItems, queue, refresh, toaster]);
+  const shuffle = useCallback(async () => {
+    if (pending || queue.length < 2) {
+      return;
+    }
+    const shuffled = shuffleQueuedOrder(queue);
+    const previousItems = items;
+    setItems([...shuffled, ...otherItems]);
+    setPending(true);
+    try {
+      await reorderQueue(pipeline.id, {
+        itemIds: shuffled.map((item) => item.id),
+      });
+      await refresh();
+      toaster.show('Queue shuffled.', 'success');
+    } catch (error: any) {
+      setItems(previousItems);
+      await refresh();
+      toaster.show(error?.message || 'Unable to shuffle queue.', 'warning');
+    } finally {
+      setPending(false);
+    }
+  }, [
+    items,
+    otherItems,
+    pending,
+    pipeline.id,
+    queue,
+    refresh,
+    reorderQueue,
+    toaster,
+  ]);
   const action = useCallback(async (item: PipelineQueueItem, type: 'remove' | 'delete' | 'publish-now') => {
     const actionText = type === 'publish-now' ? 'Publish now' : type === 'delete' ? 'Delete' : 'Remove';
     const description = type === 'publish-now'
@@ -170,8 +203,18 @@ export const PipelineQueue: FC<{ pipeline: PipelineDetail; pipelines: PipelineSu
   return (
     <DNDProvider>
       <div className="rounded-[12px] border border-newBorder bg-newBgColor overflow-hidden">
-        <div className="px-[20px] py-[14px] border-b border-newBorder text-[16px] font-[600]">
-          Queue
+        <div className="px-[20px] py-[14px] border-b border-newBorder flex items-center justify-between gap-[12px]">
+          <span className="text-[16px] font-[600]">Queue</span>
+          <Button
+            secondary
+            disabled={pending || queue.length < 2}
+            onClick={shuffle}
+            aria-label="Shuffle queued posts"
+            data-tooltip-id="tooltip"
+            data-tooltip-content="Randomize the order of queued posts"
+          >
+            Shuffle
+          </Button>
         </div>
         <div className="p-[16px] flex flex-col gap-[10px]">
           {queue.length ? (

@@ -1,102 +1,113 @@
 'use client';
 
-import { FC } from 'react';
+import { FC, Fragment } from 'react';
 import clsx from 'clsx';
-import { Button } from '@gitroom/react/form/button';
-import { Input } from '@gitroom/react/form/input';
-import { PIPELINE_DAYS } from '@gitroom/frontend/components/pipelines/pipeline.utils';
+import { PipelineScheduleSlot } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import {
+  minuteOfDayToTime,
+  PIPELINE_DAYS,
+} from '@gitroom/frontend/components/pipelines/pipeline.utils';
 
 export const PipelineScheduleEditor: FC<{
-  value: Record<number, string[]>;
-  onChange: (value: Record<number, string[]>) => void;
-  error?: string;
-}> = ({ value, onChange, error }) => {
-  const addSlot = (dayOfWeek: number) => {
-    onChange({
-      ...value,
-      [dayOfWeek]: [...(value[dayOfWeek] || []), '09:00'],
-    });
+  value: PipelineScheduleSlot[];
+  onChange: (value: PipelineScheduleSlot[]) => void;
+}> = ({ value, onChange }) => {
+  const addSlot = (dayOfWeek: number, hour: number) => {
+    const minuteOfDay = hour * 60;
+    if (
+      value.some(
+        (slot) =>
+          slot.dayOfWeek === dayOfWeek && slot.minuteOfDay === minuteOfDay
+      )
+    ) {
+      return;
+    }
+    onChange([...value, { dayOfWeek, minuteOfDay }]);
   };
 
-  const removeSlot = (dayOfWeek: number, index: number) => {
-    onChange({
-      ...value,
-      [dayOfWeek]: (value[dayOfWeek] || []).filter((_, i) => i !== index),
-    });
-  };
-
-  const updateSlot = (dayOfWeek: number, index: number, time: string) => {
-    const next = [...(value[dayOfWeek] || [])];
-    next[index] = time;
-    onChange({
-      ...value,
-      [dayOfWeek]: next,
-    });
+  const removeSlot = (slotToRemove: PipelineScheduleSlot) => {
+    onChange(
+      value.filter(
+        (slot) =>
+          slot.dayOfWeek !== slotToRemove.dayOfWeek ||
+          slot.minuteOfDay !== slotToRemove.minuteOfDay
+      )
+    );
   };
 
   return (
     <div className="flex flex-col gap-[12px]">
-      <div className="text-[14px] font-[600] text-textColor">Weekly schedule</div>
       <div className="text-[13px] opacity-70">
-        Add one or more posting times for each day. Times use the Pipeline timezone.
+        Add hourly slots for this Pipeline. Existing off-hour slots are retained
+        and can be removed. Times use the Pipeline timezone.
       </div>
-      {error && (
-        <div className="text-[13px] text-red-500 border border-red-500/30 rounded-[8px] px-[12px] py-[8px]">
-          {error}
-        </div>
-      )}
-      <div className="flex flex-col gap-[10px]">
-        {PIPELINE_DAYS.map((day) => {
-          const slots = value[day.dayOfWeek] || [];
-          return (
+      <div className="max-h-[640px] overflow-auto rounded-[10px] border border-newBorder bg-newBorder scrollbar scrollbar-thumb-newBorder scrollbar-track-newBgColor">
+        <div className="grid min-w-[1004px] grid-cols-[80px_repeat(7,_minmax(132px,_1fr))] gap-px">
+          <div className="sticky start-0 top-0 z-30 h-[62px] bg-newTableHeader" />
+          {PIPELINE_DAYS.map((day) => (
             <div
               key={day.dayOfWeek}
-              className="rounded-[12px] border border-newBorder bg-newBgColor p-[12px] flex flex-col gap-[10px]"
+              className="sticky top-0 z-20 flex h-[62px] items-center justify-center bg-newTableHeader px-[8px] text-center text-[14px] font-[500] text-newTableText"
             >
-              <div className="flex items-center justify-between gap-[12px]">
-                <div className="text-[14px] font-[600] text-textColor">
-                  {day.label}
-                </div>
-                <Button type="button" secondary onClick={() => addSlot(day.dayOfWeek)}>
-                  Add time
-                </Button>
-              </div>
-              {!slots.length && (
-                <div className="text-[13px] opacity-60">No times configured</div>
-              )}
-              <div className="flex flex-col gap-[8px]">
-                {slots.map((time, index) => (
-                  <div
-                    key={`${day.dayOfWeek}-${index}`}
-                    className="flex items-center gap-[10px]"
-                  >
-                    <Input
-                      name={`schedule-${day.dayOfWeek}-${index}`}
-                      label=""
-                      type="time"
-                      disableForm={true}
-                      removeError={true}
-                      value={time}
-                      onChange={(event) =>
-                        updateSlot(day.dayOfWeek, index, event.target.value)
-                      }
-                      className={clsx(
-                        'bg-newBgColorInner border border-newBorder rounded-[8px] h-[40px] px-[12px] text-textColor outline-none'
-                      )}
-                    />
-                    <Button
-                      type="button"
-                      secondary
-                      onClick={() => removeSlot(day.dayOfWeek, index)}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ))}
-              </div>
+              {day.label}
             </div>
-          );
-        })}
+          ))}
+          {Array.from({ length: 24 }, (_, hour) => (
+            <Fragment key={hour}>
+              <div className="sticky start-0 z-10 flex min-h-[64px] items-start justify-end bg-newBgColor px-[12px] pt-[10px] text-[13px] text-newTableText">
+                {String(hour).padStart(2, '0')}:00
+              </div>
+              {PIPELINE_DAYS.map((day) => {
+                const slots = value
+                  .filter(
+                    (slot) =>
+                      slot.dayOfWeek === day.dayOfWeek &&
+                      Math.floor(slot.minuteOfDay / 60) === hour
+                  )
+                  .sort((left, right) => left.minuteOfDay - right.minuteOfDay);
+                const hasTopOfHourSlot = slots.some(
+                  (slot) => slot.minuteOfDay === hour * 60
+                );
+                return (
+                  <div
+                    key={`${day.dayOfWeek}-${hour}`}
+                    className="group relative flex min-h-[64px] flex-col gap-[4px] bg-newBgColor p-[6px]"
+                  >
+                    {slots.map((slot) => (
+                      <div
+                        key={`${slot.dayOfWeek}-${slot.minuteOfDay}`}
+                        className="flex items-center justify-between gap-[4px] rounded-[6px] bg-btnPrimary px-[7px] py-[4px] text-[12px] text-btnText"
+                      >
+                        <span>{minuteOfDayToTime(slot.minuteOfDay)}</span>
+                        <button
+                          type="button"
+                          className="rounded px-[3px] text-[14px] leading-none hover:bg-newBgColor focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnText"
+                          aria-label={`Remove ${day.label} ${minuteOfDayToTime(slot.minuteOfDay)} slot`}
+                          onClick={() => removeSlot(slot)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {!hasTopOfHourSlot && (
+                      <button
+                        type="button"
+                        className={clsx(
+                          'flex h-[28px] w-[28px] items-center justify-center self-center rounded-[6px] border border-newBorder bg-newBgColorInner text-[18px] text-newTableText opacity-0 transition-opacity hover:bg-btnPrimary hover:text-btnText focus:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnPrimary',
+                          'group-hover:opacity-100'
+                        )}
+                        aria-label={`Add ${day.label} ${String(hour).padStart(2, '0')}:00 slot`}
+                        onClick={() => addSlot(day.dayOfWeek, hour)}
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </Fragment>
+          ))}
+        </div>
       </div>
     </div>
   );

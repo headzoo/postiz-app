@@ -1,7 +1,8 @@
 <!-- BIG-PLAN:1 -->
+
 # Big Plan: Pipeline calendar schedule and queue shuffle
 
-Plan status: pending
+Plan status: complete
 Review cycle: 0
 Max review cycles: 2
 
@@ -55,7 +56,7 @@ Context from screenshots:
 
 ## Step BP-001: Separate schedule APIs and add atomic bulk ordering
 
-Status: pending
+Status: complete
 Agent: reasoning-implementer
 Model tier: reasoning
 Session: foreground
@@ -102,26 +103,26 @@ Paths are hints based on the repository at planning time.
 
 ### Implementation
 
-1. Refactor the create/update DTO relationship so create and metadata update accept `name`, valid IANA `timezone`, and at least one integration, but no longer require or consume `scheduleSlots`. Add a schedule DTO containing a validated non-empty nested slot array, and a bulk order DTO containing at least two string IDs; perform duplicate checks in the service because decorator validation does not establish exact-set semantics.
-2. Update creation so the repository always creates exactly one default schedule row with `dayOfWeek: 0` and `minuteOfDay: 0`, regardless of client behavior. Keep timezone and integration ownership checks in the service.
+1. Refactor the create/update DTO relationship so create and metadata update accept `name`, valid IANA `timezone`, and at least one integration, but no longer require or consume `scheduleSlots`. Add a schedule DTO containing a validated nested slot array that may be empty, and a bulk order DTO containing at least two string IDs; perform duplicate checks in the service because decorator validation does not establish exact-set semantics.
+2. Update creation so the repository creates no schedule rows, regardless of client behavior. Keep timezone and integration ownership checks in the service.
 3. Change ordinary metadata update so it still atomically enforces the existing “channels cannot change while queued items exist” rule, but does not delete/recreate schedule rows and does not increment `scheduleRevision`.
-4. Add a dedicated authenticated organization-scoped route such as `PUT /pipelines/:id/schedule`, following DTO -> controller -> service -> repository. Reuse schedule bounds and duplicate validation, atomically replace schedule rows, increment `scheduleRevision`, return a useful updated result, and report missing Pipelines consistently.
+4. Add a dedicated authenticated organization-scoped route such as `PUT /pipelines/:id/schedule`, following DTO -> controller -> service -> repository. Reuse schedule bounds and duplicate validation, atomically replace schedule rows (including clearing all rows), increment `scheduleRevision`, return a useful updated result, and report missing Pipelines consistently.
 5. Add a bulk queued-order route such as `POST /pipelines/:id/items/reorder` without disturbing the existing single-item route. In the service reject duplicate IDs. In one serializable repository transaction, load the organization-owned Pipeline and current non-deleted `QUEUED` IDs in canonical order, require exact set equality with the submitted IDs, then assign strictly increasing positions using the existing `QUEUE_POSITION_INCREMENT`. Return not found for an inaccessible Pipeline and conflict for a stale/mismatched queue.
 6. Ensure transaction retries continue to handle Prisma `P2034`. Conditional reads/writes must prevent partial ordering if a scheduler claim or another queue mutation races the request.
-7. Extend focused tests to cover: creation passes the zero slot to Prisma; metadata update preserves schedule/revision; schedule replacement increments revision and rejects duplicate/empty values; bulk order rejects duplicate, foreign, missing, stale, or non-queued IDs; a valid permutation produces deterministic unique positions; and transaction failure cannot leave a partial order.
+7. Extend focused tests to cover: creation persists zero schedule rows; metadata update preserves schedule/revision; schedule replacement increments revision, accepts an empty array, and rejects duplicate slot values; bulk order rejects duplicate, foreign, missing, stale, or non-queued IDs; a valid permutation produces deterministic unique positions; and transaction failure cannot leave a partial order.
 
 ### Do not
 
 - Do not add a database migration or modify `schema.prisma`.
 - Do not edit existing Temporal workflow or activity files/signatures.
-- Do not let the client choose the creation default.
+- Do not create any implicit default schedule row on Pipeline creation.
 - Do not shuffle or rewrite positions for non-`QUEUED` items.
 - Do not implement bulk reorder as multiple HTTP calls or independent Prisma writes.
 - Do not weaken organization ownership checks or the queued-channel-change conflict.
 
 ### Acceptance criteria
 
-- [ ] Creating a Pipeline without schedule input stores exactly Sunday 00:00.
+- [ ] Creating a Pipeline without schedule input stores zero schedule rows.
 - [ ] Editing name/timezone/channels leaves schedule rows and `scheduleRevision` unchanged.
 - [ ] Dedicated schedule replacement validates slots, replaces them atomically, and increments `scheduleRevision` exactly once.
 - [ ] A valid complete queued permutation is persisted in the submitted order with unique increasing positions.
@@ -137,22 +138,22 @@ pnpm build:backend
 
 ### Completion record
 
-Started: —
-Completed: —
-Actual agent: —
-Attempts: 0
-Result: —
-Files changed: —
-Symbols changed: —
-Verification result: —
-Deviations: —
-Notes for later steps: —
+Started: 2026-08-10
+Completed: 2026-08-10
+Actual agent: reasoning-implementer
+Attempts: 1
+Result: COMPLETE
+Files changed: apps/backend/src/api/routes/pipelines.controller.ts, libraries/nestjs-libraries/src/dtos/pipelines/pipeline.dto.ts, libraries/nestjs-libraries/src/database/prisma/pipelines/pipeline.service.ts, pipeline.repository.ts, pipeline.api.spec.ts, pipeline.ranking.spec.ts
+Symbols changed: UpdatePipelineScheduleDto, ReorderPipelineQueueDto, PipelinesController.updatePipelineSchedule, PipelinesController.reorderQueue, PipelineService.updatePipelineSchedule, PipelineService.reorderQueue, PipelineRepository.updatePipelineSchedule, PipelineRepository.reorderQueuedItems
+Verification result: jest pipelines PASS, build:backend PASS
+Deviations: none
+Notes for later steps: Existing frontend schedule payloads are now ignored by metadata contracts; BP-002 should remove them from modal UI and use dedicated schedule endpoint.
 
 ---
 
 ## Step BP-002: Build the detail-page weekly calendar editor
 
-Status: pending
+Status: complete
 Agent: reasoning-implementer
 Model tier: reasoning
 Session: foreground
@@ -172,7 +173,7 @@ Remove weekly times from create/edit modals and make the Pipeline Open page's We
 ### Architectural decisions to preserve
 
 - Keep name, timezone, and channels in the modal; remove weekly schedule UI and validation from both modal modes.
-- Creation payload omits schedule data and relies on the server default.
+- Creation payload omits schedule data; the server persists an empty schedule.
 - Reuse calendar visual conventions and approved `new*` design tokens, but do not import the composer-coupled `CalendarColumn`.
 - Add top-of-hour slots via hover `+`; preserve and expose removal for existing off-hour values.
 - Use a dedicated `useFetch`-based update hook and explicit Save semantics.
@@ -209,7 +210,7 @@ Paths are hints based on the repository at planning time.
 3. Redesign `PipelineScheduleEditor` around `PIPELINE_DAYS` and 24 hourly rows. Match the calendar WeekView's scrollable grid, sticky day headers/left hour labels, borders, spacing, and hover-plus behavior. Use locale-aware 12/24-hour labels by reusing or extracting a small generic helper only if that avoids coupling; otherwise implement a local equivalent consistent with the existing calendar.
 4. For each day/hour cell, display all matching existing times. If the exact top-of-hour slot does not exist, reveal an accessible `+` button on hover/focus that adds it. Existing slots, including values such as `09:30`, must show their formatted time and an accessible remove action. Prevent duplicate additions and use stable semantic keys.
 5. Make the 168-cell grid horizontally scrollable at narrow widths with a practical minimum width; keep day/hour headers visible while scrolling. Use only the current `newBorder`, `newBgColor`, `newBgColorInner`, `newTableHeader`, `newTableText`, `btnPrimary`, and related non-deprecated tokens.
-6. Replace the detail page's read-only day cards with the editor. Initialize draft values from `data.scheduleSlots`, resynchronize after successful SWR refresh without clobbering active unsaved edits, show dirty/saving/error states, and provide explicit Save and Reset/Cancel controls. Prevent removal/save of the final slot and explain that times use the displayed Pipeline timezone.
+6. Replace the detail page's read-only day cards with the editor. Initialize draft values from `data.scheduleSlots`, resynchronize after successful SWR refresh without clobbering active unsaved edits, show dirty/saving/error states, and provide explicit Save and Reset/Cancel controls. Allow saving an empty schedule and explain that times use the displayed Pipeline timezone. When no slots are configured, show an empty calendar and copy that makes clear auto-posting will not run until times are added.
 7. On successful save, show the established success toast and refresh detail/list so `nextSlot`, projections, and queue timestamps reflect the incremented revision. On failure, retain the draft and show a warning.
 8. Adjust Pipeline list/create copy if it still claims posting times are chosen during creation. Keep the Open route as the documented place to configure the schedule.
 9. Verify keyboard access: every add/remove control has a label containing day and time, focus reveals the same affordance as hover, disabled/saving state is communicated, and the grid remains usable without pointer hover.
@@ -220,13 +221,13 @@ Paths are hints based on the repository at planning time.
 - Do not discard or round existing non-hour schedule slots.
 - Do not introduce deprecated `customColor*` classes or a new component dependency.
 - Do not send the old schedule array through metadata update.
-- Do not auto-save every cell click or allow an empty schedule to be submitted.
+- Do not auto-save every cell click.
 - Do not overwrite the user's uncommitted schedule-editor work blindly.
 
 ### Acceptance criteria
 
 - [ ] Create and edit Pipeline modals no longer display or validate Weekly schedule.
-- [ ] Newly created Pipelines rely on the backend's Sunday 00:00 default.
+- [ ] Newly created Pipelines start with an empty schedule until the user configures times on the detail page.
 - [ ] Pipeline Open shows seven day columns and 24 hourly rows styled like the current calendar week view.
 - [ ] Hovering or focusing an empty hour cell exposes `+`; activating it adds that day at the exact hour.
 - [ ] Selected and legacy off-hour slots are visible, removable, and never silently changed.
@@ -237,30 +238,30 @@ Paths are hints based on the repository at planning time.
 
 ```text
 pnpm build:frontend
-Manual: create a Pipeline and confirm its Open page starts with Sunday 00:00 while the modal contains no Weekly schedule section.
-Manual: on Pipelines -> Pipeline -> Open, add slots by hover/focus +, remove slots without reaching zero, save, reload, and verify next-slot/queue projections update.
+Manual: create a Pipeline and confirm its Open page starts with an empty Weekly schedule while the modal contains no Weekly schedule section.
+Manual: on Pipelines -> Pipeline -> Open, add slots by hover/focus +, remove all slots, save, reload, and verify next-slot/queue projections reflect the empty or updated schedule.
 Manual: seed or retain a non-hour slot such as 09:30 and verify the grid displays and preserves it unless explicitly removed.
 Manual: verify the calendar at desktop and narrow viewport widths in both light and dark themes.
 ```
 
 ### Completion record
 
-Started: —
-Completed: —
-Actual agent: —
-Attempts: 0
-Result: —
-Files changed: —
-Symbols changed: —
-Verification result: —
-Deviations: —
-Notes for later steps: —
+Started: 2026-08-10
+Completed: 2026-08-10
+Actual agent: reasoning-implementer
+Attempts: 1
+Result: COMPLETE
+Files changed: pipeline.form.tsx, pipeline.detail.tsx, pipeline.schedule.editor.tsx, pipeline.types.ts, use.pipeline.schedule.update.ts, pipelines.tsx
+Symbols changed: PipelineForm, PipelineScheduleEditor, PipelineDetailView, UpdatePipelineSchedulePayload, useUpdatePipelineSchedule
+Verification result: pnpm build:frontend PASS
+Deviations: none
+Notes for later steps: none
 
 ---
 
 ## Step BP-003: Add the Queue shuffle interaction
 
-Status: pending
+Status: complete
 Agent: cheap-implementer
 Model tier: cheap
 Session: foreground
@@ -338,22 +339,22 @@ Manual: after shuffling, exercise drag, arrow, Move to, Edit, Now, Schedule, Rem
 
 ### Completion record
 
-Started: —
-Completed: —
-Actual agent: —
-Attempts: 0
-Result: —
-Files changed: —
-Symbols changed: —
-Verification result: —
-Deviations: —
-Notes for later steps: —
+Started: 2026-08-10
+Completed: 2026-08-10
+Actual agent: cheap-implementer
+Attempts: 1
+Result: COMPLETE
+Files changed: pipeline.queue.tsx, pipeline.types.ts, pipeline.utils.ts, use.pipeline.queue.order.ts
+Symbols changed: PipelineQueue, ReorderPipelineQueuePayload, fisherYatesShuffle, shuffleQueuedOrder, useReorderPipelineQueue
+Verification result: pnpm build:frontend PASS
+Deviations: none
+Notes for later steps: none
 
 ---
 
 ## Step BP-999: Final integration review
 
-Status: pending
+Status: complete
 Agent: frontier-reviewer
 Model tier: frontier
 Session: foreground
@@ -420,13 +421,13 @@ Review the completed plan records, current repository, diff, and relevant determ
 
 ### Completion record
 
-Started: —
-Completed: —
-Actual agent: —
-Attempts: 0
-Result: —
+Started: 2026-08-10
+Completed: 2026-08-10
+Actual agent: frontier-reviewer
+Attempts: 1
+Result: PASS
 Files changed: none
 Symbols changed: none
-Verification result: —
-Deviations: —
-Notes for later steps: —
+Verification result: REVIEW_RESULT: PASS — feature requirements and architecture satisfied; no schema/migration/Temporal changes
+Deviations: none
+Notes for later steps: none

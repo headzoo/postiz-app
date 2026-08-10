@@ -1,6 +1,13 @@
 'use client';
 
-import { FC, useCallback } from 'react';
+import {
+  FC,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useRouter } from 'next/navigation';
 import clsx from 'clsx';
 import { Button } from '@gitroom/react/form/button';
@@ -12,15 +19,25 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { PipelineChannels } from '@gitroom/frontend/components/pipelines/pipeline.channels';
 import { PipelineForm } from '@gitroom/frontend/components/pipelines/pipeline.form';
 import { PipelineQueue } from '@gitroom/frontend/components/pipelines/pipeline.queue';
-import {
-  formatPipelineSlot,
-  minuteOfDayToTime,
-  PIPELINE_DAYS,
-} from '@gitroom/frontend/components/pipelines/pipeline.utils';
+import { PipelineScheduleEditor } from '@gitroom/frontend/components/pipelines/pipeline.schedule.editor';
+import { PipelineScheduleSlot } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import { formatPipelineSlot } from '@gitroom/frontend/components/pipelines/pipeline.utils';
 import { usePipelineDetail } from '@gitroom/frontend/components/pipelines/use.pipeline.detail';
 import { usePipelineStatus } from '@gitroom/frontend/components/pipelines/use.pipeline.status';
 import { useDeletePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.delete';
 import { usePipelineList } from '@gitroom/frontend/components/pipelines/use.pipeline.list';
+import { useUpdatePipelineSchedule } from '@gitroom/frontend/components/pipelines/use.pipeline.schedule.update';
+
+const EMPTY_SCHEDULE_SLOTS: PipelineScheduleSlot[] = [];
+
+const getScheduleSignature = (slots: PipelineScheduleSlot[]) =>
+  [...slots]
+    .sort(
+      (left, right) =>
+        left.dayOfWeek - right.dayOfWeek || left.minuteOfDay - right.minuteOfDay
+    )
+    .map((slot) => `${slot.dayOfWeek}:${slot.minuteOfDay}`)
+    .join('|');
 
 export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) => {
   const t = useT();
@@ -32,6 +49,47 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
   const { data: pipelines, mutate: mutateList } = usePipelineList();
   const setPipelineStatus = usePipelineStatus();
   const deletePipeline = useDeletePipeline();
+  const updatePipelineSchedule = useUpdatePipelineSchedule();
+  const [draftScheduleSlots, setDraftScheduleSlots] = useState<
+    PipelineScheduleSlot[]
+  >([]);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState('');
+  const scheduleWasModified = useRef(false);
+  const hasInitializedSchedule = useRef(false);
+  const serverScheduleSlots = data?.scheduleSlots ?? EMPTY_SCHEDULE_SLOTS;
+  const serverScheduleSignature = useMemo(
+    () => getScheduleSignature(serverScheduleSlots),
+    [serverScheduleSlots]
+  );
+  const serverScheduleSlotsRef = useRef<PipelineScheduleSlot[]>(
+    EMPTY_SCHEDULE_SLOTS
+  );
+
+  useEffect(() => {
+    serverScheduleSlotsRef.current = serverScheduleSlots;
+    if (!hasInitializedSchedule.current || !scheduleWasModified.current) {
+      setDraftScheduleSlots(serverScheduleSlots);
+    }
+    hasInitializedSchedule.current = true;
+  }, [serverScheduleSignature, serverScheduleSlots]);
+
+  const updateDraftSchedule = useCallback((slots: PipelineScheduleSlot[]) => {
+    scheduleWasModified.current =
+      getScheduleSignature(slots) !==
+      getScheduleSignature(serverScheduleSlotsRef.current);
+    setDraftScheduleSlots(slots);
+    setScheduleError('');
+  }, []);
+
+  const resetDraftSchedule = useCallback(() => {
+    scheduleWasModified.current = false;
+    setDraftScheduleSlots(serverScheduleSlotsRef.current);
+    setScheduleError('');
+  }, []);
+
+  const scheduleIsDirty =
+    getScheduleSignature(draftScheduleSlots) !== serverScheduleSignature;
   const queueCount =
     data?.queueCount ??
     (data?.queueItems || []).filter((item) => item.status === 'QUEUED').length;
@@ -95,6 +153,28 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
     }
   }, [data, decision, deletePipeline, pipelineId, queueCount, router, t, toaster]);
 
+  const saveSchedule = useCallback(async () => {
+    setIsSavingSchedule(true);
+    setScheduleError('');
+    try {
+      const updated = await updatePipelineSchedule(pipelineId, {
+        scheduleSlots: draftScheduleSlots,
+      });
+      scheduleWasModified.current = false;
+      setDraftScheduleSlots(updated.scheduleSlots);
+      toaster.show(
+        t('pipeline_schedule_updated', 'Weekly schedule updated successfully'),
+        'success'
+      );
+    } catch (err: any) {
+      const message = err?.message || 'Failed to update the weekly schedule.';
+      setScheduleError(message);
+      toaster.show(message, 'warning');
+    } finally {
+      setIsSavingSchedule(false);
+    }
+  }, [draftScheduleSlots, pipelineId, t, toaster, updatePipelineSchedule]);
+
   if (isLoading) {
     return (
       <div className="bg-newBgColorInner p-[20px] flex flex-1 flex-col gap-[15px] transition-all items-center justify-center">
@@ -115,13 +195,6 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
       </div>
     );
   }
-
-  const slotsByDay = PIPELINE_DAYS.map((day) => ({
-    ...day,
-    times: (data.scheduleSlots || [])
-      .filter((slot) => slot.dayOfWeek === day.dayOfWeek)
-      .map((slot) => minuteOfDayToTime(slot.minuteOfDay)),
-  }));
 
   return (
     <div className="bg-newBgColorInner p-[20px] flex flex-1 flex-col gap-[20px] transition-all text-textColor">
@@ -183,32 +256,47 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
       </div>
 
       <div className="rounded-[12px] border border-newBorder bg-newBgColor overflow-hidden">
-        <div className="px-[20px] py-[14px] border-b border-newBorder text-[16px] font-[600]">
-          {t('weekly_schedule', 'Weekly schedule')}
-        </div>
-        <div className="p-[16px] grid grid-cols-1 md:grid-cols-2 gap-[12px]">
-          {slotsByDay.map((day) => (
-            <div
-              key={day.dayOfWeek}
-              className="rounded-[8px] border border-newBorder bg-newBgColorInner p-[12px]"
-            >
-              <div className="text-[14px] font-[600] mb-[8px]">{day.label}</div>
-              {day.times.length ? (
-                <div className="flex flex-wrap gap-[8px]">
-                  {day.times.map((time) => (
-                    <span
-                      key={`${day.dayOfWeek}-${time}`}
-                      className="text-[13px] px-[10px] py-[4px] rounded-[8px] border border-newBorder"
-                    >
-                      {time}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-[13px] opacity-60">—</div>
-              )}
+        <div className="flex flex-col gap-[10px] border-b border-newBorder px-[20px] py-[14px] sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-[16px] font-[600]">
+              {t('weekly_schedule', 'Weekly schedule')}
             </div>
-          ))}
+            {scheduleIsDirty && (
+              <div className="text-[12px] text-newTableText">
+                {t('unsaved_changes', 'Unsaved changes')}
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-[8px]">
+            {scheduleIsDirty && (
+              <Button
+                secondary
+                type="button"
+                onClick={resetDraftSchedule}
+                disabled={isSavingSchedule}
+              >
+                {t('reset', 'Reset')}
+              </Button>
+            )}
+            <Button
+              type="button"
+              onClick={saveSchedule}
+              disabled={!scheduleIsDirty || isSavingSchedule}
+            >
+              {isSavingSchedule ? t('saving', 'Saving...') : t('save', 'Save')}
+            </Button>
+          </div>
+        </div>
+        <div className="p-[16px]">
+          {scheduleError && (
+            <div className="mb-[12px] rounded-[8px] border border-red-500/30 px-[12px] py-[8px] text-[13px] text-red-500">
+              {scheduleError}
+            </div>
+          )}
+          <PipelineScheduleEditor
+            value={draftScheduleSlots}
+            onChange={updateDraftSchedule}
+          />
         </div>
       </div>
 
