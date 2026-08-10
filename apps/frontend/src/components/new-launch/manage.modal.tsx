@@ -52,6 +52,10 @@ import {
   usePipelineList,
 } from '@gitroom/frontend/components/pipelines/use.pipeline.list';
 import { pipelineDetailKey } from '@gitroom/frontend/components/pipelines/use.pipeline.detail';
+import {
+  getLastPipelineId,
+  setLastPipelineId,
+} from '@gitroom/frontend/components/new-launch/last-pipeline';
 
 export const ManageModal: FC<AddEditModalProps> = (props) => {
   const t = useT();
@@ -89,6 +93,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     setPublishingMode,
     pipelineId,
     setPipelineId,
+    resetForNextPost,
   } = useLaunchStore(
     useShallow((state) => ({
       hide: state.hide,
@@ -109,6 +114,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       setPublishingMode: state.setPublishingMode,
       pipelineId: state.pipelineId,
       setPipelineId: state.setPipelineId,
+      resetForNextPost: state.resetForNextPost,
     }))
   );
   const activePipelines = useMemo(
@@ -139,6 +145,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       );
       setPipelineId(pipeline.id);
       setPublishingMode('pipeline');
+      setLastPipelineId(pipeline.id);
     },
     [
       activePipelines,
@@ -147,6 +154,35 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       setSelectedIntegrations,
     ]
   );
+
+  const restoredPipelineRef = useRef(false);
+  useEffect(() => {
+    if (
+      restoredPipelineRef.current ||
+      existingData?.integration ||
+      addEditSets ||
+      props.selectedChannels?.length ||
+      props.set ||
+      !activePipelines.length
+    ) {
+      return;
+    }
+    restoredPipelineRef.current = true;
+    const lastPipelineId = getLastPipelineId();
+    if (
+      lastPipelineId &&
+      activePipelines.some((pipeline) => pipeline.id === lastPipelineId)
+    ) {
+      selectPipeline(lastPipelineId);
+    }
+  }, [
+    activePipelines,
+    addEditSets,
+    existingData?.integration,
+    props.selectedChannels,
+    props.set,
+    selectPipeline,
+  ]);
 
   useEffect(() => {
     if (hide) {
@@ -560,7 +596,21 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
         }
 
         if (!addEditSets) {
-          modal.closeAll();
+          const shouldStayOpen =
+            !existingData?.integration && !customClose && !dummy;
+          if (shouldStayOpen) {
+            resetForNextPost();
+            const lastPipelineId = getLastPipelineId();
+            if (
+              lastPipelineId &&
+              activePipelines.some((pipeline) => pipeline.id === lastPipelineId)
+            ) {
+              selectPipeline(lastPipelineId);
+            }
+            setLoading(false);
+          } else {
+            modal.closeAll();
+          }
         }
       }
     },
@@ -578,6 +628,10 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       reloadCalendarView,
       toaster,
       existingData,
+      customClose,
+      activePipelines,
+      resetForNextPost,
+      selectPipeline,
     ]
   );
 

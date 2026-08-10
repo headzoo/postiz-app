@@ -53,7 +53,12 @@ export class PipelineService {
     }));
   }
 
-  async getCalendarPosts(orgId: string, startDate: string, endDate: string) {
+  async getCalendarPosts(
+    orgId: string,
+    startDate: string,
+    endDate: string,
+    customer?: string
+  ) {
     const start = dayjs.utc(startDate);
     const end = dayjs.utc(endDate);
     if (!start.isValid() || !end.isValid()) {
@@ -86,28 +91,41 @@ export class PipelineService {
         }
 
         const publishDate = projectedFor.toISOString();
-        return (item.posts || []).map((post) => ({
-          id: post.id,
-          content: post.content,
-          publishDate,
-          releaseURL: null,
-          releaseId: null,
-          state: post.state,
-          intervalInDays: null,
-          group: item.group,
-          creationMethod: 'QUEUE',
-          pipelineId: pipeline.id,
-          pipelineItemId: item.id,
-          tags: (post.tags || []).map((tag: any) => ({ tag: tag.tag })),
-          integration: post.integration
-            ? {
-                id: post.integration.id,
-                providerIdentifier: post.integration.providerIdentifier,
-                name: post.integration.name,
-                picture: post.integration.picture,
-              }
-            : post.integration,
-        }));
+        return (item.posts || [])
+          .filter((post) => {
+            if (!customer) {
+              return true;
+            }
+            return post.integration?.customer?.id === customer;
+          })
+          .map((post) => ({
+            id: post.id,
+            content: post.content,
+            publishDate,
+            releaseURL: null,
+            releaseId: null,
+            state: post.state,
+            intervalInDays: null,
+            group: item.group,
+            creationMethod: 'QUEUE',
+            pipelineId: pipeline.id,
+            pipelineItemId: item.id,
+            tags: (post.tags || []).map((tag: any) => ({ tag: tag.tag })),
+            integration: post.integration
+              ? {
+                  id: post.integration.id,
+                  providerIdentifier: post.integration.providerIdentifier,
+                  name: post.integration.name,
+                  picture: post.integration.picture,
+                  customer: post.integration.customer
+                    ? {
+                        id: post.integration.customer.id,
+                        name: post.integration.customer.name,
+                      }
+                    : undefined,
+                }
+              : post.integration,
+          }));
       });
     });
   }

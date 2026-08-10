@@ -192,6 +192,18 @@ export const CalendarWeekProvider: FC<{
     [filters.startDate, filters.endDate]
   );
 
+  // List view collapses start/end to a single day; use a forward window so
+  // projected pipeline queue items still appear.
+  const pipelineWindow = useMemo(() => {
+    if (filters.display === 'list') {
+      return {
+        startDate: newDayjs().startOf('day').utc().format(),
+        endDate: newDayjs().add(90, 'day').endOf('day').utc().format(),
+      };
+    }
+    return utcWindow;
+  }, [filters.display, utcWindow]);
+
   // Calendar view data fetcher
   const loadData = useCallback(async () => {
     const modifiedParams = new URLSearchParams({
@@ -205,13 +217,14 @@ export const CalendarWeekProvider: FC<{
     return expandPosts(data);
   }, [filters, params, utcWindow]);
 
-  // Projected pipeline queue items overlaid onto the calendar (not persisted
-  // dates — computed server-side from each Pipeline's recurring schedule).
+  // Projected pipeline queue items overlaid onto calendar and list (not
+  // persisted dates — computed server-side from each Pipeline's schedule).
   const { data: pipelinePosts, mutate: mutatePipelineCalendar } =
     usePipelineCalendar(
-      utcWindow.startDate,
-      utcWindow.endDate,
-      filters.display !== 'list'
+      pipelineWindow.startDate,
+      pipelineWindow.endDate,
+      true,
+      filters.customer
     );
 
   // List view data fetcher
@@ -319,8 +332,30 @@ export const CalendarWeekProvider: FC<{
   );
   const comments = useMemo(() => calendarData?.comments || [], [calendarData?.comments]);
 
-  // List view data
-  const listPosts = useMemo(() => listData?.posts || [], [listData?.posts]);
+  // List view data — merge projected pipeline items onto page 0 so queued
+  // pipeline posts appear with the same upcoming dates as the calendar.
+  const listPosts = useMemo(() => {
+    const base = listData?.posts || [];
+    if (listState === 'published' || listPage !== 0) {
+      return base;
+    }
+
+    const pipelineOverlay = pipelinePosts || [];
+    if (!pipelineOverlay.length) {
+      return base;
+    }
+
+    const seen = new Set(base.map((post: { id: string }) => post.id));
+    const merged = [
+      ...base,
+      ...pipelineOverlay.filter((post: { id: string }) => !seen.has(post.id)),
+    ];
+
+    return merged.sort(
+      (a: { publishDate: string }, b: { publishDate: string }) =>
+        newDayjs(a.publishDate).valueOf() - newDayjs(b.publishDate).valueOf()
+    );
+  }, [listData?.posts, pipelinePosts, listState, listPage]);
   const listTotal = listData?.total || 0;
   const listTotalPages = Math.ceil(listTotal / 100);
 

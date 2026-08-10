@@ -160,6 +160,11 @@ export class PostsRepository {
         integration: {
           deletedAt: null,
           organizationId: orgId,
+          ...(query.customer
+            ? {
+                customerId: query.customer,
+              }
+            : {}),
         },
         deletedAt: null,
         parentPostId: null,
@@ -167,13 +172,6 @@ export class PostsRepository {
           state: State.DRAFT,
           pipelineQueueItemId: { not: null },
         },
-        ...(query.customer
-          ? {
-              integration: {
-                customerId: query.customer,
-              },
-            }
-          : {}),
       },
       select: {
         id: true,

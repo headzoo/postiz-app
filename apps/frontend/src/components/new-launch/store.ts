@@ -6,6 +6,7 @@ import { Integrations } from '@gitroom/frontend/components/launches/calendar.con
 import { createRef, RefObject } from 'react';
 import { PostComment } from '@gitroom/frontend/components/new-launch/providers/post-comment.enum';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
+import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 
 interface Values {
   id: string;
@@ -110,6 +111,7 @@ interface StoreState {
     settings: any
   ) => void;
   reset: () => void;
+  resetForNextPost: () => void;
   setSelectedIntegrations: (
     params: { selectedIntegrations: Integrations; settings: any }[]
   ) => void;
@@ -520,6 +522,22 @@ export const useLaunchStore = create<StoreState>()((set) => ({
     set((state) => ({
       ...state,
       ...initialState,
+    })),
+  resetForNextPost: () =>
+    set((state) => ({
+      ...initialState,
+      integrations: state.integrations,
+      date: state.date,
+      global: [
+        {
+          content: '',
+          id: makeId(10),
+          media: [],
+          delay: 0,
+        },
+      ],
+      editor: 'normal' as const,
+      loaded: false,
     })),
   setAllIntegrations: (integrations: Integrations[]) =>
     set((state) => ({

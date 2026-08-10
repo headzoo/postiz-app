@@ -34,6 +34,29 @@ describe('Posts repository scheduling regressions', () => {
     );
   });
 
+  it('merges customer filter into integration without dropping org constraints', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const posts = repository({ findMany });
+
+    await posts.getPosts('org', {
+      startDate: '2026-08-01T00:00:00.000Z',
+      endDate: '2026-08-31T23:59:59.999Z',
+      customer: 'customer-1',
+    } as any);
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          integration: {
+            deletedAt: null,
+            organizationId: 'org',
+            customerId: 'customer-1',
+          },
+        }),
+      })
+    );
+  });
+
   it('keeps published posts analytics-visible rather than applying the upcoming filter', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const count = jest.fn().mockResolvedValue(0);

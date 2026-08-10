@@ -42,9 +42,15 @@ export class PipelinesController {
   getCalendarPosts(
     @GetOrgFromRequest() org: Organization,
     @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string
+    @Query('endDate') endDate: string,
+    @Query('customer') customer?: string
   ) {
-    return this._pipelineService.getCalendarPosts(org.id, startDate, endDate);
+    return this._pipelineService.getCalendarPosts(
+      org.id,
+      startDate,
+      endDate,
+      customer
+    );
   }
 
   @Get('/schedule')
