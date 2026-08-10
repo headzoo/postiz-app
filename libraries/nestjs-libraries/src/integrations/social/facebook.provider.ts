@@ -43,6 +43,15 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
   maxLength() {
     return 63206;
   }
+
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.facebook.com/${encodeURIComponent(integration.profile)}`
+      : integration.internalId
+        ? `https://www.facebook.com/${encodeURIComponent(integration.internalId)}`
+        : undefined;
+  }
+
   dto = FacebookDto;
 
   override async checkValidity(

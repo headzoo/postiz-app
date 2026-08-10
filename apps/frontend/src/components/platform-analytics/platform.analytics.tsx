@@ -161,7 +161,7 @@ export const PlatformAnalytics = () => {
           {t('supported', 'Supported:')}
           {allowedIntegrations.map((p) => capitalize(p)).join(', ')}
         </div>
-        <Button onClick={() => router.push('/launches')}>
+        <Button onClick={() => router.push('/calendar')}>
           {t(
             'go_to_the_calendar_to_add_channels',
             'Go to the calendar to add channels'

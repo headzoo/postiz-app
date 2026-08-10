@@ -23,6 +23,12 @@ export class MediumProvider extends SocialAbstract implements SocialProvider {
     return 100000;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://medium.com/@${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   async generateAuthUrl() {
     const state = makeId(6);
     return {

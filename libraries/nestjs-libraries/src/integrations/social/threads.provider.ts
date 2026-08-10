@@ -38,6 +38,12 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     return 500;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.threads.com/@${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   override handleErrors(body: string):
     | {
         type: 'refresh-token' | 'bad-body';

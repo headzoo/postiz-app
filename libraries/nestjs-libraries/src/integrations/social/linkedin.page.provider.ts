@@ -37,6 +37,14 @@ export class LinkedinPageProvider
 
   override editor = 'normal' as const;
 
+  override profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.linkedin.com/company/${encodeURIComponent(
+          integration.profile
+        )}`
+      : undefined;
+  }
+
   override async refreshToken(
     refresh_token: string
   ): Promise<AuthTokenDetails> {

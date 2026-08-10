@@ -95,6 +95,16 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
     return 32768;
   }
 
+  profileUrl(integration: Integration) {
+    if (!integration.profile) {
+      return undefined;
+    }
+
+    return integration.profile.startsWith('http')
+      ? integration.profile
+      : `https://${encodeURIComponent(integration.profile)}.tumblr.com/`;
+  }
+
   override async checkValidity(
     posts: Array<ValidityMedia[]>
   ): Promise<string | true> {

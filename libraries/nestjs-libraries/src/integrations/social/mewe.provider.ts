@@ -37,6 +37,12 @@ export class MeweProvider extends SocialAbstract implements SocialProvider {
     return 63206;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `${this.meweHost}/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   override handleErrors(
     body: string
   ):

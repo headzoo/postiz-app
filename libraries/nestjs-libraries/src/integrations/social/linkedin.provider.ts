@@ -73,6 +73,13 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 2;
   refreshWait = true;
   editor = 'normal' as const;
+
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.linkedin.com/in/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   maxLength() {
     return 3000;
   }

@@ -23,6 +23,12 @@ export class TwitchProvider extends SocialAbstract implements SocialProvider {
     return 500; // Twitch chat message max length
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.twitch.tv/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {
     const response = await this.fetch('https://id.twitch.tv/oauth2/token', {
       method: 'POST',

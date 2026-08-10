@@ -24,6 +24,12 @@ export class KickProvider extends SocialAbstract implements SocialProvider {
     return 500; // Kick chat message max length
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://kick.com/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   private generatePKCE() {
     const codeVerifier = randomBytes(64).toString('base64url');
     const challenge = Buffer.from(

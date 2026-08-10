@@ -241,6 +241,12 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
     return 300;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://bsky.app/profile/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   override async checkValidity(
     posts: Array<ValidityMedia[]>
   ): Promise<string | true> {

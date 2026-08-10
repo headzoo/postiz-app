@@ -30,6 +30,13 @@ export class WordpressProvider
     return 100000;
   }
 
+  profileUrl(integration: Integration) {
+    const separator = integration.internalId.lastIndexOf('_');
+    return separator > 0
+      ? integration.internalId.slice(0, separator).replace(/\/$/, '')
+      : undefined;
+  }
+
   async generateAuthUrl() {
     const state = makeId(6);
     return {

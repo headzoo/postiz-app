@@ -37,6 +37,14 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
   isBetweenSteps = false;
   scopes = ['write:statuses', 'profile', 'write:media'];
   editor = 'normal' as const;
+
+  profileUrl(integration: Integration) {
+    const instance = process.env.MASTODON_URL || 'https://mastodon.social';
+    return integration.profile
+      ? `${instance.replace(/\/$/, '')}/@${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   maxLength() {
     return 500;
   }

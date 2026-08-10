@@ -15,6 +15,7 @@ import { DribbbleDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-sett
 import mime from 'mime-types';
 import { DiscordDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/discord.dto';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
+import { Integration } from '@prisma/client';
 
 export class DribbbleProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3; // Dribbble has moderate API limits
@@ -26,6 +27,13 @@ export class DribbbleProvider extends SocialAbstract implements SocialProvider {
   maxLength() {
     return 40000;
   }
+
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://dribbble.com/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   dto = DribbbleDto;
 
   override async checkValidity([firstItem]: Array<ValidityMedia[]>): Promise<

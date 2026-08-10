@@ -23,6 +23,13 @@ export class HashnodeProvider extends SocialAbstract implements SocialProvider {
   maxLength() {
     return 10000;
   }
+
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://hashnode.com/@${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   dto = HashnodeSettingsDto;
 
   async generateAuthUrl() {

@@ -65,6 +65,12 @@ export class RedditProvider extends SocialAbstract implements SocialProvider {
     return 10000;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.reddit.com/user/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   override async checkValidity(
     posts: Array<ValidityMedia[]>,
     settings: any

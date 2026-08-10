@@ -33,6 +33,25 @@ import {
 import { uniqBy } from 'lodash';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
 
+export const publicProfileUrl = (value: string | undefined) => {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return undefined;
+    }
+    if (url.username || url.password) {
+      return undefined;
+    }
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+};
+
 @ApiTags('Integrations')
 @Controller('/integrations')
 export class IntegrationsController {
@@ -95,6 +114,12 @@ export class IntegrationsController {
           const findIntegration = this._integrationManager.getSocialIntegration(
             p.providerIdentifier
           );
+          let profileUrl: string | undefined;
+
+          try {
+            profileUrl = publicProfileUrl(findIntegration?.profileUrl?.(p));
+          } catch {}
+
           return {
             name: p.name,
             id: p.id,
@@ -117,6 +142,7 @@ export class IntegrationsController {
             changeNickName: !!findIntegration?.changeNickname,
             customer: p.customer,
             additionalSettings: p.additionalSettings || '[]',
+            ...(profileUrl ? { profileUrl } : {}),
           };
         })
       ),

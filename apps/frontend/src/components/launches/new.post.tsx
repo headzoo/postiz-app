@@ -1,17 +1,47 @@
 import React, { useCallback } from 'react';
+import clsx from 'clsx';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import dayjs from 'dayjs';
-import { useCalendar } from '@gitroom/frontend/components/launches/calendar.context';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { SetSelectionModal } from '@gitroom/frontend/components/launches/calendar';
 import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
-import { ModalWrapperComponent } from '@gitroom/frontend/components/new-launch/modal.wrapper.component';
+import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import useSWR, { useSWRConfig } from 'swr';
 
-export const NewPost = () => {
+export const NewPost = ({
+  variant = 'sidebar',
+}: {
+  variant?: 'sidebar' | 'header';
+}) => {
   const fetch = useFetch();
   const modal = useModals();
-  const { integrations, reloadCalendarView, sets } = useCalendar();
+  const { mutate: globalMutate } = useSWRConfig();
+  const { data: integrations = [] } = useIntegrationList();
+  const setList = useCallback(async () => {
+    return (await fetch('/sets')).json();
+  }, [fetch]);
+  const { data: sets = [] } = useSWR('sets', setList, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    revalidateIfStale: false,
+    revalidateOnMount: true,
+    refreshWhenHidden: false,
+    refreshWhenOffline: false,
+  });
+  const reloadCalendarView = useCallback(() => {
+    globalMutate((key) => {
+      if (typeof key === 'string') {
+        return (
+          key.startsWith('/posts') ||
+          key.startsWith('/pipelines/calendar') ||
+          key === 'sets'
+        );
+      }
+
+      return false;
+    });
+  }, [globalMutate]);
   const t = useT();
 
   const createAPost = useCallback(async () => {
@@ -77,7 +107,12 @@ export const NewPost = () => {
   return (
     <button
       onClick={createAPost}
-      className="text-white flex-1 pt-[12px] pb-[14px] ps-[16px] pe-[20px] group-[.sidebar]:p-0 min-h-[44px] max-h-[44px] rounded-md bg-btnPrimary flex justify-center items-center gap-[5px] outline-none"
+      className={clsx(
+        'text-white rounded-md bg-btnPrimary flex justify-center items-center gap-[5px] outline-none',
+        variant === 'header'
+          ? 'px-[16px] py-[8px] min-h-[40px] text-[14px] font-[500] whitespace-nowrap'
+          : 'flex-1 pt-[12px] pb-[14px] ps-[16px] pe-[20px] group-[.sidebar]:p-0 min-h-[44px] max-h-[44px]'
+      )}
     >
       <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -95,8 +130,15 @@ export const NewPost = () => {
           strokeLinejoin="round"
         />
       </svg>
-      <div className="flex-1 text-start text-[14px] group-[.sidebar]:hidden">
-        {t('create_new_post', 'Create Post')}
+      <div
+        className={clsx(
+          'text-[14px]',
+          variant === 'sidebar' && 'flex-1 text-start group-[.sidebar]:hidden'
+        )}
+      >
+        {variant === 'header'
+          ? t('post', 'Post')
+          : t('create_new_post', 'Create Post')}
       </div>
     </button>
   );

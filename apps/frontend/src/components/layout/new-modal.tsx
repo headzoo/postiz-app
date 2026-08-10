@@ -122,11 +122,11 @@ export const Component: FC<{
   useHotkeys(
     'Escape',
     () => {
-      if (isLast) {
+      if (isLast && modal.closeOnEscape !== false) {
         closeModalFunction();
       }
     },
-    [isLast, closeModalFunction]
+    [isLast, closeModalFunction, modal.closeOnEscape]
   );
 
   if (modal.removeLayout) {

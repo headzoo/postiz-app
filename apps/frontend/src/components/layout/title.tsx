@@ -7,8 +7,14 @@ export const Title = () => {
   const path = usePathname();
   const { all: menuItems } = useMenuItem();
   const currentTitle = useMemo(() => {
-    return menuItems.find((item) => path.indexOf(item.path) > -1)?.name;
-  }, [path]);
+    if (path === '/') {
+      return 'Dashboard';
+    }
+
+    return menuItems.find((item) => {
+      return path === item.path || path.startsWith(`${item.path}/`);
+    })?.name;
+  }, [path, menuItems]);
 
   return <h1>{currentTitle}</h1>;
 };

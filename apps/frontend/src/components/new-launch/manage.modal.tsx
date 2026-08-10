@@ -56,6 +56,8 @@ import {
   getLastPipelineId,
   setLastPipelineId,
 } from '@gitroom/frontend/components/new-launch/last-pipeline';
+import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
+import { useHotkeys } from 'react-hotkeys-hook';
 
 export const ManageModal: FC<AddEditModalProps> = (props) => {
   const t = useT();
@@ -94,6 +96,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     pipelineId,
     setPipelineId,
     resetForNextPost,
+    global,
+    internal,
+    editor,
   } = useLaunchStore(
     useShallow((state) => ({
       hide: state.hide,
@@ -115,6 +120,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       pipelineId: state.pipelineId,
       setPipelineId: state.setPipelineId,
       resetForNextPost: state.resetForNextPost,
+      global: state.global,
+      internal: state.internal,
+      editor: state.editor,
     }))
   );
   const activePipelines = useMemo(
@@ -239,8 +247,34 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     [integrations]
   );
 
+  const hasComposerText = useCallback(() => {
+    const hasText = (content: string) =>
+      stripHtmlValidation(editor || 'normal', content || '', true).trim()
+        .length > 0;
+
+    return (
+      global.some((value) => hasText(value.content)) ||
+      internal.some((item) =>
+        item.integrationValue.some((value) => hasText(value.content))
+      )
+    );
+  }, [editor, global, internal]);
+
+  const closeComposer = useCallback(() => {
+    if (customClose) {
+      customClose();
+      return;
+    }
+    modal.closeAll();
+  }, [customClose, modal]);
+
   const askClose = useCallback(async () => {
     if (!activateExitButton || dummy) {
+      return;
+    }
+
+    if (!hasComposerText()) {
+      closeComposer();
       return;
     }
 
@@ -253,13 +287,19 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
         t('yes_close_it', 'Yes, close it!')
       )
     ) {
-      if (customClose) {
-        customClose();
-        return;
-      }
-      modal.closeAll();
+      closeComposer();
     }
-  }, [activateExitButton, dummy]);
+  }, [activateExitButton, dummy, hasComposerText, closeComposer, t]);
+
+  useHotkeys(
+    'Escape',
+    () => {
+      if (activateExitButton && !dummy) {
+        askClose();
+      }
+    },
+    [activateExitButton, dummy, askClose]
+  );
 
   const deletePost = useCallback(async () => {
     setLoading(true);

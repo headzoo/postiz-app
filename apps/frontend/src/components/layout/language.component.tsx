@@ -61,7 +61,11 @@ const getCountryCodeForFlag = (languageCode: string) => {
   return languageCode.toUpperCase();
 };
 
-export const ChangeLanguageComponent = () => {
+export const ChangeLanguageComponent = ({
+  closeOnChange = true,
+}: {
+  closeOnChange?: boolean;
+} = {}) => {
   const currentLanguage = i18next.resolvedLanguage || fallbackLng;
   const availableLanguages = languages;
   const [_, setCookie] = useCookie(cookieName, currentLanguage || fallbackLng);
@@ -71,7 +75,9 @@ export const ChangeLanguageComponent = () => {
   const handleLanguageChange = (language: string) => {
     setCookie(language);
     i18next.changeLanguage(language);
-    modals.closeCurrent();
+    if (closeOnChange) {
+      modals.closeCurrent();
+    }
     const rtlLanguages = ['he', 'ar'];
     const dir = rtlLanguages.includes(language) ? 'rtl' : 'ltr';
     document.documentElement.setAttribute('dir', dir);

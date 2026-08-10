@@ -25,6 +25,7 @@ import utc from 'dayjs/plugin/utc';
 import { AutopostRepository } from '@gitroom/nestjs-libraries/database/prisma/autopost/autopost.repository';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
 import { TemporalService } from 'nestjs-temporal-core';
+import pLimit from 'p-limit';
 
 dayjs.extend(utc);
 
@@ -196,7 +197,7 @@ export class IntegrationService {
     await this._notificationService.inAppNotification(
       orgId,
       `Could not refresh your ${integration.providerIdentifier} channel ${err}`,
-      `Could not refresh your ${integration.providerIdentifier} channel ${err}. Please go back to the system and connect it again ${process.env.FRONTEND_URL}/launches`,
+      `Could not refresh your ${integration.providerIdentifier} channel ${err}. Please go back to the system and connect it again ${process.env.FRONTEND_URL}/calendar`,
       true,
       false,
       'info'
@@ -335,6 +336,22 @@ export class IntegrationService {
     date: string,
     forceRefresh = false
   ): Promise<AnalyticsData[]> {
+    const { analytics } = await this.checkAnalyticsResult(
+      org,
+      integration,
+      date,
+      forceRefresh
+    );
+
+    return analytics;
+  }
+
+  private async checkAnalyticsResult(
+    org: Organization,
+    integration: string,
+    date: string,
+    forceRefresh = false
+  ): Promise<{ analytics: AnalyticsData[]; failed: boolean }> {
     const getIntegration = await this.getIntegrationById(org.id, integration);
 
     if (!getIntegration) {
@@ -342,7 +359,7 @@ export class IntegrationService {
     }
 
     if (getIntegration.type !== 'social') {
-      return [];
+      return { analytics: [], failed: false };
     }
 
     const integrationProvider = this._integrationManager.getSocialIntegration(
@@ -357,7 +374,7 @@ export class IntegrationService {
         getIntegration
       );
       if (!data) {
-        return [];
+        return { analytics: [], failed: true };
       }
 
       const { accessToken } = data;
@@ -370,7 +387,7 @@ export class IntegrationService {
         }
       } else {
         await this.disconnectChannel(org.id, getIntegration);
-        return [];
+        return { analytics: [], failed: true };
       }
     }
 
@@ -378,7 +395,7 @@ export class IntegrationService {
       `integration:${org.id}:${integration}:${date}`
     );
     if (getIntegrationData) {
-      return JSON.parse(getIntegrationData);
+      return { analytics: JSON.parse(getIntegrationData), failed: false };
     }
 
     if (integrationProvider.analytics) {
@@ -396,15 +413,79 @@ export class IntegrationService {
             ? 1
             : 3600
         );
-        return loadAnalytics;
+        return { analytics: loadAnalytics, failed: false };
       } catch (e) {
         if (e instanceof RefreshToken) {
-          return this.checkAnalytics(org, integration, date, true);
+          return this.checkAnalyticsResult(org, integration, date, true);
         }
+
+        return { analytics: [], failed: true };
       }
     }
 
-    return [];
+    return { analytics: [], failed: false };
+  }
+
+  async getDashboardAnalytics(org: Organization, date: 7 | 30 | 90) {
+    const integrations = await this._integrationRepository.getIntegrationsList(
+      org.id
+    );
+    const limit = pLimit(5);
+
+    return Promise.all(
+      integrations.map((integration) =>
+        limit(async () => {
+          const channel = {
+            id: integration.id,
+            name: integration.name,
+            picture: integration.picture,
+            display: integration.profile,
+            identifier: integration.providerIdentifier,
+          };
+
+          if (integration.disabled) {
+            return { ...channel, state: 'disabled' as const, analytics: [] };
+          }
+
+          if (integration.type !== 'social') {
+            return { ...channel, state: 'unsupported' as const, analytics: [] };
+          }
+
+          let provider: SocialProvider;
+          try {
+            provider = this._integrationManager.getSocialIntegration(
+              integration.providerIdentifier
+            );
+          } catch {
+            return {
+              ...channel,
+              state: 'unsupported' as const,
+              analytics: [],
+            };
+          }
+
+          if (!provider?.analytics) {
+            return { ...channel, state: 'unsupported' as const, analytics: [] };
+          }
+
+          try {
+            const analytics = await this.checkAnalyticsResult(
+              org,
+              integration.id,
+              String(date)
+            );
+
+            return {
+              ...channel,
+              state: analytics.failed ? ('unavailable' as const) : ('ok' as const),
+              analytics: analytics.failed ? [] : analytics.analytics,
+            };
+          } catch {
+            return { ...channel, state: 'unavailable' as const, analytics: [] };
+          }
+        })
+      )
+    );
   }
 
   customers(orgId: string) {

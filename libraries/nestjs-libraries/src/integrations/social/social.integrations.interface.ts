@@ -221,4 +221,5 @@ export interface SocialProvider
     accessToken: string,
     data: any
   ): Promise<FetchPageInformationResult>;
+  profileUrl?(integration: Integration): string | undefined;
 }

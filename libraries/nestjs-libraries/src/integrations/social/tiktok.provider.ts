@@ -49,6 +49,12 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     return 2000;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.tiktok.com/@${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   override async checkValidity(
     items: Array<ValidityMedia[]>
   ): Promise<string | true> {

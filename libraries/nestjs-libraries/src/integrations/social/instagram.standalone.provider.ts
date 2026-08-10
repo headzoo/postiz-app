@@ -42,6 +42,12 @@ export class InstagramStandaloneProvider
     return 2200;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.instagram.com/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   override async checkValidity(
     [firstPost]: Array<ValidityMedia[]>,
     settings: any

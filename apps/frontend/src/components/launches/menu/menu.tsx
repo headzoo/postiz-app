@@ -15,13 +15,8 @@ import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { TimeTable } from '@gitroom/frontend/components/launches/time.table';
-import {
-  Integrations,
-  useCalendar,
-} from '@gitroom/frontend/components/launches/calendar.context';
 import { BotPicture } from '@gitroom/frontend/components/launches/bot.picture';
 import { CustomerModal } from '@gitroom/frontend/components/launches/customer.modal';
-import { Integration } from '@prisma/client';
 import { SettingsModal } from '@gitroom/frontend/components/launches/settings.modal';
 import { CustomVariables } from '@gitroom/frontend/components/launches/add.provider.component';
 import { useRouter } from 'next/navigation';
@@ -31,37 +26,37 @@ import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.m
 import dayjs from 'dayjs';
 import { ModalWrapperComponent } from '@gitroom/frontend/components/new-launch/modal.wrapper.component';
 import copy from 'copy-to-clipboard';
+import { IntegrationListItem } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 
 export const Menu: FC<{
   canEnable: boolean;
   canDisable: boolean;
   canChangeProfilePicture: boolean;
   canChangeNickName: boolean;
-  refreshChannel: (
-    integration: Integration & {
-      identifier: string;
-    }
-  ) => () => void;
-  id: string;
+  refreshChannel: (integration: IntegrationListItem) => () => void;
+  integration: IntegrationListItem;
+  integrations: IntegrationListItem[];
   mutate: () => void;
   onChange: (shouldReload: boolean) => void;
+  onPostSuccess?: () => void;
 }> = (props) => {
   const {
     canEnable,
     canDisable,
-    id,
+    integration,
+    integrations,
     onChange,
     mutate,
     canChangeProfilePicture,
     canChangeNickName,
     refreshChannel,
+    onPostSuccess = mutate,
   } = props;
   const t = useT();
 
   const fetch = useFetch();
   const router = useRouter();
   const { extensionId } = useVariables();
-  const { integrations, reloadCalendarView } = useCalendar();
   const toast = useToaster();
   const modal = useModals();
   const [show, setShow] = useState<false | { x: number; y: number }>(false);
@@ -91,9 +86,7 @@ export const Menu: FC<{
       }
     }
   }, [show]);
-  const findIntegration: any = useMemo(() => {
-    return integrations.find((integration) => integration.id === id);
-  }, [integrations, id]);
+  const id = integration.id;
   const changeShow: MouseEventHandler<HTMLDivElement> = useCallback(
     (e) => {
       e.stopPropagation();
@@ -197,7 +190,7 @@ export const Menu: FC<{
   }, [integrations, t]);
 
   const copyChannelId = useCallback(
-    (integration: Integrations) => async () => {
+    (integration: IntegrationListItem) => async () => {
       setShow(false);
       const channelId = integration.id;
       copy(channelId);
@@ -207,7 +200,7 @@ export const Menu: FC<{
   );
 
   const createPost = useCallback(
-    (integration: Integrations) => async () => {
+    (integration: IntegrationListItem) => async () => {
       setShow(false);
 
       const { date } = await (
@@ -231,7 +224,7 @@ export const Menu: FC<{
               ...p,
             }))}
             reopenModal={createPost(integration)}
-            mutate={reloadCalendarView}
+            mutate={onPostSuccess}
             integrations={integrations}
             selectedChannels={[integration.id]}
             // focusedChannel={integration.id}
@@ -242,7 +235,7 @@ export const Menu: FC<{
         title: ``,
       });
     },
-    [integrations]
+    [integrations, onPostSuccess]
   );
 
   const changeBotPicture = useCallback(() => {
@@ -321,9 +314,9 @@ export const Menu: FC<{
       },
       children: (
         <CustomVariables
-          identifier={findIntegration.identifier}
+          identifier={integration.identifier}
           gotoUrl={(url: string) => router.push(url)}
-          variables={findIntegration.customFields}
+          variables={integration.customFields}
         />
       ),
     });
@@ -358,10 +351,21 @@ export const Menu: FC<{
           style={{ left: show.x, top: show.y }}
           className={`fixed p-[12px] bg-newBgColorInner shadow-menu flex flex-col gap-[16px] z-[100] rounded-[8px] border border-tableBorder text-nowrap`}
         >
-          {canDisable && !findIntegration?.refreshNeeded && (
+          {integration.profileUrl && (
+            <a
+              className="flex gap-[12px] items-center py-[8px] px-[10px]"
+              href={integration.profileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setShow(false)}
+            >
+              <div className="text-[14px]">{t('open', 'Open')}</div>
+            </a>
+          )}
+          {canDisable && !integration.refreshNeeded && (
             <div
               className="flex gap-[12px] items-center py-[8px] px-[10px]"
-              onClick={createPost(findIntegration!)}
+              onClick={createPost(integration)}
             >
               <div>
                 <svg
@@ -384,7 +388,7 @@ export const Menu: FC<{
           )}
           <div
             className="flex gap-[12px] items-center py-[8px] px-[10px]"
-            onClick={copyChannelId(findIntegration)}
+            onClick={copyChannelId(integration)}
           >
             <div>
               <svg
@@ -411,11 +415,11 @@ export const Menu: FC<{
             <div className="text-[14px]">{t('copy_id', 'Copy Channel ID')}</div>
           </div>
           {canDisable &&
-            findIntegration?.refreshNeeded &&
-            !findIntegration.customFields && (
+            integration.refreshNeeded &&
+            !integration.customFields && (
               <div
                 className="flex gap-[12px] items-center py-[8px] px-[10px]"
-                onClick={refreshChannel(findIntegration!)}
+                onClick={refreshChannel(integration)}
               >
                 <div>
                   <svg
@@ -436,7 +440,7 @@ export const Menu: FC<{
                 </div>
               </div>
             )}
-          {!!findIntegration?.isCustomFields && (
+          {!!integration.isCustomFields && (
             <div
               className="flex gap-[12px] items-center py-[8px] px-[10px]"
               onClick={updateCredentials}
@@ -460,7 +464,7 @@ export const Menu: FC<{
               </div>
             </div>
           )}
-          {findIntegration?.additionalSettings !== '[]' && (
+          {integration.additionalSettings !== '[]' && (
             <div
               className="flex gap-[12px] items-center py-[8px] px-[10px]"
               onClick={additionalSettings}

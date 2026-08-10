@@ -21,6 +21,13 @@ export class DevToProvider extends SocialAbstract implements SocialProvider {
   maxLength() {
     return 100000;
   }
+
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://dev.to/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   dto = DevToSettingsDto;
 
   async generateAuthUrl() {

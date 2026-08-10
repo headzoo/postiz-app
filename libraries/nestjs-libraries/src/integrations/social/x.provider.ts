@@ -102,6 +102,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return isTwitterPremium ? 4000 : 280;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://x.com/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   // With `editor = 'html'` the activity hands the provider HTML (needed for
   // articles); everything that becomes a tweet has to be flattened back to the
   // plain text X expects - same output the old 'normal' editor produced.

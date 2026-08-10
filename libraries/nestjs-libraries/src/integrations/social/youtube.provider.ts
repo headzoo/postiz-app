@@ -70,6 +70,17 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
   ];
 
   editor = 'normal' as const;
+
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.youtube.com/${encodeURIComponent(integration.profile)}`
+      : integration.internalId
+        ? `https://www.youtube.com/channel/${encodeURIComponent(
+            integration.internalId
+          )}`
+        : undefined;
+  }
+
   maxLength() {
     return 5000;
   }

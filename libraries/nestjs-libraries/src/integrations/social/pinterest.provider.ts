@@ -66,6 +66,12 @@ export class PinterestProvider
     return 500;
   }
 
+  profileUrl(integration: Integration) {
+    return integration.profile
+      ? `https://www.pinterest.com/${encodeURIComponent(integration.profile)}`
+      : undefined;
+  }
+
   dto = PinterestSettingsDto;
 
   override async checkValidity([firstItem]: Array<ValidityMedia[]>): Promise<

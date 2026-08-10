@@ -141,7 +141,7 @@ export const StarsTableComponent = () => {
     const local = dayjs.utc(date).local();
     const weekNumber = local.isoWeek();
     const year = local.year();
-    return `/launches?week=${weekNumber}&year=${year}`;
+    return `/calendar?week=${weekNumber}&year=${year}`;
   }, []);
   const changePage = useCallback(
     (type: 'increase' | 'decrease') => () => {

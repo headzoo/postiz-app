@@ -122,7 +122,7 @@ export const ContinueIntegration: FC<{
       if (data.status === HttpStatusCode.PreconditionFailed) {
         const { returnURL } = await data.json().catch(() => ({}));
         navigateOrShow(
-          `/launches?precondition=true`,
+          `/calendar?precondition=true`,
           returnURL,
           'Precondition failed'
         );
@@ -131,7 +131,7 @@ export const ContinueIntegration: FC<{
 
       if (data.status === HttpStatusCode.NotAcceptable) {
         const { msg, returnURL } = await data.json();
-        navigateOrShow(`/launches?msg=${msg}`, returnURL, msg);
+        navigateOrShow(`/calendar?msg=${msg}`, returnURL, msg);
         return;
       }
 
@@ -193,7 +193,7 @@ export const ContinueIntegration: FC<{
       }
 
       navigateOrShow(
-        `/launches?added=${provider}&msg=Channel Updated${
+        `/calendar?added=${provider}&msg=Channel Updated${
           onboarding ? '&onboarding=true' : ''
         }`,
         returnURL,
@@ -232,7 +232,7 @@ export const ContinueIntegration: FC<{
         }
 
         navigateOrShow(
-          `/launches?added=${provider}&msg=Channel Added${
+          `/calendar?added=${provider}&msg=Channel Added${
             twoStepState.onboarding ? '&onboarding=true' : ''
           }`,
           twoStepState.returnURL,
@@ -395,7 +395,7 @@ export const ContinueIntegration: FC<{
                 'An error occurred. Please try again.'
               )}
           </div>
-          {logged && <Redirect url="/launches" delay={3000} />}
+          {logged && <Redirect url="/calendar" delay={3000} />}
         </div>
       </div>
     );

@@ -6,6 +6,24 @@ import { TotalList } from '@gitroom/frontend/components/analytics/stars.and.fork
 import { chunk } from 'lodash';
 import useCookie from 'react-use-cookie';
 
+const colorSchemes = {
+  purple: {
+    start: 'rgba(97, 43, 211, 0.8)',
+    end: 'rgba(97, 43, 211, 0.1)',
+    border: 'rgb(97, 43, 211)',
+  },
+  green: {
+    start: 'rgba(50, 213, 131, 0.8)',
+    end: 'rgba(50, 213, 131, 0.1)',
+    border: 'rgb(50, 213, 131)',
+  },
+  blue: {
+    start: 'rgba(29, 155, 240, 0.8)',
+    end: 'rgba(29, 155, 240, 0.1)',
+    border: 'rgb(29, 155, 240)',
+  },
+};
+
 function mergeDataPoints(data: TotalList[], numPoints: number): TotalList[] {
   const res = chunk(data, Math.ceil(data.length / numPoints));
   return res.map((row) => {
@@ -37,24 +55,6 @@ export const ChartSocial: FC<{
 
   const ref = useRef<any>(null);
   const chart = useRef<null | DrawChart>(null);
-
-  const colorSchemes = {
-    purple: {
-      start: 'rgba(97, 43, 211, 0.8)',
-      end: 'rgba(97, 43, 211, 0.1)',
-      border: 'rgb(97, 43, 211)',
-    },
-    green: {
-      start: 'rgba(50, 213, 131, 0.8)',
-      end: 'rgba(50, 213, 131, 0.1)',
-      border: 'rgb(50, 213, 131)',
-    },
-    blue: {
-      start: 'rgba(29, 155, 240, 0.8)',
-      end: 'rgba(29, 155, 240, 0.1)',
-      border: 'rgb(29, 155, 240)',
-    },
-  };
 
   const colors = colorSchemes[color];
 
@@ -146,7 +146,7 @@ export const ChartSocial: FC<{
     return () => {
       chart?.current?.destroy();
     };
-  }, []);
+  }, [colors, list, mode]);
 
   return <canvas className="w-full h-full" ref={ref} />;
 };
