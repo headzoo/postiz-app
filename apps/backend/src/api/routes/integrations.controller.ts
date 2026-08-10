@@ -149,6 +149,23 @@ export class IntegrationsController {
     };
   }
 
+  @Get('/notice-status')
+  async getChannelNoticeStatus(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User
+  ) {
+    return this._integrationService.getChannelNoticeStatus(org, user);
+  }
+
+  @Post('/:id/notices/read')
+  async markChannelNoticesRead(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
+    @Param('id') id: string
+  ) {
+    return this._integrationService.markChannelNoticesRead(org, user, id);
+  }
+
   @Post('/:id/settings')
   async updateProviderSettings(
     @GetOrgFromRequest() org: Organization,

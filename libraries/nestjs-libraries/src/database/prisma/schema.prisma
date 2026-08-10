@@ -78,42 +78,43 @@ model TagsPosts {
 }
 
 model User {
-  id                    String               @id @default(uuid())
-  email                 String
-  password              String?
-  providerName          Provider
-  name                  String?
-  lastName              String?
-  isSuperAdmin          Boolean              @default(false)
-  bio                   String?
-  audience              Int                  @default(0)
-  pictureId             String?
-  providerId            String?
-  timezone              Int
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  lastReadNotifications DateTime             @default(now())
-  inviteId              String?
-  activated             Boolean              @default(true)
-  account               String?
-  connectedAccount      Boolean              @default(false)
-  lastOnline            DateTime             @default(now())
-  ip                    String?
-  agent                 String?
-  comments              Comments[]
-  items                 ItemUser[]
-  groupBuyer            MessagesGroup[]      @relation("groupBuyer")
-  groupSeller           MessagesGroup[]      @relation("groupSeller")
-  orderBuyer            Orders[]             @relation("orderBuyer")
-  orderSeller           Orders[]             @relation("orderSeller")
-  payoutProblems        PayoutProblems[]
-  agencies              SocialMediaAgency?
-  picture               Media?               @relation(fields: [pictureId], references: [id])
-  organizations         UserOrganization[]
-  sendSuccessEmails     Boolean              @default(true)
-  sendFailureEmails     Boolean              @default(true)
-  sendStreakEmails      Boolean              @default(true)
-  oauthAuthorizations   OAuthAuthorization[]
+  id                     String                  @id @default(uuid())
+  email                  String
+  password               String?
+  providerName           Provider
+  name                   String?
+  lastName               String?
+  isSuperAdmin           Boolean                 @default(false)
+  bio                    String?
+  audience               Int                     @default(0)
+  pictureId              String?
+  providerId             String?
+  timezone               Int
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  lastReadNotifications  DateTime                @default(now())
+  inviteId               String?
+  activated              Boolean                 @default(true)
+  account                String?
+  connectedAccount       Boolean                 @default(false)
+  lastOnline             DateTime                @default(now())
+  ip                     String?
+  agent                  String?
+  comments               Comments[]
+  items                  ItemUser[]
+  groupBuyer             MessagesGroup[]         @relation("groupBuyer")
+  groupSeller            MessagesGroup[]         @relation("groupSeller")
+  orderBuyer             Orders[]                @relation("orderBuyer")
+  orderSeller            Orders[]                @relation("orderSeller")
+  payoutProblems         PayoutProblems[]
+  agencies               SocialMediaAgency?
+  picture                Media?                  @relation(fields: [pictureId], references: [id])
+  organizations          UserOrganization[]
+  sendSuccessEmails      Boolean                 @default(true)
+  sendFailureEmails      Boolean                 @default(true)
+  sendStreakEmails       Boolean                 @default(true)
+  oauthAuthorizations    OAuthAuthorization[]
+  integrationNoticeReads IntegrationNoticeRead[]
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -313,7 +314,7 @@ model Customer {
 }
 
 model Integration {
-  id                    String                 @id @default(cuid())
+  id                    String                  @id @default(cuid())
   internalId            String
   organizationId        String
   name                  String
@@ -321,28 +322,29 @@ model Integration {
   providerIdentifier    String
   type                  String
   token                 String
-  disabled              Boolean                @default(false)
+  disabled              Boolean                 @default(false)
   tokenExpiration       DateTime?
   refreshToken          String?
   profile               String?
   deletedAt             DateTime?
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime?              @updatedAt
-  inBetweenSteps        Boolean                @default(false)
-  refreshNeeded         Boolean                @default(false)
-  postingTimes          String                 @default("[{\"time\":120}, {\"time\":400}, {\"time\":700}]")
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime?               @updatedAt
+  inBetweenSteps        Boolean                 @default(false)
+  refreshNeeded         Boolean                 @default(false)
+  postingTimes          String                  @default("[{\"time\":120}, {\"time\":400}, {\"time\":700}]")
   customInstanceDetails String?
   customerId            String?
   rootInternalId        String?
-  additionalSettings    String?                @default("[]")
+  additionalSettings    String?                 @default("[]")
   exisingPlugData       ExisingPlugData[]
-  customer              Customer?              @relation(fields: [customerId], references: [id])
-  organization          Organization           @relation(fields: [organizationId], references: [id])
+  customer              Customer?               @relation(fields: [customerId], references: [id])
+  organization          Organization            @relation(fields: [organizationId], references: [id])
   webhooks              IntegrationsWebhooks[]
   orderItems            OrderItems[]
   plugs                 Plugs[]
   posts                 Post[]
-  pipelineIntegrations PipelineIntegration[]
+  pipelineIntegrations  PipelineIntegration[]
+  noticeReads           IntegrationNoticeRead[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -355,6 +357,22 @@ model Integration {
   @@index([inBetweenSteps])
   @@index([refreshNeeded])
   @@index([disabled])
+}
+
+model IntegrationNoticeRead {
+  userId        String
+  integrationId String
+  lastReadAt    DateTime    @default(now())
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User        @relation(fields: [userId], references: [id])
+  integration   Integration @relation(fields: [integrationId], references: [id])
+
+  @@id([userId, integrationId])
+  @@unique([userId, integrationId])
+  @@index([userId])
+  @@index([integrationId])
+  @@index([lastReadAt])
 }
 
 model Signatures {
@@ -430,7 +448,7 @@ model Post {
   submittedForOrganization   Organization?             @relation("submittedForOrg", fields: [submittedForOrganizationId], references: [id])
   tags                       TagsPosts[]
   pipelineQueueItemId        String?
-  pipelineQueueItem          PipelineQueueItem?         @relation(fields: [pipelineQueueItemId], references: [id])
+  pipelineQueueItem          PipelineQueueItem?        @relation(fields: [pipelineQueueItemId], references: [id])
 
   @@index([group])
   @@index([deletedAt])
@@ -634,17 +652,17 @@ model AutoPost {
 }
 
 model Pipeline {
-  id               String                 @id @default(uuid())
+  id               String                  @id @default(uuid())
   organizationId   String
   name             String
   timezone         String
-  color            String                 @default("#612BD3")
-  active           Boolean                @default(true)
-  scheduleRevision Int                    @default(1)
+  color            String                  @default("#612BD3")
+  active           Boolean                 @default(true)
+  scheduleRevision Int                     @default(1)
   deletedAt        DateTime?
-  createdAt        DateTime               @default(now())
-  updatedAt        DateTime               @updatedAt
-  organization     Organization           @relation(fields: [organizationId], references: [id])
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  organization     Organization            @relation(fields: [organizationId], references: [id])
   integrations     PipelineIntegration[]
   scheduleSlots    PipelineScheduleSlot[]
   queueItems       PipelineQueueItem[]

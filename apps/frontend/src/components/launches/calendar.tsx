@@ -39,8 +39,6 @@ import { Integration, Post, State, Tags } from '@prisma/client';
 import { useAddProvider } from '@gitroom/frontend/components/launches/add.provider.component';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
-import isSameOrBefore from 'dayjs/plugin/isSameOrBefore';
 import { groupBy, random, sortBy } from 'lodash';
 import SafeImage from '@gitroom/react/helpers/safe.image';
 import { extend } from 'dayjs';
@@ -64,8 +62,6 @@ import {
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
 
 // Extend dayjs with necessary plugins
-extend(isSameOrAfter);
-extend(isSameOrBefore);
 extend(localizedFormat);
 
 // Initialize language
@@ -597,6 +593,7 @@ export const CalendarColumn: FC<{
   const {
     integrations,
     posts,
+    getCellPosts,
     changeDate,
     display,
     reloadCalendarView,
@@ -609,20 +606,7 @@ export const CalendarColumn: FC<{
 
   // Use shared post actions hook
   const { editPost, deletePost, copyDebugJson, openStatistics, openMissingRelease } = usePostActions();
-  const postList = useMemo(() => {
-    return posts.filter((post) => {
-      const pList = dayjs.utc(post.publishDate).local();
-      const check =
-        display === 'day'
-          ? pList.format('YYYY-MM-DD HH:mm') ===
-            getDate.format('YYYY-MM-DD HH:mm')
-          : display === 'week'
-          ? pList.isSameOrAfter(getDate.startOf('hour')) &&
-            pList.isBefore(getDate.endOf('hour'))
-          : pList.format('DD/MM/YYYY') === getDate.format('DD/MM/YYYY');
-      return check;
-    });
-  }, [posts, display, getDate]);
+  const postList = useMemo(() => getCellPosts(getDate), [getCellPosts, getDate]);
   const [showAll, setShowAll] = useState(false);
   const showAllFunc = useCallback(() => {
     setShowAll(true);

@@ -21,13 +21,56 @@ import weekOfYear from 'dayjs/plugin/weekOfYear';
 import { extend } from 'dayjs';
 import useCookie from 'react-use-cookie';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
-import { timer } from '@gitroom/helpers/utils/timer';
 import { expandPostsList, expandPosts } from '@gitroom/helpers/utils/posts.list.minify';
 import { usePipelineCalendar } from '@gitroom/frontend/components/pipelines/use.pipeline.calendar';
 extend(isoWeek);
 extend(weekOfYear);
 
 export type ListStateFilter = 'all' | 'scheduled' | 'draft' | 'published';
+
+export type CalendarPost = Post & {
+  integration: Integration;
+  tags: {
+    tag: Tags;
+  }[];
+};
+
+/** Cell key matching CalendarColumn filter semantics for the given display. */
+export function getCalendarCellKey(
+  date: dayjs.Dayjs,
+  display: string
+): string {
+  if (display === 'day') {
+    return date.format('YYYY-MM-DD HH:mm');
+  }
+  if (display === 'week') {
+    return date.format('YYYY-MM-DD HH');
+  }
+  return date.format('DD/MM/YYYY');
+}
+
+function getPostCellKey(publishDate: string, display: string): string {
+  return getCalendarCellKey(dayjs.utc(publishDate).local(), display);
+}
+
+/**
+ * 42-day month grid window (Mon-before-1st through +41 days), matching
+ * MonthView. Always contains the visible day/week/month for the same anchor.
+ */
+function getMonthWindow(anchorDate: string) {
+  const date = newDayjs(anchorDate);
+  const startOfMonth = newDayjs(
+    new Date(date.year(), date.month(), 1)
+  );
+  const daysBeforeMonth = startOfMonth.isoWeekday() - 1;
+  const calendarStart = startOfMonth.subtract(daysBeforeMonth, 'day');
+  const calendarEnd = calendarStart.add(41, 'day');
+
+  return {
+    startDate: calendarStart.startOf('day').utc().format(),
+    endDate: calendarEnd.endOf('day').utc().format(),
+  };
+}
 
 export const CalendarContext = createContext({
   startDate: newDayjs().startOf('isoWeek').format('YYYY-MM-DD'),
@@ -44,14 +87,9 @@ export const CalendarContext = createContext({
     refreshNeeded?: boolean;
   })[],
   trendings: [] as string[],
-  posts: [] as Array<
-    Post & {
-      integration: Integration;
-      tags: {
-        tag: Tags;
-      }[];
-    }
-  >,
+  posts: [] as CalendarPost[],
+  postsByCell: {} as Record<string, CalendarPost[]>,
+  getCellPosts: (_date: dayjs.Dayjs) => [] as CalendarPost[],
   reloadCalendarView: () => {
     /** empty **/
   },
@@ -68,14 +106,7 @@ export const CalendarContext = createContext({
     /** empty **/
   },
   // List view specific
-  listPosts: [] as Array<
-    Post & {
-      integration: Integration;
-      tags: {
-        tag: Tags;
-      }[];
-    }
-  >,
+  listPosts: [] as CalendarPost[],
   listPage: 0,
   listTotalPages: 0,
   setListPage: (page: number) => {
@@ -174,26 +205,22 @@ export const CalendarWeekProvider: FC<{
     display,
   });
 
-  const params = useMemo(() => {
-    return new URLSearchParams({
-      display: filters.display,
-      startDate: filters.startDate,
-      endDate: filters.endDate,
-      customer: filters?.customer?.toString() || '',
-    }).toString();
-  }, [filters]);
-
-  // Shared UTC window used by both the posts calendar and pipeline projections
-  const utcWindow = useMemo(
-    () => ({
-      startDate: newDayjs(filters.startDate).startOf('day').utc().format(),
-      endDate: newDayjs(filters.endDate).endOf('day').utc().format(),
-    }),
-    [filters.startDate, filters.endDate]
+  // Shared 42-day month grid — day/week/month all reuse this fetch window.
+  const monthWindow = useMemo(
+    () => getMonthWindow(filters.startDate),
+    [filters.startDate]
   );
 
-  // List view collapses start/end to a single day; use a forward window so
-  // projected pipeline queue items still appear.
+  // SWR key omits display so day/week/month share one cache entry.
+  const calendarParams = useMemo(() => {
+    return new URLSearchParams({
+      startDate: monthWindow.startDate,
+      endDate: monthWindow.endDate,
+      customer: filters?.customer?.toString() || '',
+    }).toString();
+  }, [monthWindow, filters.customer]);
+
+  // List view uses a forward pipeline window; calendar views share monthWindow.
   const pipelineWindow = useMemo(() => {
     if (filters.display === 'list') {
       return {
@@ -201,21 +228,20 @@ export const CalendarWeekProvider: FC<{
         endDate: newDayjs().add(90, 'day').endOf('day').utc().format(),
       };
     }
-    return utcWindow;
-  }, [filters.display, utcWindow]);
+    return monthWindow;
+  }, [filters.display, monthWindow]);
 
-  // Calendar view data fetcher
+  // Calendar view data fetcher — always the full month window.
   const loadData = useCallback(async () => {
     const modifiedParams = new URLSearchParams({
-      display: filters.display,
       customer: filters?.customer?.toString() || '',
-      startDate: utcWindow.startDate,
-      endDate: utcWindow.endDate,
+      startDate: monthWindow.startDate,
+      endDate: monthWindow.endDate,
     }).toString();
 
     const data = await (await fetch(`/posts?${modifiedParams}`)).json();
     return expandPosts(data);
-  }, [filters, params, utcWindow]);
+  }, [fetch, filters.customer, monthWindow]);
 
   // Projected pipeline queue items overlaid onto calendar and list (not
   // persisted dates — computed server-side from each Pipeline's schedule).
@@ -240,21 +266,23 @@ export const CalendarWeekProvider: FC<{
   const loadListData = useCallback(async () => {
     const response = await fetch(`/posts/list?${listParams}`);
     return expandPostsList(await response.json());
-  }, [listParams]);
+  }, [fetch, listParams]);
 
-  // SWR for calendar view
+  // SWR for calendar view — keyed on month window + customer (not display)
   const {
     data: calendarData,
     isLoading: calendarIsLoading,
     mutate: mutateCalendar,
   } = useSWR(
-    filters.display !== 'list' ? `/posts-${params}` : null,
+    filters.display !== 'list' ? `/posts-${calendarParams}` : null,
     loadData,
     {
       refreshInterval: 3600000,
       refreshWhenOffline: false,
       refreshWhenHidden: false,
       revalidateOnFocus: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
     }
   );
 
@@ -271,16 +299,18 @@ export const CalendarWeekProvider: FC<{
       refreshWhenOffline: false,
       refreshWhenHidden: false,
       revalidateOnFocus: false,
+      revalidateIfStale: false,
+      keepPreviousData: true,
     }
   );
 
   const defaultSign = useCallback(async () => {
     return await (await fetch('/signatures/default')).json();
-  }, []);
+  }, [fetch]);
 
   const setList = useCallback(async () => {
     return (await fetch('/sets')).json();
-  }, []);
+  }, [fetch]);
 
   const { data: sets, mutate } = useSWR('sets', setList, {
     revalidateOnFocus: false,
@@ -308,7 +338,6 @@ export const CalendarWeekProvider: FC<{
     }) => {
       setDisplaySaved(newFilters.display);
       setFilters(newFilters);
-      setInternalData([]);
 
       // Reset page when switching to list view
       if (newFilters.display === 'list') {
@@ -323,7 +352,7 @@ export const CalendarWeekProvider: FC<{
       ].filter((f) => f);
       window.history.replaceState(null, '', `/calendar?${path.join('&')}`);
     },
-    []
+    [setDisplaySaved]
   );
 
   const posts = useMemo(
@@ -373,7 +402,7 @@ export const CalendarWeekProvider: FC<{
         })
       );
     },
-    [posts, internalData]
+    []
   );
 
   useEffect(() => {
@@ -381,6 +410,26 @@ export const CalendarWeekProvider: FC<{
       setInternalData(posts);
     }
   }, [posts]);
+
+  // Precompute cell → posts index so CalendarColumn is O(1) per cell.
+  const postsByCell = useMemo(() => {
+    const index: Record<string, CalendarPost[]> = {};
+    for (const post of internalData as CalendarPost[]) {
+      const key = getPostCellKey(String(post.publishDate), filters.display);
+      if (!index[key]) {
+        index[key] = [];
+      }
+      index[key].push(post);
+    }
+    return index;
+  }, [internalData, filters.display]);
+
+  const getCellPosts = useCallback(
+    (date: dayjs.Dayjs) => {
+      return postsByCell[getCalendarCellKey(date, filters.display)] || [];
+    },
+    [postsByCell, filters.display]
+  );
 
   // Combined reload function that handles both calendar and list views
   const reloadCalendarView = useCallback(() => {
@@ -398,7 +447,9 @@ export const CalendarWeekProvider: FC<{
         trendings,
         reloadCalendarView,
         ...filters,
-        posts: calendarIsLoading ? [] : internalData,
+        posts: internalData,
+        postsByCell,
+        getCellPosts,
         loading,
         integrations,
         setFilters: setFiltersWrapper,

@@ -16,7 +16,8 @@ export class IntegrationRepository {
     private _plugs: PrismaRepository<'plugs'>,
     private _exisingPlugData: PrismaRepository<'exisingPlugData'>,
     private _customers: PrismaRepository<'customer'>,
-    private _mentions: PrismaRepository<'mentions'>
+    private _mentions: PrismaRepository<'mentions'>,
+    private _integrationNoticeRead: PrismaRepository<'integrationNoticeRead'>
   ) {}
 
   getMentions(platform: string, q: string) {
@@ -668,6 +669,47 @@ export class IntegrationRepository {
       },
       select: {
         postingTimes: true,
+      },
+    });
+  }
+
+  getNoticeReadsForUser(userId: string, integrationIds: string[]) {
+    if (!integrationIds.length) {
+      return Promise.resolve(
+        [] as Array<{ integrationId: string; lastReadAt: Date }>
+      );
+    }
+
+    return this._integrationNoticeRead.model.integrationNoticeRead.findMany({
+      where: {
+        userId,
+        integrationId: {
+          in: integrationIds,
+        },
+      },
+      select: {
+        integrationId: true,
+        lastReadAt: true,
+      },
+    });
+  }
+
+  async markIntegrationNoticesRead(userId: string, integrationId: string) {
+    const now = new Date();
+    return this._integrationNoticeRead.model.integrationNoticeRead.upsert({
+      where: {
+        userId_integrationId: {
+          userId,
+          integrationId,
+        },
+      },
+      create: {
+        userId,
+        integrationId,
+        lastReadAt: now,
+      },
+      update: {
+        lastReadAt: now,
       },
     });
   }

@@ -1,5 +1,7 @@
 import {
   AuthTokenDetails,
+  ChannelNoticeCategory,
+  ChannelNoticeStatus,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -225,6 +227,28 @@ type BlueskyPendingData = {
   prepFailures?: number;
 };
 
+const mapBlueskyNoticeReason = (
+  reason: string
+): ChannelNoticeCategory | undefined => {
+  switch (reason) {
+    case 'mention':
+    case 'quote':
+      return 'mention';
+    case 'reply':
+      return 'reply';
+    case 'like':
+    case 'like-via-repost':
+      return 'like';
+    case 'repost':
+    case 'repost-via-repost':
+      return 'repost';
+    case 'follow':
+      return 'follow';
+    default:
+      return undefined;
+  }
+};
+
 @Rules(
   'Bluesky can have maximum 1 video or 4 pictures in one post, it can also be without attachments'
 )
@@ -245,6 +269,47 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
     return integration.profile
       ? `https://bsky.app/profile/${encodeURIComponent(integration.profile)}`
       : undefined;
+  }
+
+  async channelNotices(
+    integration: Integration,
+    _accessToken: string,
+    since: Date
+  ): Promise<ChannelNoticeStatus> {
+    try {
+      const agent = await this.getAgent(integration);
+      const { data } = await agent.app.bsky.notification.listNotifications({
+        limit: 100,
+      });
+
+      const categories: Partial<Record<ChannelNoticeCategory, number>> = {};
+      let unreadCount = 0;
+
+      for (const notification of data.notifications) {
+        if (!dayjs(notification.indexedAt).isAfter(since)) {
+          continue;
+        }
+
+        const category = mapBlueskyNoticeReason(notification.reason);
+        if (!category) {
+          continue;
+        }
+
+        unreadCount += 1;
+        categories[category] = (categories[category] || 0) + 1;
+      }
+
+      return {
+        state: 'ok',
+        unreadCount,
+        categories,
+      };
+    } catch (err) {
+      if (err instanceof RefreshToken) {
+        throw err;
+      }
+      return { state: 'unavailable' };
+    }
   }
 
   override async checkValidity(

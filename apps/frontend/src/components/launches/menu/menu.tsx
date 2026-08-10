@@ -39,6 +39,8 @@ export const Menu: FC<{
   mutate: () => void;
   onChange: (shouldReload: boolean) => void;
   onPostSuccess?: () => void;
+  hasUnreadNotices?: boolean;
+  onClearNotices?: (integrationId: string) => void;
 }> = (props) => {
   const {
     canEnable,
@@ -51,6 +53,8 @@ export const Menu: FC<{
     canChangeNickName,
     refreshChannel,
     onPostSuccess = mutate,
+    hasUnreadNotices = false,
+    onClearNotices,
   } = props;
   const t = useT();
 
@@ -119,6 +123,14 @@ export const Menu: FC<{
     setShow(false);
     onChange(false);
   }, [t]);
+  const clearNotices = useCallback(() => {
+    onClearNotices?.(id);
+    setShow(false);
+  }, [id, onClearNotices]);
+  const openProfile = useCallback(() => {
+    onClearNotices?.(id);
+    setShow(false);
+  }, [id, onClearNotices]);
   const deleteChannel = useCallback(async () => {
     if (
       !(await deleteDialog(
@@ -357,10 +369,20 @@ export const Menu: FC<{
               href={integration.profileUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={() => setShow(false)}
+              onClick={openProfile}
             >
               <div className="text-[14px]">{t('open', 'Open')}</div>
             </a>
+          )}
+          {hasUnreadNotices && (
+            <div
+              className="flex gap-[12px] items-center py-[8px] px-[10px]"
+              onClick={clearNotices}
+            >
+              <div className="text-[14px]">
+                {t('clear_status', 'Clear status')}
+              </div>
+            </div>
           )}
           {canDisable && !integration.refreshNeeded && (
             <div

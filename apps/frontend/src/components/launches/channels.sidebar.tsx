@@ -140,6 +140,8 @@ type ChannelMenuProps = {
   onGroupChange: (id: string, group: string) => void;
   onRefreshChannel: (integration: IntegrationListItem) => () => void;
   onContinueIntegration: (integration: IntegrationListItem) => () => void;
+  noticeStatuses?: Record<string, { unreadCount: number }>;
+  onClearNotices?: (integrationId: string) => void;
 };
 
 type ChannelGroup = {
@@ -161,6 +163,8 @@ const ChannelMenuRow: FC<
   onContinueIntegration,
   collapsed,
   integration,
+  noticeStatuses,
+  onClearNotices,
 }) => {
   const user = useUser();
   const [{}, drag, dragPreview] = useDrag(() => ({
@@ -171,6 +175,7 @@ const ChannelMenuRow: FC<
     () => integrations.filter((item) => !item.disabled).length,
     [integrations]
   );
+  const unreadCount = noticeStatuses?.[integration.id]?.unreadCount || 0;
 
   return (
     <div
@@ -212,6 +217,19 @@ const ChannelMenuRow: FC<
             <div className="bg-primary/60 w-[39px] h-[46px] start-0 top-0 absolute rounded-full z-[199]" />
           </div>
         )}
+        {unreadCount > 0 &&
+          !integration.inBetweenSteps &&
+          !integration.refreshNeeded && (
+            <div
+              className="absolute z-[200] start-[26px] top-[-2px] min-w-[16px] h-[16px] px-[4px] rounded-full bg-[#FF3EA2] text-[10px] text-white flex items-center justify-center border border-fifth"
+              data-tooltip-id="tooltip"
+              data-tooltip-content={`${unreadCount} unread notice${
+                unreadCount === 1 ? '' : 's'
+              }`}
+            >
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </div>
+          )}
         <ImageWithFallback
           fallbackSrc="/no-picture.jpg"
           src={integration.picture || '/no-picture.jpg'}
@@ -261,6 +279,8 @@ const ChannelMenuRow: FC<
           user?.totalChannels! > totalNonDisabledChannels && integration.disabled
         }
         canDisable={!integration.disabled}
+        hasUnreadNotices={unreadCount > 0}
+        onClearNotices={onClearNotices}
       />
     </div>
   );

@@ -159,6 +159,22 @@ export type FetchPageInformationResult = {
   username: string;
 };
 
+export type ChannelNoticeCategory =
+  | 'mention'
+  | 'reply'
+  | 'like'
+  | 'repost'
+  | 'follow';
+
+export type ChannelNoticeStatus =
+  | {
+      state: 'ok';
+      unreadCount: number;
+      categories?: Partial<Record<ChannelNoticeCategory, number>>;
+    }
+  | { state: 'unsupported' }
+  | { state: 'unavailable' };
+
 export interface SocialProvider
   extends IAuthenticator,
     ISocialMediaIntegration {
@@ -222,4 +238,9 @@ export interface SocialProvider
     data: any
   ): Promise<FetchPageInformationResult>;
   profileUrl?(integration: Integration): string | undefined;
+  channelNotices?(
+    integration: Integration,
+    accessToken: string,
+    since: Date
+  ): Promise<ChannelNoticeStatus>;
 }

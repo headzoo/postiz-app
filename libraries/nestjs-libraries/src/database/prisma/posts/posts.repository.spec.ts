@@ -57,6 +57,50 @@ describe('Posts repository scheduling regressions', () => {
     );
   });
 
+  it('scopes recurring posts to the visible window instead of expanding from origin', async () => {
+    const findMany = jest.fn().mockResolvedValue([
+      {
+        id: 'recurring',
+        content: 'daily',
+        publishDate: new Date('2025-01-01T10:00:00.000Z'),
+        releaseURL: null,
+        releaseId: null,
+        state: 'QUEUE',
+        intervalInDays: 1,
+        group: 'g1',
+        creationMethod: 'WEB',
+        tags: [],
+        integration: {
+          id: 'i1',
+          providerIdentifier: 'x',
+          name: 'X',
+          picture: '',
+        },
+      },
+    ]);
+    const posts = repository({ findMany });
+
+    const result = await posts.getPosts('org', {
+      startDate: '2026-08-01T00:00:00.000Z',
+      endDate: '2026-08-03T23:59:59.999Z',
+    } as any);
+
+    const whereOr = findMany.mock.calls[0][0].where.AND[1].OR;
+    expect(whereOr).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          intervalInDays: { not: null },
+          publishDate: { lte: expect.any(Date) },
+        }),
+      ])
+    );
+
+    // 3 days in window — not hundreds from the 2025 origin.
+    expect(result).toHaveLength(3);
+    expect(result.every((p: any) => p.id === 'recurring')).toBe(true);
+    expect(result[0].actualDate).toEqual(new Date('2025-01-01T10:00:00.000Z'));
+  });
+
   it('keeps published posts analytics-visible rather than applying the upcoming filter', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const count = jest.fn().mockResolvedValue(0);

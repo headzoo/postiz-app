@@ -9,9 +9,10 @@ import { IntegrationRepository } from '@gitroom/nestjs-libraries/database/prisma
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
 import {
   AnalyticsData,
+  ChannelNoticeStatus,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
-import { Integration, Organization } from '@prisma/client';
+import { Integration, Organization, User } from '@prisma/client';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import dayjs from 'dayjs';
 import { timer } from '@gitroom/helpers/utils/timer';
@@ -486,6 +487,174 @@ export class IntegrationService {
         })
       )
     );
+  }
+
+  async getChannelNoticeStatus(org: Organization, user: User) {
+    const integrations = await this._integrationRepository.getIntegrationsList(
+      org.id
+    );
+    const readStates =
+      await this._integrationRepository.getNoticeReadsForUser(
+        user.id,
+        integrations.map((integration) => integration.id)
+      );
+    const lastReadByIntegration = new Map(
+      readStates.map((read) => [read.integrationId, read.lastReadAt])
+    );
+    const limit = pLimit(5);
+    const defaultSince = dayjs().subtract(30, 'day').toDate();
+
+    const statuses = await Promise.all(
+      integrations.map((integration) =>
+        limit(async () => {
+          const channel = {
+            id: integration.id,
+            state: 'unsupported' as ChannelNoticeStatus['state'] | 'disabled',
+            unreadCount: 0,
+            categories: undefined as
+              | Partial<Record<'mention' | 'reply' | 'like' | 'repost' | 'follow', number>>
+              | undefined,
+          };
+
+          if (integration.disabled) {
+            return { ...channel, state: 'disabled' as const };
+          }
+
+          if (integration.type !== 'social') {
+            return channel;
+          }
+
+          let provider: SocialProvider;
+          try {
+            provider = this._integrationManager.getSocialIntegration(
+              integration.providerIdentifier
+            );
+          } catch {
+            return channel;
+          }
+
+          if (!provider?.channelNotices) {
+            return channel;
+          }
+
+          try {
+            const status = await this.checkChannelNoticeResult(
+              org,
+              integration,
+              provider,
+              lastReadByIntegration.get(integration.id) || defaultSince
+            );
+
+            return {
+              id: integration.id,
+              state: status.state,
+              unreadCount: status.state === 'ok' ? status.unreadCount : 0,
+              categories:
+                status.state === 'ok' ? status.categories : undefined,
+            };
+          } catch {
+            return {
+              id: integration.id,
+              state: 'unavailable' as const,
+              unreadCount: 0,
+            };
+          }
+        })
+      )
+    );
+
+    return {
+      statuses: Object.fromEntries(
+        statuses.map((status) => [status.id, status])
+      ),
+    };
+  }
+
+  private async checkChannelNoticeResult(
+    org: Organization,
+    integration: Integration,
+    provider: SocialProvider,
+    since: Date,
+    forceRefresh = false
+  ): Promise<ChannelNoticeStatus> {
+    const liveIntegration = { ...integration };
+
+    if (
+      dayjs(liveIntegration.tokenExpiration).isBefore(dayjs()) ||
+      forceRefresh
+    ) {
+      const data = await this._refreshIntegrationService.refresh(
+        liveIntegration
+      );
+      if (!data) {
+        return { state: 'unavailable' };
+      }
+
+      if (data.accessToken) {
+        liveIntegration.token = data.accessToken;
+        if (provider.refreshWait) {
+          await timer(10000);
+        }
+      } else {
+        await this.disconnectChannel(org.id, liveIntegration);
+        return { state: 'unavailable' };
+      }
+    }
+
+    const cacheKey = `integration:notices:${org.id}:${liveIntegration.id}:${since.toISOString()}`;
+    const cached = await ioRedis.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached) as ChannelNoticeStatus;
+    }
+
+    try {
+      const status = await provider.channelNotices!(
+        liveIntegration,
+        liveIntegration.token,
+        since
+      );
+      await ioRedis.set(
+        cacheKey,
+        JSON.stringify(status),
+        'EX',
+        !process.env.NODE_ENV || process.env.NODE_ENV === 'development'
+          ? 1
+          : 300
+      );
+      return status;
+    } catch (e) {
+      if (e instanceof RefreshToken) {
+        return this.checkChannelNoticeResult(
+          org,
+          liveIntegration,
+          provider,
+          since,
+          true
+        );
+      }
+      return { state: 'unavailable' };
+    }
+  }
+
+  async markChannelNoticesRead(
+    org: Organization,
+    user: User,
+    integrationId: string
+  ) {
+    const integration = await this._integrationRepository.getIntegrationById(
+      org.id,
+      integrationId
+    );
+    if (!integration) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+
+    await this._integrationRepository.markIntegrationNoticesRead(
+      user.id,
+      integration.id
+    );
+
+    return { success: true };
   }
 
   customers(orgId: string) {

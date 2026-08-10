@@ -11,6 +11,7 @@ import {
   IntegrationListItem,
   useIntegrationList,
 } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import { useIntegrationNoticeStatus } from '@gitroom/frontend/components/launches/helpers/use.integration.notice.status';
 import { DNDProvider } from '@gitroom/frontend/components/launches/helpers/dnd.provider';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useRouter } from 'next/navigation';
@@ -64,6 +65,10 @@ export const Dashboard = () => {
     mutate: mutateIntegrations,
   } = useIntegrationList();
   const {
+    data: noticeStatus,
+    mutate: mutateNoticeStatus,
+  } = useIntegrationNoticeStatus();
+  const {
     data: channels,
     isLoading: analyticsLoading,
   } = useDashboardAnalytics(date);
@@ -112,6 +117,29 @@ export const Dashboard = () => {
     },
     [router]
   );
+  const clearNotices = useCallback(
+    (integrationId: string) => {
+      void mutateNoticeStatus(
+        (current) => {
+          const statuses = { ...(current?.statuses || {}) };
+          const existing = statuses[integrationId];
+          if (existing) {
+            statuses[integrationId] = {
+              ...existing,
+              unreadCount: 0,
+              categories: undefined,
+            };
+          }
+          return { statuses };
+        },
+        { revalidate: false }
+      );
+      void fetch(`/integrations/${integrationId}/notices/read`, {
+        method: 'POST',
+      });
+    },
+    [fetch, mutateNoticeStatus]
+  );
 
   if (integrationsLoading || analyticsLoading) {
     return (
@@ -137,6 +165,8 @@ export const Dashboard = () => {
               onGroupChange={(id, group) => void changeItemGroup(id, group)}
               onRefreshChannel={refreshChannel}
               onContinueIntegration={continueIntegration}
+              noticeStatuses={noticeStatus?.statuses}
+              onClearNotices={clearNotices}
             />
           </div>
         )}

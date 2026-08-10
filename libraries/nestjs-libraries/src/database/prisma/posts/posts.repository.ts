@@ -12,14 +12,12 @@ import { GetPostsListDto } from '@gitroom/nestjs-libraries/dtos/posts/get.posts.
 import dayjs from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import weekOfYear from 'dayjs/plugin/weekOfYear';
-import isSameOrAfter from 'dayjs/plugin/isSameOrAfter';
 import utc from 'dayjs/plugin/utc';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateTagDto } from '@gitroom/nestjs-libraries/dtos/posts/create.tag.dto';
 
 dayjs.extend(isoWeek);
 dayjs.extend(weekOfYear);
-dayjs.extend(isSameOrAfter);
 dayjs.extend(utc);
 
 @Injectable()
@@ -153,6 +151,9 @@ export class PostsRepository {
                 intervalInDays: {
                   not: null,
                 },
+                publishDate: {
+                  lte: endDate,
+                },
               },
             ],
           },
@@ -199,23 +200,35 @@ export class PostsRepository {
       },
     });
 
+    const startBound = dayjs.utc(startDate);
+    const endBound = dayjs.utc(endDate);
+
     return list.reduce((all, post) => {
       if (!post.intervalInDays) {
         return [...all, post];
       }
 
-      const addMorePosts = [];
-      let startingDate = dayjs.utc(post.publishDate);
-      while (dayjs.utc(endDate).isSameOrAfter(startingDate)) {
-        if (dayjs(startingDate).isSameOrAfter(dayjs.utc(post.publishDate))) {
-          addMorePosts.push({
-            ...post,
-            publishDate: startingDate.toDate(),
-            actualDate: post.publishDate,
-          });
+      // Jump to the first occurrence on/after the window start instead of
+      // walking every interval from the original publishDate.
+      let occurrence = dayjs.utc(post.publishDate);
+      if (occurrence.isBefore(startBound)) {
+        const steps = Math.ceil(
+          startBound.diff(occurrence, 'day') / post.intervalInDays
+        );
+        occurrence = occurrence.add(steps * post.intervalInDays, 'day');
+        while (occurrence.isBefore(startBound)) {
+          occurrence = occurrence.add(post.intervalInDays, 'day');
         }
+      }
 
-        startingDate = startingDate.add(post.intervalInDays, 'days');
+      const addMorePosts = [];
+      while (!occurrence.isAfter(endBound)) {
+        addMorePosts.push({
+          ...post,
+          publishDate: occurrence.toDate(),
+          actualDate: post.publishDate,
+        });
+        occurrence = occurrence.add(post.intervalInDays, 'day');
       }
 
       return [...all, ...addMorePosts];
