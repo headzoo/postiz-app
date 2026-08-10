@@ -290,6 +290,10 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
           continue;
         }
 
+        if (notification.isRead) {
+          continue;
+        }
+
         const category = mapBlueskyNoticeReason(notification.reason);
         if (!category) {
           continue;

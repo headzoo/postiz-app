@@ -45,7 +45,7 @@ export const usePipelineCalendar = (
       refreshWhenOffline: false,
       refreshWhenHidden: false,
       revalidateOnFocus: false,
-      revalidateIfStale: false,
+      revalidateOnMount: true,
       keepPreviousData: true,
       fallbackData: [],
     }

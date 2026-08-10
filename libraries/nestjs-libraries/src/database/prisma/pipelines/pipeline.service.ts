@@ -74,7 +74,7 @@ export class PipelineService {
       orgId
     );
 
-    return pipelines.flatMap((pipeline) => {
+    const projected = pipelines.flatMap((pipeline) => {
       const slots = getUpcomingPipelineSlots(
         pipeline.scheduleSlots,
         pipeline.timezone,
@@ -131,6 +131,8 @@ export class PipelineService {
           }));
       });
     });
+
+    return projected;
   }
 
   async getPipelineSchedule(

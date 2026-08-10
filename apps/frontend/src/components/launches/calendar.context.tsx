@@ -50,7 +50,7 @@ export function getCalendarCellKey(
 }
 
 function getPostCellKey(publishDate: string, display: string): string {
-  return getCalendarCellKey(dayjs.utc(publishDate).local(), display);
+  return getCalendarCellKey(newDayjs(publishDate).local(), display);
 }
 
 /**
@@ -174,7 +174,7 @@ export const CalendarWeekProvider: FC<{
   integrations: Integrations[];
 }> = ({ children, integrations }) => {
   const fetch = useFetch();
-  const [internalData, setInternalData] = useState([] as any[]);
+  const [dateOverrides, setDateOverrides] = useState<Record<string, string>>({});
   const [trendings] = useState<string[]>([]);
   const searchParams = useSearchParams();
   const [displaySaved, setDisplaySaved] = useCookie('calendar-display', 'week');
@@ -355,10 +355,26 @@ export const CalendarWeekProvider: FC<{
     [setDisplaySaved]
   );
 
-  const posts = useMemo(
+  const mergedPosts = useMemo(
     () => [...(calendarData?.posts || []), ...(pipelinePosts || [])],
     [calendarData?.posts, pipelinePosts]
   );
+
+  useEffect(() => {
+    setDateOverrides({});
+  }, [calendarData?.posts, pipelinePosts]);
+
+  const displayPosts = useMemo(() => {
+    if (!Object.keys(dateOverrides).length) {
+      return mergedPosts;
+    }
+    return mergedPosts.map((post) =>
+      dateOverrides[post.id]
+        ? { ...post, publishDate: dateOverrides[post.id] }
+        : post
+    );
+  }, [mergedPosts, dateOverrides]);
+
   const comments = useMemo(() => calendarData?.comments || [], [calendarData?.comments]);
 
   // List view data — merge projected pipeline items onto page 0 so queued
@@ -390,31 +406,18 @@ export const CalendarWeekProvider: FC<{
 
   const changeDate = useCallback(
     (id: string, date: dayjs.Dayjs) => {
-      setInternalData((d) =>
-        d.map((post: Post) => {
-          if (post.id === id) {
-            return {
-              ...post,
-              publishDate: date.utc().format('YYYY-MM-DDTHH:mm:ss'),
-            };
-          }
-          return post;
-        })
-      );
+      setDateOverrides((prev) => ({
+        ...prev,
+        [id]: date.utc().format('YYYY-MM-DDTHH:mm:ss'),
+      }));
     },
     []
   );
 
-  useEffect(() => {
-    if (posts) {
-      setInternalData(posts);
-    }
-  }, [posts]);
-
   // Precompute cell → posts index so CalendarColumn is O(1) per cell.
   const postsByCell = useMemo(() => {
     const index: Record<string, CalendarPost[]> = {};
-    for (const post of internalData as CalendarPost[]) {
+    for (const post of displayPosts as CalendarPost[]) {
       const key = getPostCellKey(String(post.publishDate), filters.display);
       if (!index[key]) {
         index[key] = [];
@@ -422,7 +425,7 @@ export const CalendarWeekProvider: FC<{
       index[key].push(post);
     }
     return index;
-  }, [internalData, filters.display]);
+  }, [displayPosts, filters.display]);
 
   const getCellPosts = useCallback(
     (date: dayjs.Dayjs) => {
@@ -447,7 +450,7 @@ export const CalendarWeekProvider: FC<{
         trendings,
         reloadCalendarView,
         ...filters,
-        posts: internalData,
+        posts: displayPosts,
         postsByCell,
         getCellPosts,
         loading,

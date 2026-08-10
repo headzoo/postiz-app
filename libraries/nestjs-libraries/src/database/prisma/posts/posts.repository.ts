@@ -203,7 +203,7 @@ export class PostsRepository {
     const startBound = dayjs.utc(startDate);
     const endBound = dayjs.utc(endDate);
 
-    return list.reduce((all, post) => {
+    const expanded = list.reduce((all, post) => {
       if (!post.intervalInDays) {
         return [...all, post];
       }
@@ -233,6 +233,8 @@ export class PostsRepository {
 
       return [...all, ...addMorePosts];
     }, [] as any[]);
+
+    return expanded;
   }
 
   async getPostsList(orgId: string, query: GetPostsListDto) {

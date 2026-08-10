@@ -36,6 +36,7 @@ export const useIntegrationNoticeStatus = () => {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       revalidateIfStale: false,
+      revalidateOnMount: true,
       refreshWhenHidden: false,
       refreshWhenOffline: false,
       fallbackData: { statuses: {} },
