@@ -1070,10 +1070,10 @@ const CalendarItem: FC<{
         pipelineItemId: (post as any).pipelineItemId,
       },
       collect: (monitor) => ({
-        opacity: monitor.isDragging() ? 0 : 1,
+        opacity: monitor.isDragging() ? 0 : isBeforeNow ? 0.6 : 1,
       }),
     }),
-    []
+    [isBeforeNow]
   );
   return (
     <div
