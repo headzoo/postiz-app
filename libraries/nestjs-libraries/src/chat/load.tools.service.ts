@@ -60,6 +60,9 @@ export class LoadToolsService {
         - Show global analytics about socials
         - List integrations (channels)
         - List groups (customers) and filter the channels by a group
+        - List scheduled, draft, or published posts (listPosts)
+        - List pipelines and their queue sizes (listPipelines)
+        - Inspect a pipeline's queued posts (listPostsByPipeline, requires a pipeline id from listPipelines)
 
       - We schedule posts to different integration like facebook, instagram, etc. but to the user we don't say integrations we say channels as integration is the technical name
       - When scheduling a post, you must follow the social media rules and best practices.

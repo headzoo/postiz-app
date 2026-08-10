@@ -8,10 +8,16 @@ import { GenerateImageTool } from '@gitroom/nestjs-libraries/chat/tools/generate
 import { IntegrationListTool } from '@gitroom/nestjs-libraries/chat/tools/integration.list.tool';
 import { GroupListTool } from '@gitroom/nestjs-libraries/chat/tools/group.list.tool';
 import { UploadFromUrlTool } from '@gitroom/nestjs-libraries/chat/tools/upload.from.url.tool';
+import { PostsListTool } from '@gitroom/nestjs-libraries/chat/tools/posts.list.tool';
+import { PipelinesListTool } from '@gitroom/nestjs-libraries/chat/tools/pipelines.list.tool';
+import { PipelinePostsListTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.posts.list.tool';
 
 export const toolList = [
   IntegrationListTool,
   GroupListTool,
+  PostsListTool,
+  PipelinesListTool,
+  PipelinePostsListTool,
   IntegrationValidationTool,
   IntegrationTriggerTool,
   IntegrationSchedulePostTool,
