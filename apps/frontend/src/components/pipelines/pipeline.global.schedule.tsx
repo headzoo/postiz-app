@@ -292,10 +292,23 @@ export const PipelineGlobalSchedule: FC = () => {
                               type="button"
                               disabled={pending}
                               onClick={() => removeSlot(occurrence)}
-                              className="shrink-0 rounded px-[3px] text-[16px] leading-none hover:bg-newBgColor/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnPrimary disabled:cursor-not-allowed"
+                              className="inline-flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded hover:bg-newBgColor/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnPrimary disabled:cursor-not-allowed"
                               aria-label={`${t('remove', 'Remove')} ${occurrence.pipelineName} ${sourceDay} ${sourceTime} ${t('pipeline_schedule_slot', 'Pipeline schedule slot')}`}
                             >
-                              ×
+                              <svg
+                                viewBox="0 0 12 12"
+                                className="h-[10px] w-[10px]"
+                                aria-hidden="true"
+                                focusable="false"
+                              >
+                                <path
+                                  d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="1.5"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
                             </button>
                           </div>
                         );
