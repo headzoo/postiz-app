@@ -63,6 +63,18 @@ export class UpdatePipelineScheduleDto {
   scheduleSlots: PipelineScheduleSlotDto[];
 }
 
+export class GetPipelineScheduleDto {
+  @IsDateString()
+  @IsDefined()
+  startDate: string;
+
+  @IsDateString()
+  @IsDefined()
+  endDate: string;
+}
+
+export class DeletePipelineScheduleSlotDto extends PipelineScheduleSlotDto {}
+
 export class ReorderPipelineQueueDto {
   @IsArray()
   @IsDefined()

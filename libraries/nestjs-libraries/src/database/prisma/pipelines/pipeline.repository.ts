@@ -122,6 +122,27 @@ export class PipelineRepository {
     });
   }
 
+  getPipelinesForSchedule(orgId: string) {
+    return this._pipeline.model.pipeline.findMany({
+      where: { organizationId: orgId, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        active: true,
+        scheduleRevision: true,
+        scheduleSlots: {
+          select: {
+            dayOfWeek: true,
+            minuteOfDay: true,
+          },
+          orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }],
+        },
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+  }
+
   getOwnedIntegrations(orgId: string, integrationIds: string[]) {
     return this._integration.model.integration.findMany({
       where: {
@@ -215,6 +236,39 @@ export class PipelineRepository {
             orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }],
           },
         },
+      });
+    });
+  }
+
+  async deletePipelineScheduleSlot(
+    orgId: string,
+    id: string,
+    slot: { dayOfWeek: number; minuteOfDay: number }
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      const pipeline = await tx.pipeline.findFirst({
+        where: { id, organizationId: orgId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!pipeline) {
+        return 'not-found' as const;
+      }
+
+      const deleted = await tx.pipelineScheduleSlot.deleteMany({
+        where: {
+          pipelineId: id,
+          dayOfWeek: slot.dayOfWeek,
+          minuteOfDay: slot.minuteOfDay,
+        },
+      });
+      if (deleted.count !== 1) {
+        return 'stale' as const;
+      }
+
+      return tx.pipeline.update({
+        where: { id },
+        data: { scheduleRevision: { increment: 1 } },
+        select: { id: true, scheduleRevision: true },
       });
     });
   }

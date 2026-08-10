@@ -1,5 +1,6 @@
 import {
   getNextPipelineSlot,
+  getPipelineScheduleOccurrencesInRange,
   getUpcomingPipelineSlots,
   PIPELINE_SCHEDULER_GRACE_WINDOW_MS,
 } from './pipeline.schedule';
@@ -84,6 +85,73 @@ describe('pipeline schedule calculator', () => {
         new Date('2026-10-31T12:00:00.000Z')
       )
     ).toEqual(new Date('2026-11-01T05:30:00.000Z'));
+  });
+
+  it('expands source slots into UTC instants within a bounded range', () => {
+    expect(
+      getPipelineScheduleOccurrencesInRange(
+        [{ dayOfWeek: 1, minuteOfDay: 9 * 60 }],
+        'America/New_York',
+        new Date('2026-08-10T12:00:00.000Z'),
+        new Date('2026-08-11T12:00:00.000Z')
+      )
+    ).toEqual([
+      {
+        dayOfWeek: 1,
+        minuteOfDay: 9 * 60,
+        scheduledFor: new Date('2026-08-10T13:00:00.000Z'),
+      },
+    ]);
+  });
+
+  it('includes a Pipeline-local date reached across a UTC date boundary', () => {
+    expect(
+      getPipelineScheduleOccurrencesInRange(
+        [{ dayOfWeek: 1, minuteOfDay: 30 }],
+        'Pacific/Auckland',
+        new Date('2026-06-07T12:00:00.000Z'),
+        new Date('2026-06-08T12:00:00.000Z')
+      )
+    ).toEqual([
+      {
+        dayOfWeek: 1,
+        minuteOfDay: 30,
+        scheduledFor: new Date('2026-06-07T12:30:00.000Z'),
+      },
+    ]);
+  });
+
+  it('uses scheduler DST behavior and a half-open end boundary in ranges', () => {
+    expect(
+      getPipelineScheduleOccurrencesInRange(
+        [{ dayOfWeek: 0, minuteOfDay: 2 * 60 + 30 }],
+        'America/New_York',
+        new Date('2026-03-08T00:00:00.000Z'),
+        new Date('2026-03-09T00:00:00.000Z')
+      )
+    ).toEqual([]);
+    expect(
+      getPipelineScheduleOccurrencesInRange(
+        [{ dayOfWeek: 0, minuteOfDay: 60 + 30 }],
+        'America/New_York',
+        new Date('2026-11-01T05:00:00.000Z'),
+        new Date('2026-11-01T06:00:00.000Z')
+      )
+    ).toEqual([
+      {
+        dayOfWeek: 0,
+        minuteOfDay: 60 + 30,
+        scheduledFor: new Date('2026-11-01T05:30:00.000Z'),
+      },
+    ]);
+    expect(
+      getPipelineScheduleOccurrencesInRange(
+        [{ dayOfWeek: 0, minuteOfDay: 60 }],
+        'UTC',
+        new Date('2026-08-09T00:00:00.000Z'),
+        new Date('2026-08-09T01:00:00.000Z')
+      )
+    ).toEqual([]);
   });
 
   it('defines the scheduler grace window as two minutes', () => {

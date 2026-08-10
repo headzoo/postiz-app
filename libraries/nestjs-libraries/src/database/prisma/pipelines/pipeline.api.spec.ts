@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/posts/posts.service',
@@ -347,6 +347,203 @@ describe('Pipeline API boundaries', () => {
         },
       },
     });
+  });
+
+  it('returns active and paused schedule occurrences only from the requested organization', async () => {
+    const repository = {
+      getPipelinesForSchedule: jest.fn().mockResolvedValue([
+        {
+          id: 'active-pipeline',
+          name: 'Active Pipeline',
+          timezone: 'UTC',
+          active: true,
+          scheduleRevision: 3,
+          scheduleSlots: [{ dayOfWeek: 0, minuteOfDay: 60 }],
+        },
+        {
+          id: 'paused-pipeline',
+          name: 'Paused Pipeline',
+          timezone: 'America/New_York',
+          active: false,
+          scheduleRevision: 4,
+          scheduleSlots: [{ dayOfWeek: 0, minuteOfDay: 9 * 60 }],
+        },
+      ]),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(
+      service.getPipelineSchedule('organization', {
+        startDate: '2026-08-09T00:00:00.000Z',
+        endDate: '2026-08-10T00:00:00.000Z',
+      })
+    ).resolves.toEqual([
+      {
+        id: 'active-pipeline:0:60:2026-08-09T01:00:00.000Z',
+        pipelineId: 'active-pipeline',
+        pipelineName: 'Active Pipeline',
+        pipelineTimezone: 'UTC',
+        active: true,
+        scheduleRevision: 3,
+        dayOfWeek: 0,
+        minuteOfDay: 60,
+        scheduledFor: '2026-08-09T01:00:00.000Z',
+      },
+      {
+        id: 'paused-pipeline:0:540:2026-08-09T13:00:00.000Z',
+        pipelineId: 'paused-pipeline',
+        pipelineName: 'Paused Pipeline',
+        pipelineTimezone: 'America/New_York',
+        active: false,
+        scheduleRevision: 4,
+        dayOfWeek: 0,
+        minuteOfDay: 540,
+        scheduledFor: '2026-08-09T13:00:00.000Z',
+      },
+    ]);
+    expect(repository.getPipelinesForSchedule).toHaveBeenCalledWith(
+      'organization'
+    );
+  });
+
+  it('queries only non-deleted organization schedules without queue data', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const repository = new PipelineRepository(
+      { model: { pipeline: { findMany } } } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any
+    );
+
+    await repository.getPipelinesForSchedule('organization');
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: { organizationId: 'organization', deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        timezone: true,
+        active: true,
+        scheduleRevision: true,
+        scheduleSlots: {
+          select: { dayOfWeek: true, minuteOfDay: true },
+          orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }],
+        },
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+  });
+
+  it('rejects empty, reversed, and over-eight-day schedule ranges', async () => {
+    const repository = { getPipelinesForSchedule: jest.fn() };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(
+      service.getPipelineSchedule('org', {
+        startDate: '2026-08-10T00:00:00.000Z',
+        endDate: '2026-08-10T00:00:00.000Z',
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.getPipelineSchedule('org', {
+        startDate: '2026-08-11T00:00:00.000Z',
+        endDate: '2026-08-10T00:00:00.000Z',
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.getPipelineSchedule('org', {
+        startDate: '2026-08-01T00:00:00.000Z',
+        endDate: '2026-08-09T00:00:00.001Z',
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.getPipelinesForSchedule).not.toHaveBeenCalled();
+  });
+
+  it('deletes exactly one slot and increments its revision once', async () => {
+    const deleteMany = jest.fn().mockResolvedValue({ count: 1 });
+    const update = jest.fn().mockResolvedValue({
+      id: 'pipeline',
+      scheduleRevision: 8,
+    });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any, options: any) => {
+          expect(options.isolationLevel).toBe('Serializable');
+          return callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'pipeline' }),
+              update,
+            },
+            pipelineScheduleSlot: { deleteMany },
+          });
+        }),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(
+      repository.deletePipelineScheduleSlot('org', 'pipeline', {
+        dayOfWeek: 1,
+        minuteOfDay: 60,
+      })
+    ).resolves.toEqual({ id: 'pipeline', scheduleRevision: 8 });
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { pipelineId: 'pipeline', dayOfWeek: 1, minuteOfDay: 60 },
+    });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'pipeline' },
+      data: { scheduleRevision: { increment: 1 } },
+      select: { id: true, scheduleRevision: true },
+    });
+  });
+
+  it('does not increment revision when a schedule slot is stale', async () => {
+    const update = jest.fn();
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'pipeline' }),
+              update,
+            },
+            pipelineScheduleSlot: {
+              deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+    const service = new PipelineService(
+      {
+        deletePipelineScheduleSlot: repository.deletePipelineScheduleSlot.bind(
+          repository
+        ),
+      } as any,
+      {} as any
+    );
+
+    await expect(
+      service.deletePipelineScheduleSlot('org', 'pipeline', {
+        dayOfWeek: 1,
+        minuteOfDay: 60,
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('rejects duplicate bulk queue IDs before attempting a reorder', async () => {

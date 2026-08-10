@@ -16,6 +16,8 @@ import { PipelineService } from '@gitroom/nestjs-libraries/database/prisma/pipel
 import {
   CreatePipelineDto,
   DeletePipelineDto,
+  DeletePipelineScheduleSlotDto,
+  GetPipelineScheduleDto,
   ManualSchedulePipelineItemDto,
   MovePipelineQueueItemDto,
   PipelineItemActionDto,
@@ -43,6 +45,14 @@ export class PipelinesController {
     @Query('endDate') endDate: string
   ) {
     return this._pipelineService.getCalendarPosts(org.id, startDate, endDate);
+  }
+
+  @Get('/schedule')
+  getSchedule(
+    @GetOrgFromRequest() org: Organization,
+    @Query() query: GetPipelineScheduleDto
+  ) {
+    return this._pipelineService.getPipelineSchedule(org.id, query);
   }
 
   @Post('/')
@@ -117,6 +127,15 @@ export class PipelinesController {
     @Body() body: UpdatePipelineScheduleDto
   ) {
     return this._pipelineService.updatePipelineSchedule(org.id, id, body);
+  }
+
+  @Delete('/:id/schedule')
+  deletePipelineScheduleSlot(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: DeletePipelineScheduleSlotDto
+  ) {
+    return this._pipelineService.deletePipelineScheduleSlot(org.id, id, body);
   }
 
   @Post('/:id/items/reorder')

@@ -147,7 +147,12 @@ export const Pipelines: FC = () => {
       )}
 
       <div className="flex justify-between items-center gap-[12px] flex-wrap">
-        <Button onClick={openCreate}>{t('create_pipeline', 'Create Pipeline')}</Button>
+        <div className="flex items-center gap-[10px] flex-wrap">
+          <Button onClick={openCreate}>{t('create_pipeline', 'Create Pipeline')}</Button>
+          <Button secondary onClick={() => router.push('/pipelines/schedule')}>
+            {t('pipeline_schedule', 'Schedule')}
+          </Button>
+        </div>
       </div>
 
       {!data?.length ? (

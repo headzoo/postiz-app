@@ -1,7 +1,7 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { PipelineScheduleSlot } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import { PipelineScheduleOccurrence, PipelineScheduleSlot } from '@gitroom/frontend/components/pipelines/pipeline.types';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -92,6 +92,46 @@ export const formatPipelineSlot = (
   return dayjs(isoDate).tz(pipelineTimezone).format('ddd, MMM D YYYY · h:mm A z');
 };
 
+const formatLocalCalendarDate = (date: dayjs.Dayjs, daysToAdd = 0) =>
+  dayjs
+    .utc(date.format('YYYY-MM-DD'))
+    .add(daysToAdd, 'day')
+    .format('YYYY-MM-DD');
+
+const getLocalCalendarBoundary = (
+  calendarDate: string,
+  viewerTimezone: string
+) => dayjs.tz(`${calendarDate}T00:00:00`, viewerTimezone);
+
+export const getPipelineScheduleWeek = (
+  viewerTimezone: string,
+  now = dayjs()
+) => {
+  const localNow = now.tz(viewerTimezone);
+  const startCalendarDate = formatLocalCalendarDate(
+    localNow,
+    -localNow.day()
+  );
+  const days = Array.from({ length: 7 }, (_, index) =>
+    getLocalCalendarBoundary(
+      formatLocalCalendarDate(dayjs.utc(startCalendarDate), index),
+      viewerTimezone
+    )
+  );
+  const start = days[0];
+  const end = getLocalCalendarBoundary(
+    formatLocalCalendarDate(dayjs.utc(startCalendarDate), 7),
+    viewerTimezone
+  );
+  return {
+    start,
+    end,
+    days,
+    startDate: start.utc().toISOString(),
+    endDate: end.utc().toISOString(),
+  };
+};
+
 export const buildQueueReorderBody = (
   items: Array<{ id: string }>,
   toIndex: number
@@ -140,4 +180,15 @@ export const parseApiError = async (response: Response): Promise<string> => {
     /** empty **/
   }
   return 'Something went wrong. Please try again.';
+};
+
+export const loadPipelineGlobalSchedule = async (
+  fetchFn: (url: string) => Promise<Response>,
+  url: string
+): Promise<PipelineScheduleOccurrence[]> => {
+  const response = await fetchFn(url);
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+  return (await response.json()) as PipelineScheduleOccurrence[];
 };

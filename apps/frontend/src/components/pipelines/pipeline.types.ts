@@ -61,6 +61,27 @@ export interface UpdatePipelineSchedulePayload {
   scheduleSlots: PipelineScheduleSlot[];
 }
 
+export interface PipelineScheduleOccurrence {
+  id: string;
+  pipelineId: string;
+  pipelineName: string;
+  pipelineTimezone: string;
+  active: boolean;
+  scheduleRevision: number;
+  dayOfWeek: number;
+  minuteOfDay: number;
+  scheduledFor: string;
+}
+
+export interface DeletePipelineScheduleSlotPayload extends PipelineScheduleSlot {}
+
+export interface DeletePipelineScheduleSlotResult {
+  pipelineId: string;
+  dayOfWeek: number;
+  minuteOfDay: number;
+  scheduleRevision: number;
+}
+
 export interface ReorderPipelineQueuePayload {
   itemIds: string[];
 }

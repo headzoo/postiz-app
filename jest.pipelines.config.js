@@ -6,6 +6,7 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/posts/posts.repository.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/file.provider.spec.ts',
     '<rootDir>/apps/orchestrator/src/workflows/pipeline-workflows/**/*.spec.ts',
+    '<rootDir>/apps/frontend/src/components/pipelines/**/*.spec.ts',
   ],
   transform: {
     '^.+\\.ts$': [

@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import {
   CreatePipelineDto,
+  DeletePipelineScheduleSlotDto,
+  GetPipelineScheduleDto,
   MovePipelineQueueItemDto,
   ReorderPipelineQueueDto,
   ReorderPipelineQueueItemDto,
@@ -14,6 +16,7 @@ import {
 } from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
 import {
   getNextPipelineSlot,
+  getPipelineScheduleOccurrencesInRange,
   getUpcomingPipelineSlots,
 } from './pipeline.schedule';
 import { PipelineRepository } from './pipeline.repository';
@@ -109,6 +112,61 @@ export class PipelineService {
     });
   }
 
+  async getPipelineSchedule(
+    orgId: string,
+    query: GetPipelineScheduleDto
+  ) {
+    const startDate = dayjs.utc(query.startDate);
+    const endDate = dayjs.utc(query.endDate);
+    if (!startDate.isValid() || !endDate.isValid()) {
+      throw new BadRequestException('Pipeline schedule range must use valid ISO dates');
+    }
+
+    const start = startDate.toDate();
+    const end = endDate.toDate();
+    const duration = end.getTime() - start.getTime();
+    if (duration <= 0) {
+      throw new BadRequestException('Pipeline schedule endDate must be after startDate');
+    }
+    if (duration > 8 * 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('Pipeline schedule range cannot exceed eight days');
+    }
+
+    const pipelines = await this._pipelineRepository.getPipelinesForSchedule(
+      orgId
+    );
+    return pipelines
+      .flatMap((pipeline) =>
+        getPipelineScheduleOccurrencesInRange(
+          pipeline.scheduleSlots,
+          pipeline.timezone,
+          start,
+          end
+        ).map((occurrence) => {
+          const scheduledFor = occurrence.scheduledFor.toISOString();
+          return {
+            id: `${pipeline.id}:${occurrence.dayOfWeek}:${occurrence.minuteOfDay}:${scheduledFor}`,
+            pipelineId: pipeline.id,
+            pipelineName: pipeline.name,
+            pipelineTimezone: pipeline.timezone,
+            active: pipeline.active,
+            scheduleRevision: pipeline.scheduleRevision,
+            dayOfWeek: occurrence.dayOfWeek,
+            minuteOfDay: occurrence.minuteOfDay,
+            scheduledFor,
+          };
+        })
+      )
+      .sort(
+        (first, second) =>
+          first.scheduledFor.localeCompare(second.scheduledFor) ||
+          first.pipelineName.localeCompare(second.pipelineName) ||
+          first.pipelineId.localeCompare(second.pipelineId) ||
+          first.dayOfWeek - second.dayOfWeek ||
+          first.minuteOfDay - second.minuteOfDay
+      );
+  }
+
   async getPipeline(orgId: string, id: string) {
     const pipeline = await this._pipelineRepository.getPipeline(orgId, id);
     if (!pipeline) {
@@ -177,6 +235,30 @@ export class PipelineService {
     );
     if (!pipeline) throw new NotFoundException('Pipeline not found');
     return pipeline;
+  }
+
+  async deletePipelineScheduleSlot(
+    orgId: string,
+    id: string,
+    slot: DeletePipelineScheduleSlotDto
+  ) {
+    const result = await this._pipelineRepository.deletePipelineScheduleSlot(
+      orgId,
+      id,
+      slot
+    );
+    if (result === 'not-found') {
+      throw new NotFoundException('Pipeline not found');
+    }
+    if (result === 'stale') {
+      throw new ConflictException('Pipeline schedule slot no longer exists');
+    }
+    return {
+      pipelineId: result.id,
+      dayOfWeek: slot.dayOfWeek,
+      minuteOfDay: slot.minuteOfDay,
+      scheduleRevision: result.scheduleRevision,
+    };
   }
 
   async reorderQueue(

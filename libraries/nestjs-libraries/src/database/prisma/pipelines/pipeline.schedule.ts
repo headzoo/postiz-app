@@ -16,6 +16,10 @@ export interface PipelineScheduleSlotInput {
   minuteOfDay: number;
 }
 
+export interface PipelineScheduleOccurrence extends PipelineScheduleSlotInput {
+  scheduledFor: Date;
+}
+
 interface NormalizedSlot extends PipelineScheduleSlotInput {
   order: number;
 }
@@ -167,6 +171,76 @@ export const getUpcomingPipelineSlots = (
     from,
     Math.min(count, MAX_UPCOMING_SLOTS)
   );
+};
+
+export const getPipelineScheduleOccurrencesInRange = (
+  slots: readonly PipelineScheduleSlotInput[],
+  timezoneName: string,
+  startDate: Date,
+  endDate: Date
+): PipelineScheduleOccurrence[] => {
+  const startTimestamp = startDate.getTime();
+  const endTimestamp = endDate.getTime();
+  if (
+    !Number.isFinite(startTimestamp) ||
+    !Number.isFinite(endTimestamp) ||
+    endTimestamp <= startTimestamp ||
+    !isIanaTimezone(timezoneName)
+  ) {
+    return [];
+  }
+
+  const normalizedSlots = normalizeSlots(slots);
+  if (!normalizedSlots.length) {
+    return [];
+  }
+
+  const localStartDate = dayjs(startDate).tz(timezoneName).format('YYYY-MM-DD');
+  const localEndDate = dayjs(endTimestamp - 1)
+    .tz(timezoneName)
+    .format('YYYY-MM-DD');
+  const localDayCount =
+    dayjs.utc(`${localEndDate}T00:00:00.000`).diff(
+      dayjs.utc(`${localStartDate}T00:00:00.000`),
+      'day'
+    ) + 1;
+  const occurrences: Array<PipelineScheduleOccurrence & { order: number }> = [];
+
+  for (let dayOffset = 0; dayOffset < localDayCount; dayOffset++) {
+    const localDate = dayjs
+      .utc(`${localStartDate}T00:00:00.000`)
+      .add(dayOffset, 'day')
+      .format('YYYY-MM-DD');
+    const dayOfWeek = dayjs.utc(`${localDate}T00:00:00.000`).day();
+
+    for (const slot of normalizedSlots) {
+      if (slot.dayOfWeek !== dayOfWeek) {
+        continue;
+      }
+      const scheduledFor = resolveLocalMinute(
+        localDate,
+        slot.minuteOfDay,
+        timezoneName
+      );
+      if (
+        scheduledFor &&
+        scheduledFor.getTime() >= startTimestamp &&
+        scheduledFor.getTime() < endTimestamp
+      ) {
+        occurrences.push({ ...slot, scheduledFor });
+      }
+    }
+  }
+
+  return occurrences
+    .sort(
+      (first, second) =>
+        first.scheduledFor.getTime() - second.scheduledFor.getTime() ||
+        first.dayOfWeek - second.dayOfWeek ||
+        first.minuteOfDay - second.minuteOfDay ||
+        first.order - second.order
+    )
+    .map(({ order: _order, ...occurrence }) => occurrence);
 };
 
 export const getNextPipelineSlot = (
