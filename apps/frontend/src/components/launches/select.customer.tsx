@@ -1,7 +1,7 @@
 'use client';
 
 import { uniqBy } from 'lodash';
-import React, { FC, useCallback, useMemo, useRef, useState } from 'react';
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { Integrations } from '@gitroom/frontend/components/launches/calendar.context';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import clsx from 'clsx';
@@ -33,6 +33,12 @@ export const SelectCustomer: FC<{
     }
   });
 
+  useEffect(() => {
+    if (currentCustomer !== undefined) {
+      setCustomer(currentCustomer || '');
+    }
+  }, [currentCustomer]);
+
   const openClose = useCallback(() => {
     if (open) {
       setOpen(false);
@@ -43,6 +49,21 @@ export const SelectCustomer: FC<{
     setPos({ top: y + height, left: x });
     setOpen(true);
   }, [open]);
+
+  const selectedId =
+    currentCustomer !== undefined ? currentCustomer || '' : customer;
+
+  const selectedLabel = useMemo(() => {
+    if (!selectedId) {
+      return t('none', 'None');
+    }
+
+    const match = uniqBy(integrations, (i) => i?.customer?.id).find(
+      (i) => i?.customer?.id === selectedId
+    );
+
+    return match?.customer?.name || t('none', 'None');
+  }, [selectedId, integrations, t]);
 
   const totalCustomers = useMemo(() => {
     return uniqBy(integrations, (i) => i?.customer?.id).length;
@@ -65,6 +86,9 @@ export const SelectCustomer: FC<{
         <div>
           <UserIcon />
         </div>
+        <span className="text-[14px] font-[500] max-w-[160px] truncate">
+          {selectedLabel}
+        </span>
         <div>
           <DropdownArrowIcon rotated={open} />
         </div>
@@ -76,6 +100,17 @@ export const SelectCustomer: FC<{
         >
           <div className="text-[14px] font-[600] px-[12px] mb-[5px]">
             {t('customers', 'Customers')}
+          </div>
+          <div
+            onClick={() => {
+              setCustomer('');
+              onChange('');
+              setOpen(false);
+              setCurrent('global');
+            }}
+            className="p-[12px] hover:bg-newBgColor text-[14px] font-[500] h-[32px] flex items-center"
+          >
+            {t('none', 'None')}
           </div>
           {uniqBy(integrations, (u) => u?.customer?.name)
             .filter((f) => f.customer?.name)
@@ -89,7 +124,7 @@ export const SelectCustomer: FC<{
                   setCustomer(p.customer?.id);
                   onChange(p.customer?.id);
                   setOpen(false);
-                  setCurrent('global')
+                  setCurrent('global');
                 }}
                 key={p.customer?.id}
                 className="p-[12px] hover:bg-newBgColor text-[14px] font-[500] h-[32px] flex items-center"
