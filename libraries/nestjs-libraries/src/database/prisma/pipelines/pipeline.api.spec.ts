@@ -1,9 +1,14 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
 
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/posts/posts.service',
   () => ({ PostsService: class PostsService {} })
 );
+jest.mock('@gitroom/nestjs-libraries/dtos/posts/create.post.dto', () => ({
+  CreatePostDto: class CreatePostDto {},
+}));
 jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
   socialIntegrationList: [
     { identifier: 'x', editor: 'normal', stripLinks: () => false },
@@ -14,6 +19,7 @@ jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
 import { PipelineManager } from './pipeline.manager';
 import { PipelineRepository } from './pipeline.repository';
 import { PipelineService } from './pipeline.service';
+import { CreatePipelineDto } from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
 
 describe('Pipeline API boundaries', () => {
   it('returns credential-free composer data for every queued channel', async () => {
@@ -49,6 +55,7 @@ describe('Pipeline API boundaries', () => {
           id: 'pipeline',
           name: 'Weekly content',
           timezone: 'UTC',
+          color: '#612BD3',
           active: true,
           scheduleRevision: 1,
           integrations: [{ integration: twitter }, { integration: linkedin }],
@@ -60,6 +67,7 @@ describe('Pipeline API boundaries', () => {
         id: 'pipeline',
         name: 'Weekly content',
         timezone: 'UTC',
+        color: '#612BD3',
         active: true,
         scheduleRevision: 1,
         scheduleSlots: [],
@@ -123,6 +131,8 @@ describe('Pipeline API boundaries', () => {
       'pipeline'
     );
 
+    expect(list[0]).toMatchObject({ color: '#612BD3' });
+    expect(detail).toMatchObject({ color: '#612BD3' });
     expect(list[0].channels).toEqual([
       expect.objectContaining({ id: 'twitter', identifier: 'x' }),
       expect.objectContaining({ id: 'linkedin', identifier: 'linkedin' }),
@@ -269,6 +279,7 @@ describe('Pipeline API boundaries', () => {
     expect(create).toHaveBeenCalledWith({
       data: expect.not.objectContaining({ scheduleSlots: expect.anything() }),
     });
+    expect(create.mock.calls[0][0].data).not.toHaveProperty('color');
     expect(update).toHaveBeenCalledWith({
       where: { id: 'pipeline' },
       data: {
@@ -276,6 +287,189 @@ describe('Pipeline API boundaries', () => {
         timezone: 'UTC',
       },
     });
+    expect(update.mock.calls[0][0].data).not.toHaveProperty('color');
+  });
+
+  it('persists supplied colors on create and update while preserving omitted updates', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'pipeline', color: '#FF5500' });
+    const update = jest.fn().mockResolvedValue({ id: 'pipeline', color: '#00AAFF', scheduleRevision: 3 });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'pipeline',
+                integrations: [{ integrationId: 'channel' }],
+              }),
+              update,
+            },
+            pipelineQueueItem: { findFirst: jest.fn().mockResolvedValue(null) },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: { pipeline: { create } } } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+    const withColor = {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+      color: '#FF5500',
+    };
+    const withoutColor = {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+    };
+
+    await repository.createPipeline('org', withColor);
+    await repository.updatePipeline('org', 'pipeline', withColor);
+    await repository.updatePipeline('org', 'pipeline', withoutColor);
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ color: '#FF5500' }),
+    });
+    expect(update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'pipeline' },
+      data: expect.objectContaining({ color: '#FF5500' }),
+    });
+    expect(update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'pipeline' },
+      data: {
+        name: 'Pipeline',
+        timezone: 'UTC',
+      },
+    });
+    expect(update.mock.calls[1][0].data).not.toHaveProperty('color');
+  });
+
+  it('rejects invalid pipeline color formats at the DTO boundary', () => {
+    const invalidColors = ['purple', '#612', '#612BD3AA', 'rgb(1,2,3)', '#GGGGGG'];
+    for (const color of invalidColors) {
+      const dto = plainToInstance(CreatePipelineDto, {
+        name: 'Pipeline',
+        timezone: 'UTC',
+        integrations: [{ id: 'channel' }],
+        color,
+      });
+      const errors = validateSync(dto);
+      expect(errors.some((error) => error.property === 'color')).toBe(true);
+    }
+
+    const validDto = plainToInstance(CreatePipelineDto, {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+      color: '#aabbcc',
+    });
+    expect(validateSync(validDto)).toHaveLength(0);
+  });
+
+  it('does not increment scheduleRevision for color-only metadata updates', async () => {
+    const update = jest.fn().mockResolvedValue({
+      id: 'pipeline',
+      color: '#FF5500',
+      scheduleRevision: 3,
+    });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'pipeline',
+                integrations: [{ integrationId: 'channel' }],
+              }),
+              update,
+            },
+            pipelineQueueItem: { findFirst: jest.fn().mockResolvedValue(null) },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await repository.updatePipeline('org', 'pipeline', {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+      color: '#FF5500',
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'pipeline' },
+      data: expect.objectContaining({
+        color: '#FF5500',
+        name: 'Pipeline',
+        timezone: 'UTC',
+      }),
+    });
+    expect(update.mock.calls[0][0].data).not.toHaveProperty('scheduleRevision');
+    expect(update.mock.calls[0][0].data).not.toHaveProperty('scheduleSlots');
+  });
+
+  it('projects pipelineColor on calendar posts within the requested range', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-09T00:00:00.000Z'));
+    const repository = {
+      getActivePipelinesForCalendar: jest.fn().mockResolvedValue([
+        {
+          id: 'pipeline',
+          color: '#FF5500',
+          timezone: 'UTC',
+          scheduleSlots: [{ dayOfWeek: 0, minuteOfDay: 60 }],
+          queueItems: [
+            {
+              id: 'item',
+              group: 'group',
+              posts: [
+                {
+                  id: 'post',
+                  content: 'Queued post',
+                  state: 'DRAFT',
+                  tags: [],
+                  integration: {
+                    id: 'channel',
+                    providerIdentifier: 'x',
+                    name: 'Twitter',
+                    picture: null,
+                    customer: null,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(
+      service.getCalendarPosts(
+        'organization',
+        '2026-08-09T00:00:00.000Z',
+        '2026-08-10T00:00:00.000Z'
+      )
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: 'post',
+        pipelineId: 'pipeline',
+        pipelineColor: '#FF5500',
+        publishDate: '2026-08-09T01:00:00.000Z',
+      }),
+    ]);
+    jest.useRealTimers();
   });
 
   it('replaces schedules once and rejects duplicate slots', async () => {
@@ -414,6 +608,7 @@ describe('Pipeline API boundaries', () => {
           id: 'active-pipeline',
           name: 'Active Pipeline',
           timezone: 'UTC',
+          color: '#FF5500',
           active: true,
           scheduleRevision: 3,
           scheduleSlots: [{ dayOfWeek: 0, minuteOfDay: 60 }],
@@ -422,6 +617,7 @@ describe('Pipeline API boundaries', () => {
           id: 'paused-pipeline',
           name: 'Paused Pipeline',
           timezone: 'America/New_York',
+          color: '#00AAFF',
           active: false,
           scheduleRevision: 4,
           scheduleSlots: [{ dayOfWeek: 0, minuteOfDay: 9 * 60 }],
@@ -441,6 +637,7 @@ describe('Pipeline API boundaries', () => {
         pipelineId: 'active-pipeline',
         pipelineName: 'Active Pipeline',
         pipelineTimezone: 'UTC',
+        pipelineColor: '#FF5500',
         active: true,
         scheduleRevision: 3,
         dayOfWeek: 0,
@@ -452,6 +649,7 @@ describe('Pipeline API boundaries', () => {
         pipelineId: 'paused-pipeline',
         pipelineName: 'Paused Pipeline',
         pipelineTimezone: 'America/New_York',
+        pipelineColor: '#00AAFF',
         active: false,
         scheduleRevision: 4,
         dayOfWeek: 0,
@@ -482,6 +680,7 @@ describe('Pipeline API boundaries', () => {
         id: true,
         name: true,
         timezone: true,
+        color: true,
         active: true,
         scheduleRevision: true,
         scheduleSlots: {

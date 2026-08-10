@@ -3,6 +3,8 @@
 import { useCallback } from 'react';
 import useSWR from 'swr';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { PipelineCalendarPost } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import { parseApiError } from '@gitroom/frontend/components/pipelines/pipeline.utils';
 
 export const pipelineCalendarKey = (
   startDate: string,
@@ -25,10 +27,17 @@ export const usePipelineCalendar = (
   const fetch = useFetch();
 
   const load = useCallback(async () => {
-    return (await fetch(pipelineCalendarKey(startDate, endDate, customer))).json();
+    const response = await fetch(
+      pipelineCalendarKey(startDate, endDate, customer)
+    );
+    if (!response.ok) {
+      throw new Error(await parseApiError(response));
+    }
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
   }, [fetch, startDate, endDate, customer]);
 
-  return useSWR<any[]>(
+  return useSWR<PipelineCalendarPost[]>(
     enabled ? pipelineCalendarKey(startDate, endDate, customer) : null,
     load,
     {

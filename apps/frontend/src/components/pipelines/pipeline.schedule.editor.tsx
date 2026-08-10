@@ -7,6 +7,7 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { PipelineScheduleSlot } from '@gitroom/frontend/components/pipelines/pipeline.types';
 import { PipelineScheduleSlotTimeModal } from '@gitroom/frontend/components/pipelines/pipeline.schedule.slot.time.modal';
 import {
+  getReadableForegroundColor,
   minuteOfDayToTime,
   PIPELINE_DAYS,
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
@@ -14,16 +15,25 @@ import {
 const SlotPill: FC<{
   dayLabel: string;
   slot: PipelineScheduleSlot;
+  pipelineColor: string;
   onEdit: (slot: PipelineScheduleSlot, dayLabel: string) => void;
   onRemove: (slot: PipelineScheduleSlot) => void;
-}> = ({ dayLabel, slot, onEdit, onRemove }) => {
+}> = ({ dayLabel, slot, pipelineColor, onEdit, onRemove }) => {
   const timeLabel = minuteOfDayToTime(slot.minuteOfDay);
+  const foregroundColor = getReadableForegroundColor(pipelineColor);
 
   return (
-    <div className="flex items-center justify-between gap-[4px] rounded-[6px] bg-btnPrimary px-[7px] py-[4px] text-[12px] text-btnText">
+    <div
+      className="flex items-center justify-between gap-[4px] rounded-[6px] px-[7px] py-[4px] text-[12px]"
+      style={{
+        backgroundColor: pipelineColor,
+        color: foregroundColor,
+      }}
+    >
       <button
         type="button"
-        className="min-w-0 flex-1 cursor-pointer rounded text-start hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnText"
+        className="min-w-0 flex-1 cursor-pointer rounded text-start hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        style={{ outlineColor: foregroundColor }}
         aria-label={`Edit ${dayLabel} ${timeLabel} slot`}
         onClick={() => onEdit(slot, dayLabel)}
       >
@@ -31,7 +41,8 @@ const SlotPill: FC<{
       </button>
       <button
         type="button"
-        className="inline-flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded hover:bg-newBgColor focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnText"
+        className="inline-flex h-[20px] w-[20px] shrink-0 items-center justify-center rounded hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        style={{ outlineColor: foregroundColor }}
         aria-label={`Remove ${dayLabel} ${timeLabel} slot`}
         onClick={(event: MouseEvent<HTMLButtonElement>) => {
           event.stopPropagation();
@@ -91,8 +102,9 @@ const AddZone: FC<{
 
 export const PipelineScheduleEditor: FC<{
   value: PipelineScheduleSlot[];
+  pipelineColor: string;
   onChange: (value: PipelineScheduleSlot[]) => void;
-}> = ({ value, onChange }) => {
+}> = ({ value, pipelineColor, onChange }) => {
   const t = useT();
   const modal = useModals();
 
@@ -230,6 +242,7 @@ export const PipelineScheduleEditor: FC<{
                         key={`${slot.dayOfWeek}-${slot.minuteOfDay}`}
                         dayLabel={day.label}
                         slot={slot}
+                        pipelineColor={pipelineColor}
                         onEdit={openSlotTimeModal}
                         onRemove={removeSlot}
                       />
@@ -238,6 +251,7 @@ export const PipelineScheduleEditor: FC<{
                       <SlotPill
                         dayLabel={day.label}
                         slot={topSlot}
+                        pipelineColor={pipelineColor}
                         onEdit={openSlotTimeModal}
                         onRemove={removeSlot}
                       />
@@ -251,6 +265,7 @@ export const PipelineScheduleEditor: FC<{
                       <SlotPill
                         dayLabel={day.label}
                         slot={halfSlot}
+                        pipelineColor={pipelineColor}
                         onEdit={openSlotTimeModal}
                         onRemove={removeSlot}
                       />

@@ -14,6 +14,11 @@ import { PickPlatforms } from '@gitroom/frontend/components/launches/helpers/pic
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import { Integrations } from '@gitroom/frontend/components/launches/calendar.context';
 import { PipelineDetail } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import {
+  getReadableForegroundColor,
+  PIPELINE_COLOR_PALETTE,
+  PIPELINE_DEFAULT_COLOR,
+} from '@gitroom/frontend/components/pipelines/pipeline.utils';
 import { useCreatePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.create';
 import { useUpdatePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.update';
 
@@ -37,6 +42,7 @@ export const PipelineForm: FC<{
   const [selectedIntegrations, setSelectedIntegrations] = useState<Integrations[]>(
     pipeline?.channels?.map((channel) => ({ ...channel })) || []
   );
+  const [color, setColor] = useState(pipeline?.color || PIPELINE_DEFAULT_COLOR);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -71,6 +77,7 @@ export const PipelineForm: FC<{
       const payload = {
         name: name.trim(),
         timezone: timezoneValue,
+        color,
         integrations: selectedIntegrations.map((integration) => ({
           id: integration.id,
         })),
@@ -97,6 +104,7 @@ export const PipelineForm: FC<{
       setSaving(false);
     }
   }, [
+    color,
     createPipeline,
     modal,
     name,
@@ -140,6 +148,109 @@ export const PipelineForm: FC<{
           </option>
         ))}
       </Select>
+      <div className="flex flex-col gap-[8px]">
+        <div className="text-[14px] font-[600] text-textColor">
+          {t('pipeline_color', 'Pipeline color')}
+        </div>
+        <div className="flex flex-col gap-[10px]">
+          <div className="flex flex-wrap justify-center gap-[10px]">
+            {PIPELINE_COLOR_PALETTE.slice(0, 5).map((swatch) => (
+              <button
+                key={swatch.value}
+                type="button"
+                aria-label={swatch.label}
+                aria-pressed={color === swatch.value}
+                className="relative flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full border-2 border-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnPrimary"
+                style={{ backgroundColor: swatch.value }}
+                onClick={() => setColor(swatch.value)}
+              >
+                {color === swatch.value && (
+                  <svg
+                    viewBox="0 0 12 12"
+                    className="h-[14px] w-[14px] drop-shadow"
+                    style={{ color: getReadableForegroundColor(swatch.value) }}
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path
+                      d="M2 6.5l2.5 2.5L10 3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-center gap-[10px]">
+            {PIPELINE_COLOR_PALETTE.slice(5, 10).map((swatch) => (
+              <button
+                key={swatch.value}
+                type="button"
+                aria-label={swatch.label}
+                aria-pressed={color === swatch.value}
+                className="relative flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full border-2 border-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnPrimary"
+                style={{ backgroundColor: swatch.value }}
+                onClick={() => setColor(swatch.value)}
+              >
+                {color === swatch.value && (
+                  <svg
+                    viewBox="0 0 12 12"
+                    className="h-[14px] w-[14px] drop-shadow"
+                    style={{ color: getReadableForegroundColor(swatch.value) }}
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path
+                      d="M2 6.5l2.5 2.5L10 3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-center gap-[10px]">
+            {PIPELINE_COLOR_PALETTE.slice(10).map((swatch) => (
+              <button
+                key={swatch.value}
+                type="button"
+                aria-label={swatch.label}
+                aria-pressed={color === swatch.value}
+                className="relative flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-full border-2 border-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-btnPrimary"
+                style={{ backgroundColor: swatch.value }}
+                onClick={() => setColor(swatch.value)}
+              >
+                {color === swatch.value && (
+                  <svg
+                    viewBox="0 0 12 12"
+                    className="h-[14px] w-[14px] drop-shadow"
+                    style={{ color: getReadableForegroundColor(swatch.value) }}
+                    aria-hidden="true"
+                    focusable="false"
+                  >
+                    <path
+                      d="M2 6.5l2.5 2.5L10 3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
       <div className="flex flex-col gap-[8px]">
         <div className="text-[14px] font-[600] text-textColor">Channels</div>
         <div className="text-[13px] opacity-70">

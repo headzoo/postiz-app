@@ -201,7 +201,7 @@ export const Pipelines: FC = () => {
                 </div>
                 <div className="flex items-center gap-[10px] flex-wrap">
                   <Button onClick={() => router.push(`/pipelines/${pipeline.id}`)}>
-                    {t('open', 'Open')}
+                    {t('schedule', 'Schedule')}
                   </Button>
                   <Button secondary onClick={() => openEdit(pipeline)}>
                     {t('edit', 'Edit')}

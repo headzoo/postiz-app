@@ -41,6 +41,7 @@ export class PipelineService {
       id: pipeline.id,
       name: pipeline.name,
       timezone: pipeline.timezone,
+      color: pipeline.color,
       active: pipeline.active,
       scheduleRevision: pipeline.scheduleRevision,
       channels: pipeline.integrations.map(({ integration }) =>
@@ -110,6 +111,7 @@ export class PipelineService {
             creationMethod: 'QUEUE',
             pipelineId: pipeline.id,
             pipelineItemId: item.id,
+            pipelineColor: pipeline.color,
             tags: (post.tags || []).map((tag: any) => ({ tag: tag.tag })),
             integration: post.integration
               ? {
@@ -167,6 +169,7 @@ export class PipelineService {
             pipelineId: pipeline.id,
             pipelineName: pipeline.name,
             pipelineTimezone: pipeline.timezone,
+            pipelineColor: pipeline.color,
             active: pipeline.active,
             scheduleRevision: pipeline.scheduleRevision,
             dayOfWeek: occurrence.dayOfWeek,
@@ -198,6 +201,7 @@ export class PipelineService {
       id: pipeline.id,
       name: pipeline.name,
       timezone: pipeline.timezone,
+      color: pipeline.color,
       active: pipeline.active,
       scheduleRevision: pipeline.scheduleRevision,
       scheduleSlots: this.toScheduleSlots(pipeline.scheduleSlots),

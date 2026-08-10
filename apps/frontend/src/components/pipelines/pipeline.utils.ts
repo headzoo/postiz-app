@@ -167,6 +167,114 @@ export const shuffleQueuedOrder = <T extends { id: string }>(
   return shuffled;
 };
 
+export const PIPELINE_DEFAULT_COLOR = '#612BD3';
+
+export const PIPELINE_COLOR_PALETTE = [
+  { value: '#E80000', label: 'Red' },
+  { value: '#FF2638', label: 'Pink' },
+  { value: '#FF3F00', label: 'Orange' },
+  { value: '#FF8100', label: 'Amber' },
+  { value: '#FFBE00', label: 'Yellow' },
+  { value: PIPELINE_DEFAULT_COLOR, label: 'Purple' },
+  { value: '#0085C9', label: 'Blue' },
+  { value: '#00B7EA', label: 'Cyan' },
+  { value: '#00BA73', label: 'Green' },
+  { value: '#00833B', label: 'Dark green' },
+  { value: '#7785D0', label: 'Periwinkle' },
+  { value: '#9B01B0', label: 'Magenta' },
+  { value: '#F6756E', label: 'Coral' },
+  { value: '#616161', label: 'Gray' },
+] as const;
+
+export const resolveCalendarPostHeaderColor = (
+  pipelineColor?: string | null,
+  tagColor?: string | null
+): string | undefined => {
+  if (pipelineColor) {
+    return pipelineColor;
+  }
+  if (tagColor) {
+    return tagColor;
+  }
+  return undefined;
+};
+
+const READABLE_FOREGROUND_DARK = '#1A1A1A';
+const READABLE_FOREGROUND_DARK_PURE = '#000000';
+const READABLE_FOREGROUND_LIGHT = '#FFFFFF';
+
+const parseHexColor = (
+  backgroundColor: string
+): { red: number; green: number; blue: number } | null => {
+  const hex = backgroundColor.replace('#', '');
+  if (hex.length !== 6 || !/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return null;
+  }
+  return {
+    red: parseInt(hex.slice(0, 2), 16),
+    green: parseInt(hex.slice(2, 4), 16),
+    blue: parseInt(hex.slice(4, 6), 16),
+  };
+};
+
+const getRelativeLuminance = (red: number, green: number, blue: number): number => {
+  const toLinear = (channel: number) => {
+    const normalized = channel / 255;
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+  return (
+    0.2126 * toLinear(red) + 0.7152 * toLinear(green) + 0.0722 * toLinear(blue)
+  );
+};
+
+export const getContrastRatio = (
+  foregroundColor: string,
+  backgroundColor: string
+): number => {
+  const foreground = parseHexColor(foregroundColor);
+  const background = parseHexColor(backgroundColor);
+  if (!foreground || !background) {
+    return 1;
+  }
+  const foregroundLuminance = getRelativeLuminance(
+    foreground.red,
+    foreground.green,
+    foreground.blue
+  );
+  const backgroundLuminance = getRelativeLuminance(
+    background.red,
+    background.green,
+    background.blue
+  );
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
+export const getReadableForegroundColor = (backgroundColor: string): string => {
+  const background = parseHexColor(backgroundColor);
+  if (!background) {
+    return READABLE_FOREGROUND_LIGHT;
+  }
+  const darkContrast = Math.max(
+    getContrastRatio(READABLE_FOREGROUND_DARK, backgroundColor),
+    getContrastRatio(READABLE_FOREGROUND_DARK_PURE, backgroundColor)
+  );
+  const lightContrast = getContrastRatio(
+    READABLE_FOREGROUND_LIGHT,
+    backgroundColor
+  );
+  if (darkContrast >= lightContrast) {
+    return getContrastRatio(READABLE_FOREGROUND_DARK, backgroundColor) >=
+      getContrastRatio(READABLE_FOREGROUND_DARK_PURE, backgroundColor)
+      ? READABLE_FOREGROUND_DARK
+      : READABLE_FOREGROUND_DARK_PURE;
+  }
+  return READABLE_FOREGROUND_LIGHT;
+};
+
 export const parseApiError = async (response: Response): Promise<string> => {
   try {
     const body = await response.json();

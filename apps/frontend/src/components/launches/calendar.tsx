@@ -58,6 +58,10 @@ import copy from 'copy-to-clipboard';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
 import { Button } from '@gitroom/react/form/button';
+import {
+  getReadableForegroundColor,
+  resolveCalendarPostHeaderColor,
+} from '@gitroom/frontend/components/pipelines/pipeline.utils';
 
 // Extend dayjs with necessary plugins
 extend(isSameOrAfter);
@@ -1019,6 +1023,7 @@ const CalendarItem: FC<{
   showTime?: boolean;
   post: Post & {
     integration: Integration;
+    pipelineColor?: string;
     tags: {
       tag: Tags;
     }[];
@@ -1045,6 +1050,13 @@ const CalendarItem: FC<{
     user?.impersonate &&
     post.creationMethod &&
     post.creationMethod !== 'UNKNOWN';
+  const headerColor = resolveCalendarPostHeaderColor(
+    post.pipelineColor,
+    post?.tags?.[0]?.tag?.color
+  );
+  const headerForeground = headerColor
+    ? getReadableForegroundColor(headerColor)
+    : undefined;
   const preview = useCallback(() => {
     window.open(`/p/` + post.id + '?share=true', '_blank');
   }, [post]);
@@ -1095,15 +1107,19 @@ const CalendarItem: FC<{
       )}
       <div
         className={clsx(
-          'text-white text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center justify-center gap-[10px] px-[5px] bg-btnPrimary'
+          'text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center justify-center gap-[10px] px-[5px]',
+          !headerColor && 'text-white bg-btnPrimary'
         )}
         style={{
-          backgroundColor: post?.tags?.[0]?.tag?.color,
+          backgroundColor: headerColor,
+          color: headerForeground,
         }}
       >
         <div
           className={clsx(
-            post?.tags?.[0]?.tag?.color ? 'mix-blend-difference' : '',
+            !headerColor && post?.tags?.[0]?.tag?.color
+              ? 'mix-blend-difference'
+              : '',
             'group-hover:hidden cursor-pointer'
           )}
         >
@@ -1113,7 +1129,7 @@ const CalendarItem: FC<{
           <div
             className={clsx(
               'hidden group-hover:block hover:underline cursor-pointer',
-              post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
+              !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
             )}
             onClick={copyDebugJson}
           >
@@ -1123,7 +1139,7 @@ const CalendarItem: FC<{
         <div
           className={clsx(
             'hidden group-hover:block hover:underline cursor-pointer',
-            post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
+            !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
           )}
           onClick={duplicatePost}
         >
@@ -1132,7 +1148,7 @@ const CalendarItem: FC<{
         <div
           className={clsx(
             'hidden group-hover:block hover:underline cursor-pointer',
-            post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
+            !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
           )}
           onClick={preview}
         >
@@ -1144,7 +1160,7 @@ const CalendarItem: FC<{
           <div
             className={clsx(
               'hidden group-hover:block hover:underline cursor-pointer',
-              post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
+              !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
             )}
             onClick={missingRelease}
           >
@@ -1154,7 +1170,7 @@ const CalendarItem: FC<{
           <div
             className={clsx(
               'hidden group-hover:block hover:underline cursor-pointer',
-              post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
+              !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
             )}
             onClick={statistics}
           >
@@ -1166,7 +1182,7 @@ const CalendarItem: FC<{
         <div
           className={clsx(
             'hidden group-hover:block hover:underline cursor-pointer',
-            post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
+            !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
           )}
           onClick={deletePost}
         >

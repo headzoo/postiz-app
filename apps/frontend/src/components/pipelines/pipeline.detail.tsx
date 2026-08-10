@@ -295,6 +295,7 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
           )}
           <PipelineScheduleEditor
             value={draftScheduleSlots}
+            pipelineColor={data.color}
             onChange={updateDraftSchedule}
           />
         </div>

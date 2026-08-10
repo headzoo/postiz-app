@@ -9,6 +9,7 @@ export interface PipelineSummary {
   id: string;
   name: string;
   timezone: string;
+  color: string;
   active: boolean;
   scheduleRevision: number;
   channels: Integrations[];
@@ -52,6 +53,7 @@ export interface PipelineQueueItem {
 export interface CreatePipelinePayload {
   name: string;
   timezone: string;
+  color?: string;
   integrations: { id: string }[];
 }
 
@@ -66,11 +68,29 @@ export interface PipelineScheduleOccurrence {
   pipelineId: string;
   pipelineName: string;
   pipelineTimezone: string;
+  pipelineColor: string;
   active: boolean;
   scheduleRevision: number;
   dayOfWeek: number;
   minuteOfDay: number;
   scheduledFor: string;
+}
+
+export interface PipelineCalendarPost {
+  id: string;
+  content: string;
+  publishDate: string;
+  releaseURL: null;
+  releaseId: null;
+  state?: string;
+  intervalInDays: null;
+  group: string;
+  creationMethod: 'QUEUE';
+  pipelineId: string;
+  pipelineItemId: string;
+  pipelineColor: string;
+  tags: Array<{ tag: { name: string; color?: string } }>;
+  integration: Integrations;
 }
 
 export interface DeletePipelineScheduleSlotPayload extends PipelineScheduleSlot {}

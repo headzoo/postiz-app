@@ -638,6 +638,7 @@ model Pipeline {
   organizationId   String
   name             String
   timezone         String
+  color            String                 @default("#612BD3")
   active           Boolean                @default(true)
   scheduleRevision Int                    @default(1)
   deletedAt        DateTime?

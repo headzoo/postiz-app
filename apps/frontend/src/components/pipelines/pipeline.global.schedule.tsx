@@ -12,6 +12,7 @@ import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import {
   getPipelineScheduleWeek,
+  getReadableForegroundColor,
   minuteOfDayToTime,
   PIPELINE_DAYS,
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
@@ -187,8 +188,11 @@ export const PipelineGlobalSchedule: FC = () => {
       <div className="flex flex-wrap items-center gap-[12px] text-[13px]">
         <span className="font-[500]">{t('legend', 'Legend')}:</span>
         <span className="flex items-center gap-[6px]">
-          <span className="h-[12px] w-[12px] rounded-[3px] bg-btnPrimary" />
-          {t('active', 'Active')}
+          <span className="h-[12px] w-[12px] rounded-[3px] bg-gradient-to-r from-[#E80000] via-[#612BD3] to-[#00BA73]" />
+          {t(
+            'pipeline_schedule_active_legend',
+            'Active entries use Pipeline colors'
+          )}
         </span>
         <span className="flex items-center gap-[6px] opacity-60">
           <span className="h-[12px] w-[12px] rounded-[3px] border border-newBorder bg-newBgColor" />
@@ -269,6 +273,9 @@ export const PipelineGlobalSchedule: FC = () => {
                           occurrence,
                           displayTimezone
                         );
+                        const activeForeground = occurrence.active
+                          ? getReadableForegroundColor(occurrence.pipelineColor)
+                          : undefined;
                         return (
                           <div
                             key={occurrence.id}
@@ -276,9 +283,17 @@ export const PipelineGlobalSchedule: FC = () => {
                             className={clsx(
                               'flex min-w-0 items-center justify-between gap-[4px] rounded-[6px] px-[7px] py-[5px] text-[12px]',
                               occurrence.active
-                                ? 'bg-btnPrimary text-btnText'
+                                ? ''
                                 : 'border border-newBorder bg-newBgColorInner text-textColor opacity-60'
                             )}
+                            style={
+                              occurrence.active
+                                ? {
+                                    backgroundColor: occurrence.pipelineColor,
+                                    color: activeForeground,
+                                  }
+                                : undefined
+                            }
                           >
                             <span className="min-w-0 truncate" aria-label={`${occurrence.pipelineName}. ${details}`}>
                               {occurrence.pipelineName}

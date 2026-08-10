@@ -8,6 +8,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -22,6 +23,8 @@ export class PipelineIntegrationDto {
   @IsDefined()
   id: string;
 }
+
+const pipelineHexColorPattern = /^#[0-9A-Fa-f]{6}$/;
 
 export class PipelineScheduleSlotDto {
   @IsInt()
@@ -51,6 +54,13 @@ export class CreatePipelineDto {
   @Type(() => PipelineIntegrationDto)
   @ValidateNested({ each: true })
   integrations: PipelineIntegrationDto[];
+
+  @IsOptional()
+  @IsString()
+  @Matches(pipelineHexColorPattern, {
+    message: 'Pipeline color must be a six-digit hex value (#RRGGBB)',
+  })
+  color?: string;
 }
 
 export class UpdatePipelineDto extends CreatePipelineDto {}

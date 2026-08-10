@@ -129,6 +129,7 @@ export class PipelineRepository {
         id: true,
         name: true,
         timezone: true,
+        color: true,
         active: true,
         scheduleRevision: true,
         scheduleSlots: {
@@ -161,6 +162,7 @@ export class PipelineRepository {
         organizationId: orgId,
         name: body.name,
         timezone: body.timezone,
+        ...(body.color !== undefined ? { color: body.color } : {}),
         integrations: {
           create: body.integrations.map(({ id }) => ({ integrationId: id })),
         },
@@ -194,6 +196,7 @@ export class PipelineRepository {
         data: {
           name: body.name,
           timezone: body.timezone,
+          ...(body.color !== undefined ? { color: body.color } : {}),
           ...(integrationsChanged
             ? {
                 integrations: {
