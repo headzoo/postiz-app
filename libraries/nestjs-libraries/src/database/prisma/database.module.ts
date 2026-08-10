@@ -19,6 +19,7 @@ import { EmailService } from '@gitroom/nestjs-libraries/services/email.service';
 import { StripeService } from '@gitroom/nestjs-libraries/services/stripe.service';
 import { ExtractContentService } from '@gitroom/nestjs-libraries/openai/extract.content.service';
 import { OpenaiService } from '@gitroom/nestjs-libraries/openai/openai.service';
+import { GiphyService } from '@gitroom/nestjs-libraries/giphy/giphy.service';
 import { AgenciesService } from '@gitroom/nestjs-libraries/database/prisma/agencies/agencies.service';
 import { AgenciesRepository } from '@gitroom/nestjs-libraries/database/prisma/agencies/agencies.repository';
 import { TrackService } from '@gitroom/nestjs-libraries/track/track.service';
@@ -84,6 +85,7 @@ import { PipelineExecutionRepository } from '@gitroom/nestjs-libraries/database/
     RefreshIntegrationService,
     ExtractContentService,
     OpenaiService,
+    GiphyService,
     FalService,
     EmailService,
     TrackService,

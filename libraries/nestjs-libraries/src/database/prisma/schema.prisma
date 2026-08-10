@@ -222,6 +222,7 @@ model Media {
   thumbnail          String?
   alt                String?
   thumbnailTimestamp Int?
+  hidden             Boolean             @default(false)
   organization       Organization        @relation(fields: [organizationId], references: [id])
   agencies           SocialMediaAgency[]
   userPicture        User[]

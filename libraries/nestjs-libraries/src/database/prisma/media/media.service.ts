@@ -13,6 +13,23 @@ import {
   Sections,
   SubscriptionException,
 } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
+import { GiphyService } from '@gitroom/nestjs-libraries/giphy/giphy.service';
+import { getMaxSize } from '@gitroom/nestjs-libraries/upload/custom.upload.validation';
+import { ssrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
+import { Readable } from 'stream';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { fromBuffer } = require('file-type');
+
+const ALLOWED_MIME = new Set<string>([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/bmp',
+  'image/tiff',
+  'video/mp4',
+]);
 
 @Injectable()
 export class MediaService {
@@ -22,7 +39,8 @@ export class MediaService {
     private _mediaRepository: MediaRepository,
     private _openAi: OpenaiService,
     private _subscriptionService: SubscriptionService,
-    private _videoManager: VideoManager
+    private _videoManager: VideoManager,
+    private _giphyService: GiphyService
   ) {}
 
   async deleteMedia(org: string, id: string) {
@@ -57,8 +75,20 @@ export class MediaService {
     }
   }
 
-  saveFile(org: string, fileName: string, filePath: string, originalName?: string) {
-    return this._mediaRepository.saveFile(org, fileName, filePath, originalName);
+  saveFile(
+    org: string,
+    fileName: string,
+    filePath: string,
+    originalName?: string,
+    hidden = false
+  ) {
+    return this._mediaRepository.saveFile(
+      org,
+      fileName,
+      filePath,
+      originalName,
+      hidden
+    );
   }
 
   getMedia(org: string, page: number, search?: string) {
@@ -67,6 +97,67 @@ export class MediaService {
 
   saveMediaInformation(org: string, data: SaveMediaInformationDto) {
     return this._mediaRepository.saveMediaInformation(org, data);
+  }
+
+  searchGifs(q: string, offset = 0, limit = 25) {
+    return this._giphyService.search(q, offset, limit);
+  }
+
+  trendingGifs(offset = 0, limit = 25) {
+    return this._giphyService.trending(offset, limit);
+  }
+
+  async uploadFromUrl(org: string, url: string, hidden = false) {
+    let response: globalThis.Response;
+    try {
+      response = await fetch(url, {
+        // @ts-ignore — undici option, not in lib.dom fetch types
+        dispatcher: ssrfSafeDispatcher,
+      });
+    } catch {
+      throw new HttpException({ msg: 'Failed to fetch URL' }, 400);
+    }
+
+    if (!response.ok) {
+      throw new HttpException({ msg: 'Failed to fetch URL' }, 400);
+    }
+
+    const maxDownloadSize = getMaxSize('video/mp4');
+    const declaredSize = Number(response.headers.get('content-length'));
+    if (declaredSize && declaredSize > maxDownloadSize) {
+      throw new HttpException({ msg: 'File is too large.' }, 400);
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const detected = await fromBuffer(buffer);
+    if (!detected || !ALLOWED_MIME.has(detected.mime)) {
+      throw new HttpException({ msg: 'Unsupported file type.' }, 400);
+    }
+
+    if (buffer.length > getMaxSize(detected.mime)) {
+      throw new HttpException({ msg: 'File is too large.' }, 400);
+    }
+
+    const getFile = await this.storage.uploadFile({
+      buffer,
+      mimetype: detected.mime,
+      size: buffer.length,
+      path: '',
+      fieldname: '',
+      destination: '',
+      stream: new Readable(),
+      filename: '',
+      originalname: `upload.${detected.ext}`,
+      encoding: '',
+    });
+
+    return this.saveFile(
+      org,
+      getFile.originalname,
+      getFile.path,
+      getFile.originalname,
+      hidden
+    );
   }
 
   getVideoOptions() {

@@ -64,9 +64,15 @@ import {
   ResetIcon,
   TrashIcon,
   EmojiIcon,
+  GifIcon,
   DelayIcon,
 } from '@gitroom/frontend/components/ui/icons';
 import { DelayComponent } from '@gitroom/frontend/components/new-launch/delay.component';
+import {
+  GifPicker,
+  GiphyGifItem,
+} from '@gitroom/frontend/components/media/gif.picker';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 
 const MAX_UPLOAD_SIZE = 1024 * 1024 * 1024; // 1 GB
 
@@ -560,10 +566,15 @@ export const Editor: FC<{
   } = props;
   const [id] = useState(makeId(10));
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [giphyPickerOpen, setGiphyPickerOpen] = useState(false);
+  const [importingGif, setImportingGif] = useState(false);
   const t = useT();
   const toaster = useToaster();
+  const fetch = useFetch();
+  const { giphyEnabled } = useVariables();
   const editorRef = useRef<undefined | { editor: any }>(undefined);
   const [loading, setLoading] = useState(false);
+  const mediaNotAvailable = num > 0 && comments === 'no-media';
 
   const uppy = useUppyUploader({
     onUploadSuccess: (result: any) => {
@@ -669,6 +680,38 @@ export const Editor: FC<{
       editorRef?.current?.editor?.commands?.focus();
     },
     [props.value, id]
+  );
+
+  const importGif = useCallback(
+    async (gif: GiphyGifItem) => {
+      if (!appendImages || importingGif) {
+        return;
+      }
+      setImportingGif(true);
+      try {
+        const response = await fetch('/media/upload-from-url', {
+          method: 'POST',
+          body: JSON.stringify({ url: gif.url }),
+        });
+        if (!response.ok) {
+          throw new Error('Failed to import GIF');
+        }
+        const imported = await response.json();
+        if (!imported?.id || !imported?.path) {
+          throw new Error('Invalid import response');
+        }
+        appendImages([imported]);
+        setGiphyPickerOpen(false);
+      } catch {
+        toaster.show(
+          t('failed_to_import_gif', 'Failed to import GIF'),
+          'warning'
+        );
+      } finally {
+        setImportingGif(false);
+      }
+    },
+    [appendImages, fetch, importingGif, t, toaster]
   );
 
   const [loadedEditor, setLoadedEditor] = useState(editorType);
@@ -811,7 +854,10 @@ export const Editor: FC<{
                         data-tooltip-id="tooltip"
                         data-tooltip-content={t('insert_emoji', 'Insert Emoji')}
                         className="select-none cursor-pointer rounded-[6px] w-[30px] h-[30px] bg-newColColor flex justify-center items-center"
-                        onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}
+                        onClick={() => {
+                          setEmojiPickerOpen(!emojiPickerOpen);
+                          setGiphyPickerOpen(false);
+                        }}
                       >
                         <EmojiIcon />
                       </div>
@@ -838,6 +884,31 @@ export const Editor: FC<{
                           />
                         </div>
                       </div>
+                      {giphyEnabled && !mediaNotAvailable && (
+                        <div className="relative">
+                          <div
+                            data-tooltip-id="tooltip"
+                            data-tooltip-content={t('insert_gif', 'Insert GIF')}
+                            className="select-none cursor-pointer rounded-[6px] w-[30px] h-[30px] bg-newColColor flex justify-center items-center"
+                            onClick={() => {
+                              setGiphyPickerOpen(!giphyPickerOpen);
+                              setEmojiPickerOpen(false);
+                            }}
+                          >
+                            <GifIcon />
+                          </div>
+                          <GifPicker
+                            open={giphyPickerOpen}
+                            importing={importingGif}
+                            onSelect={importGif}
+                            placement={
+                              num === 0 && allValues?.length > 1
+                                ? 'bottom'
+                                : 'top'
+                            }
+                          />
+                        </div>
+                      )}
                     </div>
                   }
                   onChange={(value) => {

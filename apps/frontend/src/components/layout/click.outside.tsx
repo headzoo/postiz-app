@@ -4,10 +4,12 @@ export const useClickOutside = (callback: () => Promise<void>) => {
     const selector = document.querySelector('#add-edit-modal');
     const copilotkit = document.querySelector('.copilotKitPopup');
     const emoji = document.querySelector('.EmojiPickerReact');
+    const gif = document.querySelector('.GifPicker');
     if (
       !selector?.contains(event.target as HTMLElement) &&
       !copilotkit?.contains(event.target as HTMLElement) &&
-      !emoji
+      !emoji &&
+      !gif
     ) {
       callback();
     }

@@ -549,6 +549,42 @@ export const EmojiIcon: FC<IconProps> = ({
   </svg>
 );
 
+// GIF Icon
+export const GifIcon: FC<IconProps> = ({
+  size = 16,
+  className,
+  ...props
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    {...props}
+  >
+    <rect
+      x="1.5"
+      y="3.5"
+      width="13"
+      height="9"
+      rx="1.5"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <path
+      d="M4.2 9.5V6.5H5.55C6.2 6.5 6.65 6.9 6.65 7.45C6.65 8 6.2 8.4 5.55 8.4H4.85V9.5H4.2ZM4.85 7.85H5.45C5.75 7.85 5.95 7.7 5.95 7.45C5.95 7.2 5.75 7.05 5.45 7.05H4.85V7.85Z"
+      fill="currentColor"
+    />
+    <path d="M7.4 9.5V6.5H8.05V9.5H7.4Z" fill="currentColor" />
+    <path
+      d="M9.15 9.5V6.5H11.8V7.05H9.8V7.7H11.45V8.25H9.8V9.5H9.15Z"
+      fill="currentColor"
+    />
+  </svg>
+);
+
 // Chevron Left Icon
 export const ChevronLeftIcon: FC<IconProps> = ({
   size = 24,

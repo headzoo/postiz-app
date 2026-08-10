@@ -25,6 +25,11 @@ import { UploadFactory } from '@gitroom/nestjs-libraries/upload/upload.factory';
 import { SaveMediaInformationDto } from '@gitroom/nestjs-libraries/dtos/media/save.media.information.dto';
 import { VideoDto } from '@gitroom/nestjs-libraries/dtos/videos/video.dto';
 import { VideoFunctionDto } from '@gitroom/nestjs-libraries/dtos/videos/video.function.dto';
+import {
+  GiphySearchDto,
+  GiphyTrendingDto,
+} from '@gitroom/nestjs-libraries/dtos/media/giphy.search.dto';
+import { UploadDto } from '@gitroom/nestjs-libraries/dtos/media/upload.dto';
 
 @ApiTags('Media')
 @Controller('/media')
@@ -149,6 +154,28 @@ export class MediaController {
       getFile.path,
       originalName
     );
+  }
+
+  @Get('/gifs/trending')
+  trendingGifs(@Query() query: GiphyTrendingDto) {
+    return this._mediaService.trendingGifs(query.offset || 0, query.limit || 25);
+  }
+
+  @Get('/gifs/search')
+  searchGifs(@Query() query: GiphySearchDto) {
+    return this._mediaService.searchGifs(
+      query.q,
+      query.offset || 0,
+      query.limit || 25
+    );
+  }
+
+  @Post('/upload-from-url')
+  uploadFromUrl(
+    @GetOrgFromRequest() org: Organization,
+    @Body() body: UploadDto
+  ) {
+    return this._mediaService.uploadFromUrl(org.id, body.url, true);
   }
 
   @Post('/:endpoint')

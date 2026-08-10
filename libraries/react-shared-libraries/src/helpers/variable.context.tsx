@@ -32,6 +32,7 @@ interface VariableContextInterface {
   extensionId: string;
   googleAdsId?: string;
   googleAdsTrialTracking?: string;
+  giphyEnabled: boolean;
 }
 const VariableContext = createContext({
   stripeClient: '',
@@ -63,6 +64,7 @@ const VariableContext = createContext({
   transloadit: [],
   sentryDsn: '',
   extensionId: '',
+  giphyEnabled: false,
 } as VariableContextInterface);
 export const VariableContextComponent: FC<
   VariableContextInterface & {
