@@ -102,6 +102,32 @@ export interface DeletePipelineScheduleSlotResult {
   scheduleRevision: number;
 }
 
+export interface MovePipelineScheduleSlotPayload {
+  sourceDayOfWeek: number;
+  sourceMinuteOfDay: number;
+  targetDayOfWeek: number;
+  targetMinuteOfDay: number;
+  expectedScheduleRevision: number;
+}
+
+export interface MovePipelineScheduleSlotResult {
+  pipelineId: string;
+  source: PipelineScheduleSlot;
+  target: PipelineScheduleSlot;
+  scheduleRevision: number;
+}
+
+export interface PipelineScheduleDragItem {
+  source: PipelineScheduleSlot;
+  occurrenceId?: string;
+  pipelineId?: string;
+  pipelineName?: string;
+  pipelineTimezone?: string;
+  pipelineColor?: string;
+  active?: boolean;
+  expectedScheduleRevision?: number;
+}
+
 export interface ReorderPipelineQueuePayload {
   itemIds: string[];
 }

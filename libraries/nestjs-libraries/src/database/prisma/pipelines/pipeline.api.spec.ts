@@ -19,7 +19,10 @@ jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
 import { PipelineManager } from './pipeline.manager';
 import { PipelineRepository } from './pipeline.repository';
 import { PipelineService } from './pipeline.service';
-import { CreatePipelineDto } from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
+import {
+  CreatePipelineDto,
+  MovePipelineScheduleSlotDto,
+} from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
 
 describe('Pipeline API boundaries', () => {
   it('returns credential-free composer data for every queued channel', async () => {
@@ -801,6 +804,245 @@ describe('Pipeline API boundaries', () => {
       })
     ).rejects.toBeInstanceOf(ConflictException);
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('validates recurring schedule slot moves at the DTO boundary', () => {
+    const valid = plainToInstance(MovePipelineScheduleSlotDto, {
+      sourceDayOfWeek: 0,
+      sourceMinuteOfDay: 0,
+      targetDayOfWeek: 6,
+      targetMinuteOfDay: 1439,
+      expectedScheduleRevision: 1,
+    });
+    expect(validateSync(valid)).toHaveLength(0);
+
+    for (const body of [
+      { ...valid, sourceDayOfWeek: -1 },
+      { ...valid, sourceMinuteOfDay: 1440 },
+      { ...valid, targetDayOfWeek: 7 },
+      { ...valid, targetMinuteOfDay: -1 },
+      { ...valid, expectedScheduleRevision: 0 },
+      { ...valid, expectedScheduleRevision: 1.5 },
+    ]) {
+      expect(validateSync(plainToInstance(MovePipelineScheduleSlotDto, body)).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('moves exactly one paused Pipeline slot and increments its revision once', async () => {
+    const move = {
+      sourceDayOfWeek: 1,
+      sourceMinuteOfDay: 60,
+      targetDayOfWeek: 2,
+      targetMinuteOfDay: 120,
+      expectedScheduleRevision: 4,
+    };
+    const slotUpdate = jest.fn().mockResolvedValue({ count: 1 });
+    const revisionUpdate = jest.fn().mockResolvedValue({ count: 1 });
+    const findFirst = jest
+      .fn()
+      .mockResolvedValueOnce({ id: 'pipeline', scheduleRevision: 4, active: false });
+    const slotFindFirst = jest
+      .fn()
+      .mockResolvedValueOnce({ id: 'source-slot' })
+      .mockResolvedValueOnce(null);
+    const transaction = {
+      model: {
+        $transaction: jest.fn((callback: any, options: any) => {
+          expect(options.isolationLevel).toBe('Serializable');
+          return callback({
+            pipeline: { findFirst, updateMany: revisionUpdate },
+            pipelineScheduleSlot: { findFirst: slotFindFirst, updateMany: slotUpdate },
+          });
+        }),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(repository.movePipelineScheduleSlot('org', 'pipeline', move)).resolves.toEqual({
+      id: 'pipeline',
+      scheduleRevision: 5,
+    });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: 'pipeline', organizationId: 'org', deletedAt: null },
+      select: { id: true, scheduleRevision: true },
+    });
+    expect(slotUpdate).toHaveBeenCalledWith({
+      where: {
+        id: 'source-slot',
+        pipelineId: 'pipeline',
+        dayOfWeek: 1,
+        minuteOfDay: 60,
+      },
+      data: { dayOfWeek: 2, minuteOfDay: 120 },
+    });
+    expect(revisionUpdate).toHaveBeenCalledWith({
+      where: {
+        id: 'pipeline',
+        organizationId: 'org',
+        deletedAt: null,
+        scheduleRevision: 4,
+      },
+      data: { scheduleRevision: { increment: 1 } },
+    });
+  });
+
+  it('returns a no-op without changing revision after verifying revision and source', async () => {
+    const slotUpdate = jest.fn();
+    const revisionUpdate = jest.fn();
+    const transaction = {
+      model: {
+        $transaction: jest.fn((callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'pipeline', scheduleRevision: 4 }),
+              updateMany: revisionUpdate,
+            },
+            pipelineScheduleSlot: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'source-slot' }),
+              updateMany: slotUpdate,
+            },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(
+      repository.movePipelineScheduleSlot('org', 'pipeline', {
+        sourceDayOfWeek: 1,
+        sourceMinuteOfDay: 60,
+        targetDayOfWeek: 1,
+        targetMinuteOfDay: 60,
+        expectedScheduleRevision: 4,
+      })
+    ).resolves.toEqual({ id: 'pipeline', scheduleRevision: 4 });
+    expect(slotUpdate).not.toHaveBeenCalled();
+    expect(revisionUpdate).not.toHaveBeenCalled();
+  });
+
+  it('maps move conflicts to distinct refresh and duplicate responses', async () => {
+    const repository = {
+      movePipelineScheduleSlot: jest
+        .fn()
+        .mockResolvedValueOnce('stale-revision')
+        .mockResolvedValueOnce('missing-source')
+        .mockResolvedValueOnce('occupied')
+        .mockResolvedValueOnce('not-found'),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+    const move = {
+      sourceDayOfWeek: 1,
+      sourceMinuteOfDay: 60,
+      targetDayOfWeek: 2,
+      targetMinuteOfDay: 120,
+      expectedScheduleRevision: 4,
+    };
+
+    await expect(service.movePipelineScheduleSlot('org', 'pipeline', move)).rejects.toMatchObject({
+      message: 'Pipeline schedule changed; refresh and try again',
+    });
+    await expect(service.movePipelineScheduleSlot('org', 'pipeline', move)).rejects.toMatchObject({
+      message: 'Pipeline schedule source no longer exists; refresh and try again',
+    });
+    await expect(service.movePipelineScheduleSlot('org', 'pipeline', move)).rejects.toMatchObject({
+      message: 'Pipeline schedule target is already occupied',
+    });
+    await expect(service.movePipelineScheduleSlot('org', 'pipeline', move)).rejects.toMatchObject({
+      message: 'Pipeline not found',
+    });
+  });
+
+  it('does not revise a missing source and classifies a target uniqueness race as occupied', async () => {
+    const revisionUpdate = jest.fn();
+    const staleTransaction = {
+      model: {
+        $transaction: jest.fn((callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'pipeline', scheduleRevision: 4 }),
+              updateMany: revisionUpdate,
+            },
+            pipelineScheduleSlot: { findFirst: jest.fn().mockResolvedValue(null) },
+          })
+        ),
+      },
+    };
+    const staleRepository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      staleTransaction as any
+    );
+    const move = {
+      sourceDayOfWeek: 1,
+      sourceMinuteOfDay: 60,
+      targetDayOfWeek: 2,
+      targetMinuteOfDay: 120,
+      expectedScheduleRevision: 4,
+    };
+
+    await expect(staleRepository.movePipelineScheduleSlot('org', 'pipeline', move)).resolves.toBe(
+      'missing-source'
+    );
+    expect(revisionUpdate).not.toHaveBeenCalled();
+
+    const occupiedRevisionUpdate = jest.fn();
+    const occupiedRepository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      {
+        model: {
+          $transaction: jest.fn((callback: any) =>
+            callback({
+              pipeline: {
+                findFirst: jest.fn().mockResolvedValue({ id: 'pipeline', scheduleRevision: 4 }),
+                updateMany: occupiedRevisionUpdate,
+              },
+              pipelineScheduleSlot: {
+                findFirst: jest
+                  .fn()
+                  .mockResolvedValueOnce({ id: 'source-slot' })
+                  .mockResolvedValueOnce({ id: 'target-slot' }),
+              },
+            })
+          ),
+        },
+      } as any
+    );
+    await expect(occupiedRepository.movePipelineScheduleSlot('org', 'pipeline', move)).resolves.toBe(
+      'occupied'
+    );
+    expect(occupiedRevisionUpdate).not.toHaveBeenCalled();
+
+    const raceRepository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      {
+        model: {
+          $transaction: jest.fn().mockRejectedValue({ code: 'P2002' }),
+        },
+      } as any
+    );
+    await expect(raceRepository.movePipelineScheduleSlot('org', 'pipeline', move)).resolves.toBe(
+      'occupied'
+    );
   });
 
   it('rejects duplicate bulk queue IDs before attempting a reorder', async () => {

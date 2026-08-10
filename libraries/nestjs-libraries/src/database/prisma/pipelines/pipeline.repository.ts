@@ -16,6 +16,8 @@ const QUEUE_POSITION_INCREMENT = 1024;
 const TRANSACTION_ATTEMPTS = 3;
 
 class PipelineQueueChangedError extends Error {}
+class PipelineScheduleRevisionChangedError extends Error {}
+class PipelineScheduleSourceChangedError extends Error {}
 
 export const pipelineIntegrationSelect = {
   id: true,
@@ -277,6 +279,112 @@ export class PipelineRepository {
         select: { id: true, scheduleRevision: true },
       });
     });
+  }
+
+  async movePipelineScheduleSlot(
+    orgId: string,
+    id: string,
+    slot: {
+      sourceDayOfWeek: number;
+      sourceMinuteOfDay: number;
+      targetDayOfWeek: number;
+      targetMinuteOfDay: number;
+      expectedScheduleRevision: number;
+    }
+  ) {
+    try {
+      return await this.withSerializableRetry(async (tx) => {
+        const pipeline = await tx.pipeline.findFirst({
+          where: { id, organizationId: orgId, deletedAt: null },
+          select: { id: true, scheduleRevision: true },
+        });
+        if (!pipeline) {
+          return 'not-found' as const;
+        }
+        if (pipeline.scheduleRevision !== slot.expectedScheduleRevision) {
+          return 'stale-revision' as const;
+        }
+
+        const source = await tx.pipelineScheduleSlot.findFirst({
+          where: {
+            pipelineId: id,
+            dayOfWeek: slot.sourceDayOfWeek,
+            minuteOfDay: slot.sourceMinuteOfDay,
+          },
+          select: { id: true },
+        });
+        if (!source) {
+          return 'missing-source' as const;
+        }
+
+        if (
+          slot.sourceDayOfWeek === slot.targetDayOfWeek &&
+          slot.sourceMinuteOfDay === slot.targetMinuteOfDay
+        ) {
+          return {
+            id: pipeline.id,
+            scheduleRevision: pipeline.scheduleRevision,
+          };
+        }
+
+        const target = await tx.pipelineScheduleSlot.findFirst({
+          where: {
+            pipelineId: id,
+            dayOfWeek: slot.targetDayOfWeek,
+            minuteOfDay: slot.targetMinuteOfDay,
+          },
+          select: { id: true },
+        });
+        if (target) {
+          return 'occupied' as const;
+        }
+
+        const moved = await tx.pipelineScheduleSlot.updateMany({
+          where: {
+            id: source.id,
+            pipelineId: id,
+            dayOfWeek: slot.sourceDayOfWeek,
+            minuteOfDay: slot.sourceMinuteOfDay,
+          },
+          data: {
+            dayOfWeek: slot.targetDayOfWeek,
+            minuteOfDay: slot.targetMinuteOfDay,
+          },
+        });
+        if (moved.count !== 1) {
+          throw new PipelineScheduleSourceChangedError();
+        }
+
+        const revised = await tx.pipeline.updateMany({
+          where: {
+            id,
+            organizationId: orgId,
+            deletedAt: null,
+            scheduleRevision: slot.expectedScheduleRevision,
+          },
+          data: { scheduleRevision: { increment: 1 } },
+        });
+        if (revised.count !== 1) {
+          throw new PipelineScheduleRevisionChangedError();
+        }
+
+        return {
+          id: pipeline.id,
+          scheduleRevision: pipeline.scheduleRevision + 1,
+        };
+      });
+    } catch (error: any) {
+      if (error instanceof PipelineScheduleRevisionChangedError) {
+        return 'stale-revision' as const;
+      }
+      if (error instanceof PipelineScheduleSourceChangedError) {
+        return 'missing-source' as const;
+      }
+      if (error?.code === 'P2002') {
+        return 'occupied' as const;
+      }
+      throw error;
+    }
   }
 
   async reorderQueuedItems(orgId: string, pipelineId: string, itemIds: string[]) {

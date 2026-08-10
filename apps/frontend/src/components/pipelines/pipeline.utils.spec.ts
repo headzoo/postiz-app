@@ -3,12 +3,16 @@ import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { PipelineScheduleOccurrence } from '@gitroom/frontend/components/pipelines/pipeline.types';
 import {
+  convertDisplayScheduleTargetToPipelineSlot,
   getContrastRatio,
   getPipelineScheduleWeek,
   getReadableForegroundColor,
   loadPipelineGlobalSchedule,
+  pipelineScheduleSlotKey,
+  pipelineScheduleSlotsEqual,
   PIPELINE_COLOR_PALETTE,
   PIPELINE_DEFAULT_COLOR,
+  PIPELINE_SCHEDULE_DRAG_TYPE,
   resolveCalendarPostHeaderColor,
 } from './pipeline.utils';
 
@@ -16,6 +20,143 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const NEW_YORK = 'America/New_York';
+
+describe('PIPELINE_SCHEDULE_DRAG_TYPE', () => {
+  it('does not collide with post or queue drag types', () => {
+    expect(PIPELINE_SCHEDULE_DRAG_TYPE).toBe('pipeline-schedule-slot');
+    expect(PIPELINE_SCHEDULE_DRAG_TYPE).not.toBe('post');
+    expect(PIPELINE_SCHEDULE_DRAG_TYPE).not.toBe('pipeline-queue-item');
+  });
+});
+
+describe('pipelineScheduleSlotKey', () => {
+  it('builds stable exact-slot keys', () => {
+    expect(pipelineScheduleSlotKey({ dayOfWeek: 1, minuteOfDay: 540 })).toBe(
+      '1:540'
+    );
+  });
+});
+
+describe('pipelineScheduleSlotsEqual', () => {
+  it('matches identical recurring coordinates', () => {
+    expect(
+      pipelineScheduleSlotsEqual(
+        { dayOfWeek: 3, minuteOfDay: 930 },
+        { dayOfWeek: 3, minuteOfDay: 930 }
+      )
+    ).toBe(true);
+  });
+
+  it('rejects differing day or minute', () => {
+    expect(
+      pipelineScheduleSlotsEqual(
+        { dayOfWeek: 3, minuteOfDay: 930 },
+        { dayOfWeek: 4, minuteOfDay: 930 }
+      )
+    ).toBe(false);
+    expect(
+      pipelineScheduleSlotsEqual(
+        { dayOfWeek: 3, minuteOfDay: 930 },
+        { dayOfWeek: 3, minuteOfDay: 960 }
+      )
+    ).toBe(false);
+  });
+});
+
+describe('convertDisplayScheduleTargetToPipelineSlot', () => {
+  it('keeps same-timezone Monday 9:00 on the same recurring slot', () => {
+    const result = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-03-10',
+      9 * 60,
+      NEW_YORK,
+      NEW_YORK
+    );
+    expect(result).toEqual({ ok: true, dayOfWeek: 1, minuteOfDay: 540 });
+  });
+
+  it('rolls display UTC late evening into the next Pipeline-local day', () => {
+    const result = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-03-11',
+      5 * 60 + 30,
+      'UTC',
+      NEW_YORK
+    );
+    expect(result).toEqual({ ok: true, dayOfWeek: 2, minuteOfDay: 90 });
+  });
+
+  it('rolls display UTC early morning into the previous Pipeline-local day', () => {
+    const result = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-03-11',
+      2 * 60 + 30,
+      'UTC',
+      NEW_YORK
+    );
+    expect(result).toEqual({
+      ok: true,
+      dayOfWeek: 1,
+      minuteOfDay: 22 * 60 + 30,
+    });
+  });
+
+  it('handles half-hour offset zones across date boundaries', () => {
+    const result = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-03-10',
+      18 * 60 + 30,
+      'Asia/Kolkata',
+      NEW_YORK
+    );
+    expect(result).toEqual({ ok: true, dayOfWeek: 1, minuteOfDay: 9 * 60 });
+  });
+
+  it('maps Pipeline-local Saturday and Sunday boundaries from display time', () => {
+    const saturday = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-03-14',
+      10 * 60,
+      NEW_YORK,
+      'Pacific/Kiritimati'
+    );
+    expect(saturday).toEqual({ ok: true, dayOfWeek: 6, minuteOfDay: 4 * 60 });
+
+    const sunday = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-03-15',
+      10 * 60,
+      NEW_YORK,
+      'Pacific/Kiritimati'
+    );
+    expect(sunday).toEqual({ ok: true, dayOfWeek: 0, minuteOfDay: 4 * 60 });
+  });
+
+  it('rejects a spring-forward nonexistent display target', () => {
+    const result = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-03-09',
+      2 * 60 + 30,
+      NEW_YORK,
+      NEW_YORK
+    );
+    expect(result).toEqual({ ok: false, reason: 'nonexistent' });
+  });
+
+  it('uses Day.js first-occurrence policy for ambiguous fall-back targets', () => {
+    const result = convertDisplayScheduleTargetToPipelineSlot(
+      '2025-11-02',
+      1 * 60 + 30,
+      NEW_YORK,
+      NEW_YORK
+    );
+    expect(result).toEqual({ ok: true, dayOfWeek: 0, minuteOfDay: 90 });
+  });
+
+  it('rejects off-half-hour display minutes', () => {
+    expect(
+      convertDisplayScheduleTargetToPipelineSlot(
+        '2025-03-10',
+        9 * 60 + 15,
+        NEW_YORK,
+        NEW_YORK
+      )
+    ).toEqual({ ok: false, reason: 'invalid' });
+  });
+});
 
 describe('getPipelineScheduleWeek', () => {
   it('uses the local New York midnights around spring-forward', () => {

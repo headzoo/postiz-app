@@ -290,6 +290,71 @@ export const parseApiError = async (response: Response): Promise<string> => {
   return 'Something went wrong. Please try again.';
 };
 
+export const PIPELINE_SCHEDULE_DRAG_TYPE = 'pipeline-schedule-slot';
+
+export const pipelineScheduleSlotKey = (slot: PipelineScheduleSlot): string =>
+  `${slot.dayOfWeek}:${slot.minuteOfDay}`;
+
+export const pipelineScheduleSlotsEqual = (
+  left: PipelineScheduleSlot,
+  right: PipelineScheduleSlot
+): boolean =>
+  left.dayOfWeek === right.dayOfWeek &&
+  left.minuteOfDay === right.minuteOfDay;
+
+export type DisplayScheduleTargetConversionResult =
+  | { ok: true; dayOfWeek: number; minuteOfDay: number }
+  | { ok: false; reason: 'invalid' | 'nonexistent' };
+
+const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+export const convertDisplayScheduleTargetToPipelineSlot = (
+  displayCalendarDate: string,
+  targetDisplayMinuteOfDay: number,
+  displayTimezone: string,
+  pipelineTimezone: string
+): DisplayScheduleTargetConversionResult => {
+  if (!CALENDAR_DATE_PATTERN.test(displayCalendarDate)) {
+    return { ok: false, reason: 'invalid' };
+  }
+  if (
+    !Number.isInteger(targetDisplayMinuteOfDay) ||
+    targetDisplayMinuteOfDay < 0 ||
+    targetDisplayMinuteOfDay > 1439 ||
+    targetDisplayMinuteOfDay % 30 !== 0
+  ) {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  const hours = Math.floor(targetDisplayMinuteOfDay / 60);
+  const minutes = targetDisplayMinuteOfDay % 60;
+  const wallTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+  const displayInstant = dayjs.tz(
+    `${displayCalendarDate}T${wallTime}`,
+    displayTimezone
+  );
+  if (!displayInstant.isValid()) {
+    return { ok: false, reason: 'nonexistent' };
+  }
+
+  const roundTripDate = displayInstant.format('YYYY-MM-DD');
+  const roundTripMinuteOfDay =
+    displayInstant.hour() * 60 + displayInstant.minute();
+  if (
+    roundTripDate !== displayCalendarDate ||
+    roundTripMinuteOfDay !== targetDisplayMinuteOfDay
+  ) {
+    return { ok: false, reason: 'nonexistent' };
+  }
+
+  const pipelineLocal = displayInstant.tz(pipelineTimezone);
+  return {
+    ok: true,
+    dayOfWeek: pipelineLocal.day(),
+    minuteOfDay: pipelineLocal.hour() * 60 + pipelineLocal.minute(),
+  };
+};
+
 export const loadPipelineGlobalSchedule = async (
   fetchFn: (url: string) => Promise<Response>,
   url: string

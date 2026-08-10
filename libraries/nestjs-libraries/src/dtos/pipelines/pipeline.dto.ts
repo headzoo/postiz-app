@@ -85,6 +85,32 @@ export class GetPipelineScheduleDto {
 
 export class DeletePipelineScheduleSlotDto extends PipelineScheduleSlotDto {}
 
+export class MovePipelineScheduleSlotDto {
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  sourceDayOfWeek: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  sourceMinuteOfDay: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  targetDayOfWeek: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(1439)
+  targetMinuteOfDay: number;
+
+  @IsInt()
+  @Min(1)
+  expectedScheduleRevision: number;
+}
+
 export class ReorderPipelineQueueDto {
   @IsArray()
   @IsDefined()

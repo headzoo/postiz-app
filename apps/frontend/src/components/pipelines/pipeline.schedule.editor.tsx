@@ -1,15 +1,23 @@
 'use client';
 
-import { FC, Fragment, MouseEvent, useCallback } from 'react';
+import { FC, Fragment, MouseEvent, ReactNode, useCallback } from 'react';
 import clsx from 'clsx';
+import { useDrag, useDrop } from 'react-dnd';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { DNDProvider } from '@gitroom/frontend/components/launches/helpers/dnd.provider';
+import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { PipelineScheduleSlot } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import {
+  PipelineScheduleDragItem,
+  PipelineScheduleSlot,
+} from '@gitroom/frontend/components/pipelines/pipeline.types';
 import { PipelineScheduleSlotTimeModal } from '@gitroom/frontend/components/pipelines/pipeline.schedule.slot.time.modal';
 import {
   getReadableForegroundColor,
   minuteOfDayToTime,
   PIPELINE_DAYS,
+  PIPELINE_SCHEDULE_DRAG_TYPE,
+  pipelineScheduleSlotsEqual,
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
 
 const SlotPill: FC<{
@@ -21,15 +29,36 @@ const SlotPill: FC<{
 }> = ({ dayLabel, slot, pipelineColor, onEdit, onRemove }) => {
   const timeLabel = minuteOfDayToTime(slot.minuteOfDay);
   const foregroundColor = getReadableForegroundColor(pipelineColor);
+  const [{ isDragging }, drag] = useDrag(
+    () => ({
+      type: PIPELINE_SCHEDULE_DRAG_TYPE,
+      item: { source: slot } satisfies PipelineScheduleDragItem,
+      collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+    }),
+    [slot.dayOfWeek, slot.minuteOfDay]
+  );
 
   return (
     <div
-      className="flex items-center justify-between gap-[4px] rounded-[6px] px-[7px] py-[4px] text-[12px]"
+      className={clsx(
+        'flex items-center justify-between gap-[4px] rounded-[6px] px-[4px] py-[4px] text-[12px]',
+        isDragging && 'opacity-40'
+      )}
       style={{
         backgroundColor: pipelineColor,
         color: foregroundColor,
       }}
     >
+      <button
+        // @ts-ignore react-dnd connector type
+        ref={drag}
+        type="button"
+        className="inline-flex h-[20px] w-[16px] shrink-0 cursor-grab items-center justify-center rounded active:cursor-grabbing hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+        style={{ outlineColor: foregroundColor }}
+        aria-label={`Drag ${dayLabel} ${timeLabel} slot`}
+      >
+        ⠿
+      </button>
       <button
         type="button"
         className="min-w-0 flex-1 cursor-pointer rounded text-start hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -100,13 +129,69 @@ const AddZone: FC<{
   </div>
 );
 
-export const PipelineScheduleEditor: FC<{
+const ScheduleDropZone: FC<{
+  dayOfWeek: number;
+  minuteOfDay: number;
+  value: PipelineScheduleSlot[];
+  onMoveSlot: (
+    source: PipelineScheduleSlot,
+    targetDayOfWeek: number,
+    targetMinuteOfDay: number
+  ) => void;
+  children: ReactNode;
+}> = ({ dayOfWeek, minuteOfDay, value, onMoveSlot, children }) => {
+  const [{ isOver, draggedItem }, drop] = useDrop(
+    () => ({
+      accept: PIPELINE_SCHEDULE_DRAG_TYPE,
+      drop: (item: PipelineScheduleDragItem) => {
+        onMoveSlot(item.source, dayOfWeek, minuteOfDay);
+      },
+      collect: (monitor) => ({
+        isOver: monitor.isOver({ shallow: true }),
+        draggedItem: monitor.getItem<PipelineScheduleDragItem>(),
+      }),
+    }),
+    [dayOfWeek, minuteOfDay, onMoveSlot]
+  );
+
+  const target: PipelineScheduleSlot = { dayOfWeek, minuteOfDay };
+  const isIdenticalTarget =
+    draggedItem != null &&
+    pipelineScheduleSlotsEqual(draggedItem.source, target);
+  const isOccupied = value.some(
+    (slot) =>
+      slot.dayOfWeek === dayOfWeek && slot.minuteOfDay === minuteOfDay
+  );
+  const isValidVisualTarget = !isIdenticalTarget && !isOccupied;
+
+  return (
+    <div
+      // @ts-ignore react-dnd connector type
+      ref={drop}
+      className={clsx(
+        'flex min-h-[28px] flex-1 flex-col justify-center rounded-[6px] border border-transparent transition-colors',
+        isOver &&
+          isValidVisualTarget &&
+          'border-btnPrimary bg-btnPrimary/10 cursor-copy',
+        isOver &&
+          !isValidVisualTarget &&
+          !isIdenticalTarget &&
+          'border-red-500/40 bg-red-500/5 cursor-not-allowed opacity-80'
+      )}
+    >
+      {children}
+    </div>
+  );
+};
+
+const PipelineScheduleEditorContent: FC<{
   value: PipelineScheduleSlot[];
   pipelineColor: string;
   onChange: (value: PipelineScheduleSlot[]) => void;
 }> = ({ value, pipelineColor, onChange }) => {
   const t = useT();
   const modal = useModals();
+  const toaster = useToaster();
 
   const addSlot = (dayOfWeek: number, minuteOfDay: number) => {
     if (
@@ -129,6 +214,42 @@ export const PipelineScheduleEditor: FC<{
       )
     );
   };
+
+  const moveSlot = useCallback(
+    (
+      source: PipelineScheduleSlot,
+      targetDayOfWeek: number,
+      targetMinuteOfDay: number
+    ) => {
+      const target: PipelineScheduleSlot = {
+        dayOfWeek: targetDayOfWeek,
+        minuteOfDay: targetMinuteOfDay,
+      };
+      if (pipelineScheduleSlotsEqual(source, target)) {
+        return;
+      }
+      const isOccupied = value.some(
+        (slot) =>
+          slot.dayOfWeek === targetDayOfWeek &&
+          slot.minuteOfDay === targetMinuteOfDay
+      );
+      if (isOccupied) {
+        toaster.show(
+          t(
+            'pipeline_schedule_slot_duplicate',
+            'A slot already exists at this time for this day.'
+          ),
+          'warning'
+        );
+        return;
+      }
+      onChange([
+        ...value.filter((slot) => !pipelineScheduleSlotsEqual(slot, source)),
+        target,
+      ]);
+    },
+    [onChange, t, toaster, value]
+  );
 
   const updateSlotTime = useCallback(
     (oldSlot: PipelineScheduleSlot, newMinuteOfDay: number) => {
@@ -191,8 +312,8 @@ export const PipelineScheduleEditor: FC<{
       <div className="text-[13px] opacity-70">
         Add slots by hour, then click a slot to set a specific minute. After
         adding the top of an hour, you can add a second slot at the half hour.
-        Existing off-hour slots are retained and can be removed. Times use the
-        Pipeline timezone.
+        Existing off-hour slots are retained and can be removed. Drag a slot to
+        move it to another day or half-hour. Times use the Pipeline timezone.
       </div>
       <div className="max-h-[640px] overflow-auto rounded-[10px] border border-newBorder bg-newBorder scrollbar scrollbar-thumb-newBorder scrollbar-track-newBgColor">
         <div className="grid min-w-[1004px] grid-cols-[80px_repeat(7,_minmax(132px,_1fr))] gap-px">
@@ -247,36 +368,50 @@ export const PipelineScheduleEditor: FC<{
                         onRemove={removeSlot}
                       />
                     ))}
-                    {topSlot ? (
-                      <SlotPill
-                        dayLabel={day.label}
-                        slot={topSlot}
-                        pipelineColor={pipelineColor}
-                        onEdit={openSlotTimeModal}
-                        onRemove={removeSlot}
-                      />
-                    ) : (
-                      <AddZone
-                        ariaLabel={`Add ${day.label} ${hourLabel}:00 slot`}
-                        onClick={() => addSlot(day.dayOfWeek, topMinute)}
-                      />
-                    )}
-                    {halfSlot ? (
-                      <SlotPill
-                        dayLabel={day.label}
-                        slot={halfSlot}
-                        pipelineColor={pipelineColor}
-                        onEdit={openSlotTimeModal}
-                        onRemove={removeSlot}
-                      />
-                    ) : (
-                      topSlot && (
-                        <AddZone
-                          ariaLabel={`Add ${day.label} ${hourLabel}:30 slot`}
-                          onClick={() => addSlot(day.dayOfWeek, halfMinute)}
+                    <ScheduleDropZone
+                      dayOfWeek={day.dayOfWeek}
+                      minuteOfDay={topMinute}
+                      value={value}
+                      onMoveSlot={moveSlot}
+                    >
+                      {topSlot ? (
+                        <SlotPill
+                          dayLabel={day.label}
+                          slot={topSlot}
+                          pipelineColor={pipelineColor}
+                          onEdit={openSlotTimeModal}
+                          onRemove={removeSlot}
                         />
-                      )
-                    )}
+                      ) : (
+                        <AddZone
+                          ariaLabel={`Add ${day.label} ${hourLabel}:00 slot`}
+                          onClick={() => addSlot(day.dayOfWeek, topMinute)}
+                        />
+                      )}
+                    </ScheduleDropZone>
+                    <ScheduleDropZone
+                      dayOfWeek={day.dayOfWeek}
+                      minuteOfDay={halfMinute}
+                      value={value}
+                      onMoveSlot={moveSlot}
+                    >
+                      {halfSlot ? (
+                        <SlotPill
+                          dayLabel={day.label}
+                          slot={halfSlot}
+                          pipelineColor={pipelineColor}
+                          onEdit={openSlotTimeModal}
+                          onRemove={removeSlot}
+                        />
+                      ) : (
+                        topSlot && (
+                          <AddZone
+                            ariaLabel={`Add ${day.label} ${hourLabel}:30 slot`}
+                            onClick={() => addSlot(day.dayOfWeek, halfMinute)}
+                          />
+                        )
+                      )}
+                    </ScheduleDropZone>
                   </div>
                 );
               })}
@@ -287,3 +422,13 @@ export const PipelineScheduleEditor: FC<{
     </div>
   );
 };
+
+export const PipelineScheduleEditor: FC<{
+  value: PipelineScheduleSlot[];
+  pipelineColor: string;
+  onChange: (value: PipelineScheduleSlot[]) => void;
+}> = (props) => (
+  <DNDProvider>
+    <PipelineScheduleEditorContent {...props} />
+  </DNDProvider>
+);

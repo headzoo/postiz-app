@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -20,6 +21,7 @@ import {
   GetPipelineScheduleDto,
   ManualSchedulePipelineItemDto,
   MovePipelineQueueItemDto,
+  MovePipelineScheduleSlotDto,
   PipelineItemActionDto,
   PipelineStatusDto,
   ReorderPipelineQueueDto,
@@ -142,6 +144,15 @@ export class PipelinesController {
     @Body() body: DeletePipelineScheduleSlotDto
   ) {
     return this._pipelineService.deletePipelineScheduleSlot(org.id, id, body);
+  }
+
+  @Patch('/:id/schedule/slot')
+  movePipelineScheduleSlot(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: MovePipelineScheduleSlotDto
+  ) {
+    return this._pipelineService.movePipelineScheduleSlot(org.id, id, body);
   }
 
   @Post('/:id/items/reorder')

@@ -9,6 +9,7 @@ import {
   DeletePipelineScheduleSlotDto,
   GetPipelineScheduleDto,
   MovePipelineQueueItemDto,
+  MovePipelineScheduleSlotDto,
   ReorderPipelineQueueDto,
   ReorderPipelineQueueItemDto,
   UpdatePipelineScheduleDto,
@@ -282,6 +283,44 @@ export class PipelineService {
       pipelineId: result.id,
       dayOfWeek: slot.dayOfWeek,
       minuteOfDay: slot.minuteOfDay,
+      scheduleRevision: result.scheduleRevision,
+    };
+  }
+
+  async movePipelineScheduleSlot(
+    orgId: string,
+    id: string,
+    slot: MovePipelineScheduleSlotDto
+  ) {
+    const result = await this._pipelineRepository.movePipelineScheduleSlot(
+      orgId,
+      id,
+      slot
+    );
+    if (result === 'not-found') {
+      throw new NotFoundException('Pipeline not found');
+    }
+    if (result === 'occupied') {
+      throw new ConflictException('Pipeline schedule target is already occupied');
+    }
+    if (result === 'stale-revision') {
+      throw new ConflictException('Pipeline schedule changed; refresh and try again');
+    }
+    if (result === 'missing-source') {
+      throw new ConflictException(
+        'Pipeline schedule source no longer exists; refresh and try again'
+      );
+    }
+    return {
+      pipelineId: result.id,
+      source: {
+        dayOfWeek: slot.sourceDayOfWeek,
+        minuteOfDay: slot.sourceMinuteOfDay,
+      },
+      target: {
+        dayOfWeek: slot.targetDayOfWeek,
+        minuteOfDay: slot.targetMinuteOfDay,
+      },
       scheduleRevision: result.scheduleRevision,
     };
   }
