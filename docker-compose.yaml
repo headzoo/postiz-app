@@ -17,18 +17,23 @@ services:
       DISABLE_REGISTRATION: 'false'
 
       # === Storage Settings
-      STORAGE_PROVIDER: 'local'
+      STORAGE_PROVIDER: 'cloudflare'
       UPLOAD_DIRECTORY: '/uploads'
       NEXT_PUBLIC_UPLOAD_DIRECTORY: '/uploads'
 
+      # === File Channel (Optional)
+      # Leave disabled unless this deployment needs text-file output.
+      # FILE_CHANNEL_DIRECTORY: '/file-channel'
+      # Mount a writable host or named volume at this exact path. Every worker
+      # serving the `file` queue must use the same mount.
+
       # === Cloudflare (R2) Settings
-      # STORAGE_PROVIDER: 'cloudflare'
-      # CLOUDFLARE_ACCOUNT_ID: 'your-account-id'
-      # CLOUDFLARE_ACCESS_KEY: 'your-access-key'
-      # CLOUDFLARE_SECRET_ACCESS_KEY: 'your-secret-access-key'
-      # CLOUDFLARE_BUCKETNAME: 'your-bucket-name'
-      # CLOUDFLARE_BUCKET_URL: 'https://your-bucket-url.r2.cloudflarestorage.com/'
-      # CLOUDFLARE_REGION: 'auto'
+      CLOUDFLARE_ACCOUNT_ID: 5fa194b2aa6e21b29710fc1e1fdcc1fe
+      CLOUDFLARE_ACCESS_KEY: 9c9c1b0dd0da6739de6b184c8da1963f
+      CLOUDFLARE_SECRET_ACCESS_KEY: 56540a0c03e09a522da235b0a2487292271f4bdbbda892eef044a6cf945d0fd3
+      CLOUDFLARE_BUCKETNAME: img-discimg-com
+      CLOUDFLARE_BUCKET_URL: https://img.discimg.com
+      CLOUDFLARE_REGION: auto
 
       # === Social Media API Settings
       X_URL: ''
@@ -65,6 +70,7 @@ services:
       MASTODON_URL: 'https://mastodon.social'
       MASTODON_CLIENT_ID: ''
       MASTODON_CLIENT_SECRET: ''
+      FILE_CHANNEL_DIRECTORY: '/home/sean/postiv'
 
       # === OAuth & Authentik Settings
       # NEXT_PUBLIC_POSTIZ_OAUTH_DISPLAY_NAME: 'Authentik'

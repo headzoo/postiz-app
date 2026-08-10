@@ -1,10 +1,25 @@
 import { createContext, FC, ReactNode, useContext } from 'react';
 import { Post } from '@prisma/client';
-const ExistingDataContext = createContext({
+
+interface ExistingDataChannel {
+  integration: string;
+  posts: Post[];
+  settings: Record<string, unknown>;
+}
+
+interface ExistingData {
+  integration?: string;
+  group?: string;
+  posts: Post[];
+  settings: Record<string, unknown>;
+  channels?: ExistingDataChannel[];
+}
+
+const ExistingDataContext = createContext<ExistingData>({
   integration: '',
   group: undefined as undefined | string,
   posts: [] as Post[],
-  settings: {} as any,
+  settings: {},
 });
 export const ExistingDataContextProvider: FC<{
   children: ReactNode;

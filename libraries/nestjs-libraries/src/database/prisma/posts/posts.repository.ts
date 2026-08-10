@@ -163,6 +163,10 @@ export class PostsRepository {
         },
         deletedAt: null,
         parentPostId: null,
+        NOT: {
+          state: State.DRAFT,
+          pipelineQueueItemId: { not: null },
+        },
         ...(query.customer
           ? {
               integration: {
@@ -263,6 +267,10 @@ export class PostsRepository {
       deletedAt: null as Date | null,
       parentPostId: null as string | null,
       intervalInDays: null as number | null,
+      NOT: {
+        state: State.DRAFT,
+        pipelineQueueItemId: { not: null },
+      },
 
       integration: {
         deletedAt: null as any,
@@ -339,6 +347,22 @@ export class PostsRepository {
       },
       select: {
         id: true,
+      },
+    });
+  }
+
+  getPipelineQueueItemForGroup(orgId: string, group: string) {
+    return this._post.model.post.findFirst({
+      where: {
+        organizationId: orgId,
+        group,
+        deletedAt: null,
+        pipelineQueueItemId: { not: null },
+      },
+      select: {
+        pipelineQueueItem: {
+          select: { id: true, status: true, deletedAt: true },
+        },
       },
     });
   }
@@ -521,7 +545,8 @@ export class PostsRepository {
     // Keep the existing group instead of rotating it, so open clients
     // (calendar) holding the group stay valid. Used by out-of-band updates
     // (agent / MCP / public API); the dashboard keeps the rotate-and-sweep.
-    keepGroup = false
+    keepGroup = false,
+    pipelineQueueItemId?: string
   ) {
     const posts: Post[] = [];
     const uuid = uuidv4();
@@ -570,6 +595,13 @@ export class PostsRepository {
             id: orgId,
           },
         },
+        ...(pipelineQueueItemId
+          ? {
+              pipelineQueueItem: {
+                connect: { id: pipelineQueueItemId },
+              },
+            }
+          : {}),
       });
 
       posts.push(
@@ -664,6 +696,12 @@ export class PostsRepository {
         where: {
           group: body.group,
           deletedAt: null,
+          ...(pipelineQueueItemId
+            ? {
+                pipelineQueueItemId,
+                integrationId: body.integration.id,
+              }
+            : {}),
           id: {
             notIn: posts.map((p) => p.id),
           },

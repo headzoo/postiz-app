@@ -43,6 +43,15 @@ import { useHasScroll } from '@gitroom/frontend/components/ui/is.scroll.hook';
 import { useShortlinkPreference } from '@gitroom/frontend/components/settings/shortlink-preference.component';
 import dayjs from 'dayjs';
 import { Button } from '@gitroom/react/form/button';
+import { useRouter } from 'next/navigation';
+import { useSWRConfig } from 'swr';
+import { useCalendar } from '@gitroom/frontend/components/launches/calendar.context';
+import { formatPipelineSlot } from '@gitroom/frontend/components/pipelines/pipeline.utils';
+import {
+  PIPELINES_KEY,
+  usePipelineList,
+} from '@gitroom/frontend/components/pipelines/use.pipeline.list';
+import { pipelineDetailKey } from '@gitroom/frontend/components/pipelines/use.pipeline.detail';
 
 export const ManageModal: FC<AddEditModalProps> = (props) => {
   const t = useT();
@@ -52,8 +61,12 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
   const [loading, setLoading] = useState(false);
   const toaster = useToaster();
   const modal = useModals();
+  const router = useRouter();
+  const { mutate: mutateSWR } = useSWRConfig();
+  const { reloadCalendarView } = useCalendar();
   const [showSettings, setShowSettings] = useState(false);
   const { data: shortlinkPreferenceData } = useShortlinkPreference();
+  const { data: pipelines } = usePipelineList();
 
   const { addEditSets, mutate, customClose, dummy } = props;
 
@@ -72,6 +85,10 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     current,
     activateExitButton,
     setHide,
+    publishingMode,
+    setPublishingMode,
+    pipelineId,
+    setPipelineId,
   } = useLaunchStore(
     useShallow((state) => ({
       hide: state.hide,
@@ -88,7 +105,47 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       setSelectedIntegrations: state.setSelectedIntegrations,
       locked: state.locked,
       activateExitButton: state.activateExitButton,
+      publishingMode: state.publishingMode,
+      setPublishingMode: state.setPublishingMode,
+      pipelineId: state.pipelineId,
+      setPipelineId: state.setPipelineId,
     }))
+  );
+  const activePipelines = useMemo(
+    () => (pipelines || []).filter((pipeline) => pipeline.active),
+    [pipelines]
+  );
+  const selectedPipeline = activePipelines.find(
+    (pipeline) => pipeline.id === pipelineId
+  );
+  const pipelineMode =
+    publishingMode === 'pipeline' && !!selectedPipeline && !existingData?.integration;
+
+  const selectPipeline = useCallback(
+    (nextPipelineId: string) => {
+      const pipeline = activePipelines.find(
+        (candidate) => candidate.id === nextPipelineId
+      );
+      if (!pipeline) {
+        setPublishingMode('manual');
+        setPipelineId(undefined);
+        return;
+      }
+      setSelectedIntegrations(
+        pipeline.channels.map((integration) => ({
+          settings: {},
+          selectedIntegrations: integration,
+        }))
+      );
+      setPipelineId(pipeline.id);
+      setPublishingMode('pipeline');
+    },
+    [
+      activePipelines,
+      setPipelineId,
+      setPublishingMode,
+      setSelectedIntegrations,
+    ]
   );
 
   useEffect(() => {
@@ -192,8 +249,10 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
 
   const schedule = useCallback(
     (type: 'draft' | 'now' | 'schedule' | 'update') => async () => {
+      const shouldEnqueueInPipeline = pipelineMode && type === 'schedule';
       let republish = false;
       if (
+        !shouldEnqueueInPipeline &&
         (type === 'now' || type === 'schedule') &&
         (existingData?.posts?.[0]?.state === 'PUBLISHED' ||
           (existingData?.posts?.[0]?.state === 'QUEUE' &&
@@ -419,11 +478,22 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
         date: date.utc().format('YYYY-MM-DDTHH:mm:ss'),
         posts,
       };
+      const pipelineData = shouldEnqueueInPipeline
+        ? {
+            pipelineId: selectedPipeline!.id,
+            post: {
+              type: 'draft' as const,
+              tags,
+              shortLink,
+              posts,
+            },
+          }
+        : undefined;
 
       if (dummy) {
         modal.openModal({
           title: '',
-          children: <DummyCodeComponent code={data} />,
+          children: <DummyCodeComponent code={pipelineData || data} />,
           classNames: {
             modal: 'w-[100%] bg-transparent text-textColor',
           },
@@ -437,17 +507,48 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       }
 
       if (!dummy) {
-        addEditSets
-          ? addEditSets(data)
-          : await fetch('/posts', {
+        try {
+          if (shouldEnqueueInPipeline) {
+            const response = await fetch('/pipelines/enqueue', {
               method: 'POST',
-              body: JSON.stringify(data),
+              body: JSON.stringify(pipelineData),
             });
+            if (!response.ok) {
+              const error = await response.json().catch(() => undefined);
+              throw new Error(
+                error?.message || 'Unable to add this content to the Pipeline.'
+              );
+            }
+          } else {
+            addEditSets
+              ? addEditSets(data)
+              : await fetch('/posts', {
+                  method: 'POST',
+                  body: JSON.stringify(data),
+                });
+          }
+        } catch (error: any) {
+          toaster.show(
+            error?.message || 'Unable to save this content.',
+            'warning'
+          );
+          setLoading(false);
+          return;
+        }
 
         if (!addEditSets) {
           mutate();
+          if (shouldEnqueueInPipeline) {
+            await Promise.all([
+              mutateSWR(PIPELINES_KEY),
+              mutateSWR(pipelineDetailKey(selectedPipeline!.id)),
+            ]);
+            reloadCalendarView();
+          }
           toaster.show(
-            !existingData.integration
+            shouldEnqueueInPipeline
+              ? t('added_to_pipeline', 'Added to Pipeline')
+              : !existingData.integration
               ? t('added_successfully', 'Added successfully')
               : t('updated_successfully', 'Updated successfully')
           );
@@ -463,7 +564,21 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
         }
       }
     },
-    [ref, repeater, tags, date, addEditSets, dummy, shortlinkPreferenceData]
+    [
+      ref,
+      repeater,
+      tags,
+      date,
+      addEditSets,
+      dummy,
+      shortlinkPreferenceData,
+      pipelineMode,
+      selectedPipeline,
+      mutateSWR,
+      reloadCalendarView,
+      toaster,
+      existingData,
+    ]
   );
 
   return (
@@ -488,10 +603,13 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                 >
                   <div className="flex w-full">
                     <div className="flex flex-1">
-                      <PicksSocialsComponent toolTip={true} />
+                      <PicksSocialsComponent
+                        toolTip={true}
+                        disabled={pipelineMode}
+                      />
                     </div>
                     <div>
-                      {!dummy && (
+                      {!dummy && !pipelineMode && (
                         <SelectCustomer
                           onChange={changeCustomer}
                           integrations={integrations}
@@ -590,7 +708,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
               />
             )}
 
-            {!dummy && (
+            {!dummy && !pipelineMode && (
               <RepeatComponent repeat={repeater} onChange={setRepeater} />
             )}
           </div>
@@ -606,7 +724,72 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                 <div>{t('delete_post', 'Delete Post')}</div>
               </button>
             )}
-            <DatePicker onChange={setDate} date={date} />
+            {!dummy && !existingData?.integration && (
+              <>
+                <select
+                  aria-label={t('publishing_mode', 'Publishing mode')}
+                  value={
+                    publishingMode === 'pipeline'
+                      ? pipelineId || ''
+                      : publishingMode
+                  }
+                  onChange={(event) => {
+                    if (
+                      event.target.value === 'manual' ||
+                      event.target.value === 'now'
+                    ) {
+                      setPublishingMode(event.target.value);
+                      return;
+                    }
+                    selectPipeline(event.target.value);
+                  }}
+                  className="h-[44px] max-w-[210px] bg-newBgColorInner border border-newBorder rounded-[8px] px-[10px] text-[14px]"
+                >
+                  <option value="manual">
+                    {t('schedule_manually', 'Schedule manually')}
+                  </option>
+                  <option value="now">{t('post_now', 'Post Now')}</option>
+                  {activePipelines.length > 0 ? (
+                    <optgroup label={t('pipelines', 'Pipelines')}>
+                      {activePipelines.map((pipeline) => (
+                        <option key={pipeline.id} value={pipeline.id}>
+                          {pipeline.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    <option value="" disabled>
+                      {t('no_active_pipelines', 'No active Pipelines')}
+                    </option>
+                  )}
+                </select>
+                {activePipelines.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      modal.closeAll();
+                      router.push('/pipelines');
+                    }}
+                    className="text-[13px] font-[600] text-[#8D5CFF]"
+                  >
+                    {t('create_pipeline', 'Create Pipeline')}
+                  </button>
+                )}
+              </>
+            )}
+            {!pipelineMode && <DatePicker onChange={setDate} date={date} />}
+            {pipelineMode && (
+              <div className="max-w-[250px] text-[13px] text-textColor">
+                <div className="font-[600]">{selectedPipeline!.name}</div>
+                <div className="opacity-70">
+                  {t('next_slot', 'Next slot')}:{' '}
+                  {formatPipelineSlot(
+                    selectedPipeline!.nextSlot,
+                    selectedPipeline!.timezone
+                  )}
+                </div>
+              </div>
+            )}
             {!addEditSets && (
               <button
                 disabled={
@@ -642,7 +825,13 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                   disabled={
                     selectedIntegrations.length === 0 || loading || locked
                   }
-                  onClick={schedule('schedule')}
+                  onClick={schedule(
+                    pipelineMode
+                      ? 'schedule'
+                      : publishingMode === 'now'
+                      ? 'now'
+                      : 'schedule'
+                  )}
                   className="text-white relative min-w-[180px] btnSub disabled:cursor-not-allowed disabled:opacity-80 outline-none gap-[8px] flex justify-center items-center h-[44px] rounded-[8px] bg-[#612BD3] ps-[20px] pe-[16px]"
                 >
                   {loading && (
@@ -660,6 +849,10 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                       ? t('check_circles_above', 'Check the circles above')
                       : dummy
                       ? t('create_output', 'Create output')
+                      : pipelineMode
+                      ? t('add_to_pipeline', 'Add to Pipeline')
+                      : publishingMode === 'now'
+                      ? t('post_now', 'Post Now')
                       : !existingData?.integration
                       ? t('add_to_calendar', 'Add to calendar')
                       : existingData?.posts?.[0]?.state === 'DRAFT'
@@ -673,7 +866,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                   )}
                 </button>
 
-                {!dummy && (
+                {!dummy && publishingMode === 'manual' && !pipelineMode && (
                   <button
                     onClick={schedule('now')}
                     disabled={

@@ -9,8 +9,9 @@ import { useExistingData } from '@gitroom/frontend/components/launches/helpers/u
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 
-export const PicksSocialsComponent: FC<{ toolTip?: boolean }> = ({
+export const PicksSocialsComponent: FC<{ toolTip?: boolean; disabled?: boolean }> = ({
   toolTip,
+  disabled = false,
 }) => {
   const exising = useExistingData();
 
@@ -29,7 +30,12 @@ export const PicksSocialsComponent: FC<{ toolTip?: boolean }> = ({
   );
 
   return (
-    <div className={clsx('flex', locked && 'opacity-50 pointer-events-none')}>
+    <div
+      className={clsx(
+        'flex',
+        (locked || disabled) && 'opacity-50 pointer-events-none'
+      )}
+    >
       <div className="flex flex-1">
         <div className="innerComponent flex-1 flex">
           <div className="flex flex-wrap gap-[12px] flex-1">

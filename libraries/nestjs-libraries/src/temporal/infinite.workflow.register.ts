@@ -15,6 +15,15 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
             taskQueue: 'main',
           });
       } catch (err) {}
+      try {
+        await this._temporalService.client
+          ?.getRawClient()
+          ?.workflow?.start('pipelineSchedulerWorkflowV1', {
+            workflowId: 'pipeline-scheduler-workflow-v1',
+            taskQueue: 'main',
+            args: [{}],
+          });
+      } catch (err) {}
     }
   }
 }

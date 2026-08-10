@@ -1,0 +1,92 @@
+import {
+  getNextPipelineSlot,
+  getUpcomingPipelineSlots,
+  PIPELINE_SCHEDULER_GRACE_WINDOW_MS,
+} from './pipeline.schedule';
+
+describe('pipeline schedule calculator', () => {
+  it('returns no projections for empty, invalid, or invalid-timezone schedules', () => {
+    const from = new Date('2026-08-09T00:00:00.000Z');
+
+    expect(getUpcomingPipelineSlots([], 'UTC', from, 3)).toEqual([]);
+    expect(
+      getUpcomingPipelineSlots(
+        [{ dayOfWeek: 7, minuteOfDay: 0 }],
+        'UTC',
+        from,
+        3
+      )
+    ).toEqual([]);
+    expect(
+      getUpcomingPipelineSlots(
+        [{ dayOfWeek: 0, minuteOfDay: 0 }],
+        'Not/A_Timezone',
+        from,
+        3
+      )
+    ).toEqual([]);
+  });
+
+  it('uses strict future behavior and rolls over to the next week', () => {
+    const slots = [{ dayOfWeek: 0, minuteOfDay: 60 }];
+
+    expect(
+      getNextPipelineSlot(slots, 'UTC', new Date('2026-08-09T01:00:00.000Z'))
+    ).toEqual(new Date('2026-08-16T01:00:00.000Z'));
+  });
+
+  it('orders multiple slots on the same day before later weekly slots', () => {
+    const slots = [
+      { dayOfWeek: 1, minuteOfDay: 0 },
+      { dayOfWeek: 0, minuteOfDay: 120 },
+      { dayOfWeek: 0, minuteOfDay: 60 },
+    ];
+
+    expect(
+      getUpcomingPipelineSlots(
+        slots,
+        'UTC',
+        new Date('2026-08-09T00:30:00.000Z'),
+        3
+      )
+    ).toEqual([
+      new Date('2026-08-09T01:00:00.000Z'),
+      new Date('2026-08-09T02:00:00.000Z'),
+      new Date('2026-08-10T00:00:00.000Z'),
+    ]);
+  });
+
+  it('interprets the weekly schedule in the Pipeline timezone', () => {
+    expect(
+      getNextPipelineSlot(
+        [{ dayOfWeek: 1, minuteOfDay: 9 * 60 }],
+        'America/New_York',
+        new Date('2026-08-09T00:00:00.000Z')
+      )
+    ).toEqual(new Date('2026-08-10T13:00:00.000Z'));
+  });
+
+  it('skips a nonexistent New York spring-forward local time', () => {
+    expect(
+      getNextPipelineSlot(
+        [{ dayOfWeek: 0, minuteOfDay: 2 * 60 + 30 }],
+        'America/New_York',
+        new Date('2026-03-07T12:00:00.000Z')
+      )
+    ).toEqual(new Date('2026-03-15T06:30:00.000Z'));
+  });
+
+  it('chooses the first occurrence of an ambiguous New York fall-back time', () => {
+    expect(
+      getNextPipelineSlot(
+        [{ dayOfWeek: 0, minuteOfDay: 60 + 30 }],
+        'America/New_York',
+        new Date('2026-10-31T12:00:00.000Z')
+      )
+    ).toEqual(new Date('2026-11-01T05:30:00.000Z'));
+  });
+
+  it('defines the scheduler grace window as two minutes', () => {
+    expect(PIPELINE_SCHEDULER_GRACE_WINDOW_MS).toBe(2 * 60 * 1000);
+  });
+});

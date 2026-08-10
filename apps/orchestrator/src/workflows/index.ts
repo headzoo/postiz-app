@@ -10,3 +10,5 @@ export * from './missing.post.workflow';
 export * from './send.email.workflow';
 export * from './refresh.token.workflow';
 export * from './streak.workflow';
+export * from './pipeline-workflows/pipeline.scheduler.workflow.v1';
+export * from './pipeline-workflows/pipeline.slot.workflow.v1';

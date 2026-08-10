@@ -115,6 +115,27 @@ export const useMenuItem = () => {
       path: '/media',
     },
     {
+      name: t('pipelines', 'Pipelines'),
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="21"
+          viewBox="0 0 20 21"
+          fill="none"
+        >
+          <path
+            d="M2.5 5.5H17.5M2.5 10.5H12.5M2.5 15.5H15.5M15.5 8.5V12.5M15.5 8.5L17.5 10.5M15.5 8.5L13.5 10.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ),
+      path: '/pipelines',
+    },
+    {
       name: t('plugs', 'Plugs'),
       icon: (
         <svg

@@ -23,6 +23,7 @@ import useCookie from 'react-use-cookie';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { expandPostsList, expandPosts } from '@gitroom/helpers/utils/posts.list.minify';
+import { usePipelineCalendar } from '@gitroom/frontend/components/pipelines/use.pipeline.calendar';
 extend(isoWeek);
 extend(weekOfYear);
 
@@ -182,18 +183,36 @@ export const CalendarWeekProvider: FC<{
     }).toString();
   }, [filters]);
 
+  // Shared UTC window used by both the posts calendar and pipeline projections
+  const utcWindow = useMemo(
+    () => ({
+      startDate: newDayjs(filters.startDate).startOf('day').utc().format(),
+      endDate: newDayjs(filters.endDate).endOf('day').utc().format(),
+    }),
+    [filters.startDate, filters.endDate]
+  );
+
   // Calendar view data fetcher
   const loadData = useCallback(async () => {
     const modifiedParams = new URLSearchParams({
       display: filters.display,
       customer: filters?.customer?.toString() || '',
-      startDate: newDayjs(filters.startDate).startOf('day').utc().format(),
-      endDate: newDayjs(filters.endDate).endOf('day').utc().format(),
+      startDate: utcWindow.startDate,
+      endDate: utcWindow.endDate,
     }).toString();
 
     const data = await (await fetch(`/posts?${modifiedParams}`)).json();
     return expandPosts(data);
-  }, [filters, params]);
+  }, [filters, params, utcWindow]);
+
+  // Projected pipeline queue items overlaid onto the calendar (not persisted
+  // dates — computed server-side from each Pipeline's recurring schedule).
+  const { data: pipelinePosts, mutate: mutatePipelineCalendar } =
+    usePipelineCalendar(
+      utcWindow.startDate,
+      utcWindow.endDate,
+      filters.display !== 'list'
+    );
 
   // List view data fetcher
   const listParams = useMemo(() => {
@@ -294,7 +313,10 @@ export const CalendarWeekProvider: FC<{
     []
   );
 
-  const posts = useMemo(() => calendarData?.posts || [], [calendarData?.posts]);
+  const posts = useMemo(
+    () => [...(calendarData?.posts || []), ...(pipelinePosts || [])],
+    [calendarData?.posts, pipelinePosts]
+  );
   const comments = useMemo(() => calendarData?.comments || [], [calendarData?.comments]);
 
   // List view data
@@ -329,7 +351,8 @@ export const CalendarWeekProvider: FC<{
   const reloadCalendarView = useCallback(() => {
     mutateCalendar();
     mutateList();
-  }, [mutateCalendar, mutateList]);
+    mutatePipelineCalendar();
+  }, [mutateCalendar, mutateList, mutatePipelineCalendar]);
 
   // Determine loading state based on current view
   const loading = filters.display === 'list' ? listIsLoading : calendarIsLoading;

@@ -1,0 +1,588 @@
+import { Injectable } from '@nestjs/common';
+import {
+  PipelineQueueItemStatus,
+  Prisma,
+} from '@prisma/client';
+import {
+  CreatePipelineDto,
+  UpdatePipelineDto,
+} from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
+import {
+  PrismaRepository,
+  PrismaTransaction,
+} from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
+
+const QUEUE_POSITION_INCREMENT = 1024;
+const TRANSACTION_ATTEMPTS = 3;
+
+export const pipelineIntegrationSelect = {
+  id: true,
+  internalId: true,
+  name: true,
+  picture: true,
+  providerIdentifier: true,
+  type: true,
+  disabled: true,
+  inBetweenSteps: true,
+  refreshNeeded: true,
+  postingTimes: true,
+  profile: true,
+  additionalSettings: true,
+  customer: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} satisfies Prisma.IntegrationSelect;
+
+const pipelinePostSelect = {
+  id: true,
+  parentPostId: true,
+  content: true,
+  delay: true,
+  state: true,
+  settings: true,
+  image: true,
+  intervalInDays: true,
+  integration: {
+    select: pipelineIntegrationSelect,
+  },
+  tags: {
+    select: {
+      tag: true,
+    },
+  },
+} satisfies Prisma.PostSelect;
+
+@Injectable()
+export class PipelineRepository {
+  constructor(
+    private _pipeline: PrismaRepository<'pipeline'>,
+    private _post: PrismaRepository<'post'>,
+    private _integration: PrismaRepository<'integration'>,
+    private _queueItem: PrismaRepository<'pipelineQueueItem'>,
+    private _transaction: PrismaTransaction
+  ) {}
+
+  getPipelines(orgId: string) {
+    return this._pipeline.model.pipeline.findMany({
+      where: { organizationId: orgId, deletedAt: null },
+      include: {
+        integrations: { include: { integration: { select: pipelineIntegrationSelect } } },
+        scheduleSlots: { orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }] },
+        _count: { select: { queueItems: { where: { status: 'QUEUED', deletedAt: null } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  getPipeline(orgId: string, id: string) {
+    return this._pipeline.model.pipeline.findFirst({
+      where: { id, organizationId: orgId, deletedAt: null },
+      include: {
+        integrations: { include: { integration: { select: pipelineIntegrationSelect } } },
+        scheduleSlots: { orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }] },
+        queueItems: {
+          where: { deletedAt: null },
+          include: {
+            posts: {
+              where: { deletedAt: null },
+              select: pipelinePostSelect,
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+          orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        },
+      },
+    });
+  }
+
+  getActivePipelinesForCalendar(orgId: string) {
+    return this._pipeline.model.pipeline.findMany({
+      where: { organizationId: orgId, deletedAt: null, active: true },
+      include: {
+        scheduleSlots: {
+          orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }],
+        },
+        queueItems: {
+          where: { status: 'QUEUED', deletedAt: null },
+          include: {
+            posts: {
+              where: { parentPostId: null, deletedAt: null },
+              select: pipelinePostSelect,
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+          orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+        },
+      },
+    });
+  }
+
+  getOwnedIntegrations(orgId: string, integrationIds: string[]) {
+    return this._integration.model.integration.findMany({
+      where: {
+        organizationId: orgId,
+        deletedAt: null,
+        disabled: false,
+        id: { in: integrationIds },
+      },
+      select: { id: true },
+    });
+  }
+
+  async createPipeline(orgId: string, body: CreatePipelineDto) {
+    return this._pipeline.model.pipeline.create({
+      data: {
+        organizationId: orgId,
+        name: body.name,
+        timezone: body.timezone,
+        integrations: {
+          create: body.integrations.map(({ id }) => ({ integrationId: id })),
+        },
+        scheduleSlots: { create: body.scheduleSlots },
+      },
+    });
+  }
+
+  async updatePipeline(orgId: string, id: string, body: UpdatePipelineDto) {
+    return this.withSerializableRetry(async (tx) => {
+      const existing = await tx.pipeline.findFirst({
+        where: { id, organizationId: orgId, deletedAt: null },
+        include: { integrations: true },
+      });
+      if (!existing) {
+        return null;
+      }
+
+      const queued = await tx.pipelineQueueItem.findFirst({
+        where: { pipelineId: id, status: 'QUEUED', deletedAt: null },
+        select: { id: true },
+      });
+      const oldIds = existing.integrations.map((item: any) => item.integrationId).sort();
+      const newIds = body.integrations.map((item) => item.id).sort();
+      const integrationsChanged = oldIds.join(',') !== newIds.join(',');
+      if (queued && integrationsChanged) {
+        return false;
+      }
+
+      return tx.pipeline.update({
+        where: { id },
+        data: {
+          name: body.name,
+          timezone: body.timezone,
+          scheduleRevision: { increment: 1 },
+          ...(integrationsChanged
+            ? {
+                integrations: {
+                  deleteMany: {},
+                  create: body.integrations.map(({ id: integrationId }) => ({
+                    integrationId,
+                  })),
+                },
+              }
+            : {}),
+          scheduleSlots: {
+            deleteMany: {},
+            create: body.scheduleSlots,
+          },
+        },
+      });
+    });
+  }
+
+  async setActive(orgId: string, id: string, active: boolean) {
+    return this._pipeline.model.pipeline.updateMany({
+      where: { id, organizationId: orgId, deletedAt: null },
+      data: { active },
+    });
+  }
+
+  async deletePipeline(orgId: string, id: string) {
+    return this.withSerializableRetry(async (tx) => {
+      const pipeline = await tx.pipeline.findFirst({
+        where: { id, organizationId: orgId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!pipeline) {
+        return null;
+      }
+      const items = await tx.pipelineQueueItem.findMany({
+        where: {
+          pipelineId: id,
+          status: { in: ['QUEUED', 'FAILED'] },
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (items.length) {
+        await tx.post.updateMany({
+          where: {
+            pipelineQueueItemId: { in: items.map((item: any) => item.id) },
+            organizationId: orgId,
+            deletedAt: null,
+          },
+          data: { pipelineQueueItemId: null },
+        });
+        await tx.pipelineQueueItem.updateMany({
+          where: { id: { in: items.map((item: any) => item.id) } },
+          data: { status: 'REMOVED', deletedAt: new Date() },
+        });
+      }
+      return tx.pipeline.update({
+        where: { id },
+        data: { deletedAt: new Date(), active: false, scheduleRevision: { increment: 1 } },
+      });
+    });
+  }
+
+  async publishQueueItem(orgId: string, pipelineId: string, group: string) {
+    return this.withSerializableRetry(async (tx) => {
+      const pipeline = await tx.pipeline.findFirst({
+        where: { id: pipelineId, organizationId: orgId, deletedAt: null },
+        include: { integrations: { select: { integrationId: true } } },
+      });
+      if (!pipeline) {
+        return null;
+      }
+      const posts = await tx.post.findMany({
+        where: {
+          organizationId: orgId,
+          group,
+          pipelineQueueItemId: null,
+          state: 'DRAFT',
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          parentPostId: true,
+          integrationId: true,
+        },
+      });
+      const roots = posts.filter((post: any) => !post.parentPostId);
+      const pipelineIntegrationIds = pipeline.integrations
+        .map((entry: any) => entry.integrationId)
+        .sort();
+      const rootIntegrationIds = roots
+        .map((post: any) => post.integrationId)
+        .sort();
+      if (
+        !posts.length ||
+        !roots.length ||
+        pipelineIntegrationIds.join(',') !== rootIntegrationIds.join(',')
+      ) {
+        return false;
+      }
+      const last = await tx.pipelineQueueItem.findFirst({
+        where: { pipelineId, status: 'QUEUED', deletedAt: null },
+        orderBy: [{ position: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
+        select: { position: true },
+      });
+      const queueItem = await tx.pipelineQueueItem.create({
+        data: {
+          pipelineId,
+          group,
+          position: (last?.position || 0) + QUEUE_POSITION_INCREMENT,
+          status: 'CREATING',
+        },
+      });
+      const linked = await tx.post.updateMany({
+        where: {
+          id: { in: posts.map((post: any) => post.id) },
+          organizationId: orgId,
+          pipelineQueueItemId: null,
+          state: 'DRAFT',
+          deletedAt: null,
+        },
+        data: { pipelineQueueItemId: queueItem.id },
+      });
+      if (linked.count !== posts.length) {
+        throw new Error('Pipeline posts changed while being linked');
+      }
+      const verified = await tx.post.findMany({
+        where: {
+          pipelineQueueItemId: queueItem.id,
+          organizationId: orgId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          parentPostId: true,
+          integrationId: true,
+        },
+      });
+      const verifiedRoots = verified.filter((post: any) => !post.parentPostId);
+      const verifiedIntegrationIds = verifiedRoots
+        .map((post: any) => post.integrationId)
+        .sort();
+      if (
+        verified.length !== posts.length ||
+        verifiedRoots.length !== roots.length ||
+        pipelineIntegrationIds.join(',') !== verifiedIntegrationIds.join(',')
+      ) {
+        throw new Error('Pipeline posts could not be verified after linking');
+      }
+      return tx.pipelineQueueItem.update({
+        where: { id: queueItem.id },
+        data: { status: 'QUEUED' },
+      });
+    });
+  }
+
+  async discardUnlinkedDraftPosts(orgId: string, group: string) {
+    return this._post.model.post.updateMany({
+      where: {
+        organizationId: orgId,
+        group,
+        pipelineQueueItemId: null,
+        state: 'DRAFT',
+        deletedAt: null,
+      },
+      data: { deletedAt: new Date() },
+    });
+  }
+
+  async repositionItem(
+    orgId: string,
+    itemId: string,
+    pipelineId: string,
+    beforeItemId?: string,
+    afterItemId?: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      const item = await tx.pipelineQueueItem.findFirst({
+        where: {
+          id: itemId,
+          pipelineId,
+          status: 'QUEUED',
+          deletedAt: null,
+          pipeline: { organizationId: orgId, deletedAt: null },
+        },
+      });
+      if (!item) {
+        return null;
+      }
+      const position = await this.positionFor(tx, pipelineId, itemId, beforeItemId, afterItemId);
+      return tx.pipelineQueueItem.update({ where: { id: itemId }, data: { position } });
+    });
+  }
+
+  async moveItem(
+    orgId: string,
+    itemId: string,
+    destinationPipelineId: string,
+    beforeItemId?: string,
+    afterItemId?: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      const item = await tx.pipelineQueueItem.findFirst({
+        where: {
+          id: itemId,
+          status: 'QUEUED',
+          deletedAt: null,
+          pipeline: { organizationId: orgId, deletedAt: null },
+        },
+        include: {
+          posts: { where: { parentPostId: null, deletedAt: null }, select: { integrationId: true } },
+        },
+      });
+      const destination = await tx.pipeline.findFirst({
+        where: { id: destinationPipelineId, organizationId: orgId, deletedAt: null },
+        include: { integrations: { select: { integrationId: true } } },
+      });
+      if (!item || !destination) {
+        return null;
+      }
+      const itemChannels = item.posts.map((post: any) => post.integrationId).sort();
+      const destinationChannels = destination.integrations.map((entry: any) => entry.integrationId).sort();
+      if (itemChannels.join(',') !== destinationChannels.join(',')) {
+        return false;
+      }
+      const position = await this.positionFor(tx, destination.id, undefined, beforeItemId, afterItemId);
+      return tx.pipelineQueueItem.update({
+        where: { id: itemId },
+        data: { pipelineId: destination.id, position },
+      });
+    });
+  }
+
+  async detachItem(orgId: string, itemId: string) {
+    return this.withSerializableRetry(async (tx) => {
+      const item = await tx.pipelineQueueItem.findFirst({
+        where: {
+          id: itemId,
+          status: { in: ['QUEUED', 'FAILED'] },
+          deletedAt: null,
+          pipeline: { organizationId: orgId, deletedAt: null },
+        },
+      });
+      if (!item) {
+        return null;
+      }
+      await tx.post.updateMany({
+        where: {
+          pipelineQueueItemId: item.id,
+          organizationId: orgId,
+          deletedAt: null,
+        },
+        data: { pipelineQueueItemId: null },
+      });
+      return tx.pipelineQueueItem.update({
+        where: { id: item.id },
+        data: { status: 'REMOVED', deletedAt: new Date() },
+      });
+    });
+  }
+
+  async deleteItem(orgId: string, itemId: string) {
+    return this.withSerializableRetry(async (tx) => {
+      const item = await tx.pipelineQueueItem.findFirst({
+        where: {
+          id: itemId,
+          status: { in: ['QUEUED', 'FAILED'] },
+          deletedAt: null,
+          pipeline: { organizationId: orgId, deletedAt: null },
+        },
+      });
+      if (!item) {
+        return null;
+      }
+      const deletedAt = new Date();
+      await tx.post.updateMany({
+        where: {
+          pipelineQueueItemId: item.id,
+          organizationId: orgId,
+          deletedAt: null,
+        },
+        data: { deletedAt },
+      });
+      return tx.pipelineQueueItem.update({
+        where: { id: item.id },
+        data: { status: 'REMOVED', deletedAt },
+      });
+    });
+  }
+
+  async scheduleItem(orgId: string, itemId: string, publishDate: Date) {
+    return this.withSerializableRetry(async (tx) => {
+      const item = await tx.pipelineQueueItem.findFirst({
+        where: {
+          id: itemId,
+          status: 'QUEUED',
+          deletedAt: null,
+          pipeline: { organizationId: orgId, deletedAt: null },
+        },
+        include: {
+          posts: {
+            where: { parentPostId: null, deletedAt: null },
+            include: {
+              integration: {
+                select: { providerIdentifier: true },
+              },
+            },
+          },
+        },
+      });
+      if (!item) {
+        return null;
+      }
+
+      await tx.post.updateMany({
+        where: {
+          pipelineQueueItemId: item.id,
+          organizationId: orgId,
+          deletedAt: null,
+        },
+        data: {
+          pipelineQueueItemId: null,
+          publishDate,
+          state: 'QUEUE',
+          releaseId: null,
+          releaseURL: null,
+        },
+      });
+      await tx.pipelineQueueItem.update({
+        where: { id: item.id },
+        data: { status: 'REMOVED', deletedAt: new Date() },
+      });
+
+      return {
+        id: item.id,
+        posts: item.posts.map((post: any) => ({
+          id: post.id,
+          providerIdentifier: post.integration.providerIdentifier,
+        })),
+      };
+    });
+  }
+
+  async getItem(orgId: string, itemId: string) {
+    return this._queueItem.model.pipelineQueueItem.findFirst({
+      where: {
+        id: itemId,
+        status: 'QUEUED',
+        deletedAt: null,
+        pipeline: { organizationId: orgId, deletedAt: null },
+      },
+      include: {
+        posts: {
+          where: { parentPostId: null, deletedAt: null },
+          select: pipelinePostSelect,
+        },
+      },
+    });
+  }
+
+  private async positionFor(
+    tx: any,
+    pipelineId: string,
+    excludedItemId?: string,
+    beforeItemId?: string,
+    afterItemId?: string
+  ): Promise<number> {
+    const where = {
+      pipelineId,
+      status: PipelineQueueItemStatus.QUEUED,
+      deletedAt: null,
+      ...(excludedItemId ? { id: { not: excludedItemId } } : {}),
+    };
+    const items = await tx.pipelineQueueItem.findMany({
+      where,
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, position: true },
+    });
+    const beforeIndex = beforeItemId ? items.findIndex((item: any) => item.id === beforeItemId) : -1;
+    const afterIndex = afterItemId ? items.findIndex((item: any) => item.id === afterItemId) : -1;
+    const insertIndex = beforeIndex >= 0 ? beforeIndex : afterIndex >= 0 ? afterIndex + 1 : items.length;
+    const previous = items[insertIndex - 1]?.position;
+    const next = items[insertIndex]?.position;
+    if (previous === undefined) return (next ?? QUEUE_POSITION_INCREMENT) - QUEUE_POSITION_INCREMENT;
+    if (next === undefined) return previous + QUEUE_POSITION_INCREMENT;
+    if (next - previous > 1) return previous + Math.floor((next - previous) / 2);
+    await Promise.all(
+      items.map((item: any, index: number) =>
+        tx.pipelineQueueItem.update({
+          where: { id: item.id },
+          data: { position: (index + 1) * QUEUE_POSITION_INCREMENT },
+        })
+      )
+    );
+    return insertIndex * QUEUE_POSITION_INCREMENT + QUEUE_POSITION_INCREMENT / 2;
+  }
+
+  private async withSerializableRetry<T>(callback: (tx: any) => Promise<T>): Promise<T> {
+    let error: unknown;
+    for (let attempt = 0; attempt < TRANSACTION_ATTEMPTS; attempt++) {
+      try {
+        return await (this._transaction.model as any).$transaction(callback, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+      } catch (caught: any) {
+        error = caught;
+        if (caught?.code !== 'P2034' || attempt === TRANSACTION_ATTEMPTS - 1) throw caught;
+      }
+    }
+    throw error;
+  }
+}

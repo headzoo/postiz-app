@@ -696,7 +696,8 @@ export class PostsService {
     taskQueue: string,
     postId: string,
     orgId: string,
-    state: State
+    state: State,
+    throwOnFailure = false
   ) {
     try {
       const workflows = this._temporalService.client
@@ -749,7 +750,11 @@ export class PostsService {
             },
           ]),
         });
-    } catch (err) {}
+    } catch (err) {
+      if (throwOnFailure) {
+        throw err;
+      }
+    }
   }
 
   /**
@@ -905,6 +910,23 @@ export class PostsService {
   ): Promise<any[]> {
     const postList = [];
     for (const post of body.posts) {
+      const queuedPipelineItem = post.group
+        ? await this._postRepository.getPipelineQueueItemForGroup(
+            orgId,
+            post.group
+          )
+        : null;
+      const pipelineQueueItem = queuedPipelineItem?.pipelineQueueItem;
+      if (pipelineQueueItem?.status === 'PUBLISHING') {
+        throw new BadRequestException(
+          'Publishing Pipeline content cannot be edited'
+        );
+      }
+      const pipelineQueueItemId =
+        pipelineQueueItem?.status === 'QUEUED' &&
+        !pipelineQueueItem.deletedAt
+          ? pipelineQueueItem.id
+          : undefined;
       if (
         (body.type === 'schedule' || body.type === 'now') &&
         !body.republish &&
@@ -943,7 +965,8 @@ export class PostsService {
         body.tags,
         creationMethod,
         body.inter,
-        keepGroup
+        keepGroup || !!pipelineQueueItemId,
+        pipelineQueueItemId
       );
 
       if (!posts?.length) {

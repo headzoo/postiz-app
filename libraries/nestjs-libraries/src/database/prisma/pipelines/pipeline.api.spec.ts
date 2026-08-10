@@ -1,0 +1,664 @@
+import { ConflictException } from '@nestjs/common';
+
+jest.mock(
+  '@gitroom/nestjs-libraries/database/prisma/posts/posts.service',
+  () => ({ PostsService: class PostsService {} })
+);
+jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
+  socialIntegrationList: [
+    { identifier: 'x', editor: 'normal', stripLinks: () => false },
+    { identifier: 'linkedin', editor: 'normal', stripLinks: () => false },
+  ],
+}));
+
+import { PipelineManager } from './pipeline.manager';
+import { PipelineRepository } from './pipeline.repository';
+import { PipelineService } from './pipeline.service';
+
+describe('Pipeline API boundaries', () => {
+  it('returns credential-free composer data for every queued channel', async () => {
+    const twitter = {
+      id: 'twitter',
+      name: 'Twitter',
+      providerIdentifier: 'x',
+      token: 'must-not-leak',
+      refreshToken: 'must-not-leak',
+      organizationId: 'organization',
+      internalId: 'internal',
+      disabled: false,
+      inBetweenSteps: false,
+      refreshNeeded: false,
+      postingTimes: '[{"time":60}]',
+      profile: 'Twitter profile',
+      type: 'SOCIAL',
+      picture: null,
+      additionalSettings: '[]',
+      customer: null,
+    };
+    const linkedin = {
+      ...twitter,
+      id: 'linkedin',
+      name: 'LinkedIn',
+      providerIdentifier: 'linkedin',
+      postingTimes: 'not-json',
+      profile: 'LinkedIn profile',
+    };
+    const repository = {
+      getPipelines: jest.fn().mockResolvedValue([
+        {
+          id: 'pipeline',
+          name: 'Weekly content',
+          timezone: 'UTC',
+          active: true,
+          scheduleRevision: 1,
+          integrations: [{ integration: twitter }, { integration: linkedin }],
+          scheduleSlots: [],
+          _count: { queueItems: 1 },
+        },
+      ]),
+      getPipeline: jest.fn().mockResolvedValue({
+        id: 'pipeline',
+        name: 'Weekly content',
+        timezone: 'UTC',
+        active: true,
+        scheduleRevision: 1,
+        scheduleSlots: [],
+        integrations: [
+          { integration: twitter },
+          { integration: linkedin },
+        ],
+        queueItems: [
+          {
+            id: 'item',
+            group: 'group',
+            status: 'QUEUED',
+            position: 1024,
+            error: null,
+            posts: [
+              {
+                id: 'twitter-root',
+                parentPostId: null,
+                content: 'Twitter root',
+                delay: 0,
+                state: 'DRAFT',
+                intervalInDays: null,
+                settings: '{"audience":"all"}',
+                image: '[{"id":"media","path":"image.jpg"}]',
+                tags: [],
+                integration: twitter,
+              },
+              {
+                id: 'twitter-thread',
+                parentPostId: 'twitter-root',
+                content: 'Twitter thread',
+                delay: 5,
+                state: 'DRAFT',
+                intervalInDays: null,
+                settings: '{"audience":"all"}',
+                image: '[]',
+                tags: [],
+                integration: twitter,
+              },
+              {
+                id: 'linkedin-root',
+                parentPostId: null,
+                content: 'LinkedIn root',
+                delay: 0,
+                state: 'DRAFT',
+                intervalInDays: null,
+                settings: '{}',
+                image: '[]',
+                tags: [],
+                integration: linkedin,
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+    const list = await service.getPipelines('organization');
+    const detail = await service.getPipeline(
+      'organization',
+      'pipeline'
+    );
+
+    expect(list[0].channels).toEqual([
+      expect.objectContaining({ id: 'twitter', identifier: 'x' }),
+      expect.objectContaining({ id: 'linkedin', identifier: 'linkedin' }),
+    ]);
+    expect(detail).toMatchObject({
+      channels: [
+        expect.objectContaining({
+          id: 'twitter',
+          identifier: 'x',
+          editor: expect.any(String),
+          time: [{ time: 60 }],
+        }),
+        expect.objectContaining({
+          id: 'linkedin',
+          identifier: 'linkedin',
+          editor: expect.any(String),
+          time: [],
+        }),
+      ],
+      queueItems: [
+        expect.objectContaining({
+          posts: [
+            expect.objectContaining({
+              id: 'twitter-root',
+              settings: { audience: 'all' },
+              image: [{ id: 'media', path: 'image.jpg' }],
+            }),
+            expect.objectContaining({ id: 'twitter-thread', parentPostId: 'twitter-root' }),
+            expect.objectContaining({ id: 'linkedin-root', parentPostId: null }),
+          ],
+        }),
+      ],
+    });
+    expect(JSON.stringify(list)).not.toContain('must-not-leak');
+    expect(JSON.stringify(detail)).not.toContain('must-not-leak');
+    expect(JSON.stringify(detail)).not.toContain('"organizationId"');
+    expect(JSON.stringify(detail)).not.toContain('"internalId"');
+  });
+
+  it('publishes a queue item only after every draft row is linked', async () => {
+    const queueItem = { id: 'item', status: 'CREATING' };
+    const drafts = [
+      { id: 'root', parentPostId: null, integrationId: 'channel' },
+      { id: 'thread-child', parentPostId: 'root', integrationId: 'channel' },
+    ];
+    let claimableDuringLink = false;
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any, options: any) => {
+          expect(options.isolationLevel).toBe('Serializable');
+          return callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'pipeline',
+                integrations: [{ integrationId: 'channel' }],
+              }),
+            },
+            pipelineQueueItem: {
+              findFirst: jest.fn().mockResolvedValue(null),
+              create: jest.fn().mockImplementation(async () => queueItem),
+              update: jest.fn().mockImplementation(async ({ data }) => {
+                Object.assign(queueItem, data);
+                return queueItem;
+              }),
+            },
+            post: {
+              findMany: jest.fn().mockResolvedValue(drafts),
+              updateMany: jest.fn().mockImplementation(async () => {
+                claimableDuringLink = queueItem.status === 'QUEUED';
+                return { count: drafts.length };
+              }),
+            },
+          });
+        }),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(repository.publishQueueItem('org', 'pipeline', 'group')).resolves.toMatchObject({
+      id: 'item',
+    });
+    expect(claimableDuringLink).toBe(false);
+    expect(queueItem.status).toBe('QUEUED');
+  });
+
+  it('rejects integration changes when queued content exists', async () => {
+    const repository = {
+      getOwnedIntegrations: jest.fn().mockResolvedValue([{ id: 'channel' }]),
+      updatePipeline: jest.fn().mockResolvedValue(false),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(
+      service.updatePipeline('org', 'pipeline', {
+        name: 'Pipeline',
+        timezone: 'UTC',
+        integrations: [{ id: 'channel' }],
+        scheduleSlots: [{ dayOfWeek: 1, minuteOfDay: 60 }],
+      })
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('uses only queued items for manual scheduling', async () => {
+    const repository = {
+      scheduleItem: jest.fn().mockResolvedValue({
+        id: 'item',
+        posts: [{ id: 'root-post', providerIdentifier: 'x' }],
+      }),
+    };
+    const manager = { startScheduledPosts: jest.fn().mockResolvedValue(undefined) };
+    const service = new PipelineService(repository as any, manager as any);
+
+    await expect(
+      service.scheduleItem('org', 'item', '2026-08-10T12:00:00.000Z')
+    ).resolves.toEqual({
+      id: 'item',
+      scheduledFor: '2026-08-10T12:00:00.000Z',
+    });
+    expect(repository.scheduleItem).toHaveBeenCalledWith(
+      'org',
+      'item',
+      new Date('2026-08-10T12:00:00.000Z')
+    );
+    expect(manager.startScheduledPosts).toHaveBeenCalledWith(
+      'org',
+      [{ id: 'root-post', providerIdentifier: 'x' }]
+    );
+  });
+
+  it('projects queued items in order and hides projections while paused', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-09T00:00:00.000Z'));
+    const repository = {
+      getPipeline: jest.fn().mockResolvedValue({
+        id: 'pipeline',
+        active: true,
+        timezone: 'UTC',
+        integrations: [{ integration: { id: 'channel' } }],
+        scheduleSlots: [
+          { dayOfWeek: 0, minuteOfDay: 60 },
+          { dayOfWeek: 1, minuteOfDay: 60 },
+        ],
+        queueItems: [
+          { id: 'first', status: 'QUEUED' },
+          { id: 'publishing', status: 'PUBLISHING' },
+          { id: 'second', status: 'QUEUED' },
+        ],
+      }),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(service.getPipeline('org', 'pipeline')).resolves.toMatchObject({
+      nextSlot: new Date('2026-08-09T01:00:00.000Z'),
+      projections: [
+        { itemId: 'first', projectedFor: new Date('2026-08-09T01:00:00.000Z') },
+        { itemId: 'publishing', projectedFor: undefined },
+        { itemId: 'second', projectedFor: new Date('2026-08-10T01:00:00.000Z') },
+      ],
+    });
+
+    repository.getPipeline.mockResolvedValueOnce({
+      ...(await repository.getPipeline()),
+      active: false,
+    });
+    await expect(service.getPipeline('org', 'pipeline')).resolves.toMatchObject({
+      nextSlot: undefined,
+      projections: [
+        { itemId: 'first', projectedFor: undefined },
+        { itemId: 'publishing', projectedFor: undefined },
+        { itemId: 'second', projectedFor: undefined },
+      ],
+    });
+    jest.useRealTimers();
+  });
+
+  it('schedules queued multi-channel content before publishing it now', async () => {
+    const repository = {
+      scheduleItem: jest.fn().mockResolvedValue({
+        id: 'item',
+        posts: [
+          { id: 'x-root', providerIdentifier: 'x' },
+          { id: 'linkedin-root', providerIdentifier: 'linkedin' },
+        ],
+      }),
+    };
+    const manager = { startScheduledPosts: jest.fn().mockResolvedValue(undefined) };
+    const service = new PipelineService(repository as any, manager as any);
+
+    await service.publishNow('org', 'item');
+
+    expect(repository.scheduleItem).toHaveBeenCalledWith(
+      'org',
+      'item',
+      expect.any(Date)
+    );
+    expect(manager.startScheduledPosts).toHaveBeenCalledWith(
+      'org',
+      [
+        { id: 'x-root', providerIdentifier: 'x' },
+        { id: 'linkedin-root', providerIdentifier: 'linkedin' },
+      ]
+    );
+  });
+
+  it('queues roots and thread children together before starting each root workflow', async () => {
+    const linkedPosts = [
+      { id: 'x-root', parentPostId: null, state: 'DRAFT', pipelineQueueItemId: 'item' },
+      {
+        id: 'x-thread-child',
+        parentPostId: 'x-root',
+        state: 'DRAFT',
+        pipelineQueueItemId: 'item',
+      },
+      {
+        id: 'linkedin-root',
+        parentPostId: null,
+        state: 'DRAFT',
+        pipelineQueueItemId: 'item',
+      },
+    ];
+    const postUpdateMany = jest.fn().mockImplementation(({ where, data }) => {
+      linkedPosts
+        .filter(
+          (post) =>
+            post.pipelineQueueItemId === where.pipelineQueueItemId &&
+            post.state === 'DRAFT'
+        )
+        .forEach((post) => Object.assign(post, data));
+      return { count: linkedPosts.length };
+    });
+    const queueItemUpdate = jest.fn().mockResolvedValue({
+      id: 'item',
+      status: 'REMOVED',
+    });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipelineQueueItem: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'item',
+                posts: [
+                  {
+                    id: 'x-root',
+                    integration: { providerIdentifier: 'x' },
+                  },
+                  {
+                    id: 'linkedin-root',
+                    integration: { providerIdentifier: 'linkedin' },
+                  },
+                ],
+              }),
+              update: queueItemUpdate,
+            },
+            post: { updateMany: postUpdateMany },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+    const scheduledFor = new Date('2026-08-10T12:00:00.000Z');
+
+    await expect(repository.scheduleItem('org', 'item', scheduledFor)).resolves.toEqual({
+      id: 'item',
+      posts: [
+        { id: 'x-root', providerIdentifier: 'x' },
+        { id: 'linkedin-root', providerIdentifier: 'linkedin' },
+      ],
+    });
+    expect(postUpdateMany).toHaveBeenCalledWith({
+      where: {
+        pipelineQueueItemId: 'item',
+        organizationId: 'org',
+        deletedAt: null,
+      },
+      data: {
+        pipelineQueueItemId: null,
+        publishDate: scheduledFor,
+        state: 'QUEUE',
+        releaseId: null,
+        releaseURL: null,
+      },
+    });
+    expect(linkedPosts).toEqual([
+      expect.objectContaining({
+        id: 'x-root',
+        parentPostId: null,
+        state: 'QUEUE',
+        pipelineQueueItemId: null,
+        publishDate: scheduledFor,
+      }),
+      expect.objectContaining({
+        id: 'x-thread-child',
+        parentPostId: 'x-root',
+        state: 'QUEUE',
+        pipelineQueueItemId: null,
+        publishDate: scheduledFor,
+      }),
+      expect.objectContaining({
+        id: 'linkedin-root',
+        parentPostId: null,
+        state: 'QUEUE',
+        pipelineQueueItemId: null,
+        publishDate: scheduledFor,
+      }),
+    ]);
+    expect(queueItemUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item' },
+        data: expect.objectContaining({ status: 'REMOVED' }),
+      })
+    );
+  });
+
+  it('reports workflow-start failures after scheduling posts', async () => {
+    const posts = {
+      startWorkflow: jest
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Temporal unavailable')),
+    };
+    const manager = new PipelineManager({} as any, posts as any);
+
+    await expect(
+      manager.startScheduledPosts('org', [
+        { id: 'x-root', providerIdentifier: 'x' },
+        { id: 'linkedin-root', providerIdentifier: 'linkedin' },
+      ])
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        failedPostIds: ['linkedin-root'],
+      }),
+    });
+    expect(posts.startWorkflow).toHaveBeenCalledWith(
+      'x',
+      'x-root',
+      'org',
+      'QUEUE',
+      true
+    );
+    expect(posts.startWorkflow).toHaveBeenCalledWith(
+      'linkedin',
+      'linkedin-root',
+      'org',
+      'QUEUE',
+      true
+    );
+  });
+
+  it('creates grouped drafts for exactly the configured channels', async () => {
+    const repository = {
+      getPipeline: jest.fn().mockResolvedValue({
+        id: 'pipeline',
+        integrations: [{ integrationId: 'linkedin' }, { integrationId: 'twitter' }],
+      }),
+      publishQueueItem: jest.fn().mockResolvedValue({ id: 'queue-item' }),
+      discardUnlinkedDraftPosts: jest.fn(),
+    };
+    const posts = {
+      validatePosts: jest.fn().mockResolvedValue([
+        { valid: true, errors: true, emptyContent: false, tooLong: false },
+        { valid: true, errors: true, emptyContent: false, tooLong: false },
+      ]),
+      mapTypeToPost: jest.fn().mockImplementation((body) => body),
+      createPost: jest.fn().mockResolvedValue([]),
+    };
+    const manager = new PipelineManager(repository as any, posts as any);
+    const body = {
+      pipelineId: 'pipeline',
+      post: {
+        type: 'schedule',
+        date: '2026-08-10T10:00:00.000Z',
+        posts: [
+          { integration: { id: 'twitter' }, value: [{ content: 'Twitter' }] },
+          { integration: { id: 'linkedin' }, value: [{ content: 'LinkedIn' }] },
+        ],
+      },
+    } as any;
+
+    await expect(manager.enqueue('org', body)).resolves.toEqual(
+      expect.objectContaining({ id: 'queue-item', group: expect.any(String) })
+    );
+    expect(posts.mapTypeToPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'draft',
+        posts: [
+          expect.objectContaining({ integration: { id: 'twitter' } }),
+          expect.objectContaining({ integration: { id: 'linkedin' } }),
+        ],
+      }),
+      'org'
+    );
+    expect(repository.publishQueueItem).toHaveBeenCalledWith(
+      'org',
+      'pipeline',
+      expect.any(String)
+    );
+  });
+
+  it('removes unlinked drafts when queue publication fails', async () => {
+    const repository = {
+      getPipeline: jest.fn().mockResolvedValue({
+        id: 'pipeline',
+        integrations: [{ integrationId: 'channel' }],
+      }),
+      publishQueueItem: jest.fn().mockResolvedValue(false),
+      discardUnlinkedDraftPosts: jest.fn().mockResolvedValue({ count: 1 }),
+    };
+    const posts = {
+      validatePosts: jest.fn().mockResolvedValue([
+        { valid: true, errors: true, emptyContent: false, tooLong: false },
+      ]),
+      mapTypeToPost: jest.fn().mockImplementation((body) => body),
+      createPost: jest.fn().mockResolvedValue([]),
+    };
+    const manager = new PipelineManager(repository as any, posts as any);
+
+    await expect(
+      manager.enqueue('org', {
+        pipelineId: 'pipeline',
+        post: {
+          type: 'schedule',
+          date: '2026-08-10T10:00:00.000Z',
+          posts: [
+            { integration: { id: 'channel' }, value: [{ content: 'Content' }] },
+          ],
+        },
+      } as any)
+    ).rejects.toMatchObject({
+      message: 'Pipeline content no longer matches its configured integrations',
+    });
+    expect(repository.discardUnlinkedDraftPosts).toHaveBeenCalledWith(
+      'org',
+      expect.any(String)
+    );
+  });
+
+  it('retries a serialization conflict instead of dropping a concurrent reorder', async () => {
+    const firstAttempt = { code: 'P2034' };
+    const transaction = {
+      model: {
+        $transaction: jest
+          .fn()
+          .mockRejectedValueOnce(firstAttempt)
+          .mockImplementationOnce(async (callback: any) =>
+            callback({
+              pipelineQueueItem: {
+                findFirst: jest.fn().mockResolvedValue({ id: 'item' }),
+                findMany: jest.fn().mockResolvedValue([]),
+                update: jest.fn().mockResolvedValue({ id: 'item', position: 1024 }),
+              },
+            })
+          ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(
+      repository.repositionItem('org', 'item', 'pipeline')
+    ).resolves.toMatchObject({ id: 'item' });
+    expect(transaction.model.$transaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps failed items recoverable through distinct remove and delete actions', async () => {
+    const repository = {
+      detachItem: jest.fn().mockResolvedValue({ id: 'failed-item', status: 'REMOVED' }),
+      deleteItem: jest.fn().mockResolvedValue({ id: 'failed-item', status: 'REMOVED' }),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(service.detachItem('org', 'failed-item')).resolves.toMatchObject({
+      id: 'failed-item',
+    });
+    await expect(service.deleteItem('org', 'failed-item')).resolves.toMatchObject({
+      id: 'failed-item',
+    });
+    expect(repository.detachItem).toHaveBeenCalledWith('org', 'failed-item');
+    expect(repository.deleteItem).toHaveBeenCalledWith('org', 'failed-item');
+  });
+
+  it('deletes failed Pipeline content instead of detaching it', async () => {
+    const postUpdateMany = jest.fn().mockResolvedValue({ count: 2 });
+    const queueItemUpdate = jest.fn().mockResolvedValue({
+      id: 'failed-item',
+      status: 'REMOVED',
+    });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipelineQueueItem: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'failed-item' }),
+              update: queueItemUpdate,
+            },
+            post: { updateMany: postUpdateMany },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await expect(repository.deleteItem('org', 'failed-item')).resolves.toMatchObject({
+      id: 'failed-item',
+    });
+    expect(postUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          pipelineQueueItemId: 'failed-item',
+          organizationId: 'org',
+          deletedAt: null,
+        },
+        data: { deletedAt: expect.any(Date) },
+      })
+    );
+  });
+});

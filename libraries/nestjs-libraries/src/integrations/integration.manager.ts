@@ -37,6 +37,7 @@ import { SkoolProvider } from '@gitroom/nestjs-libraries/integrations/social/sko
 import { WhopProvider } from '@gitroom/nestjs-libraries/integrations/social/whop.provider';
 import { MeweProvider } from '@gitroom/nestjs-libraries/integrations/social/mewe.provider';
 import { TumblrProvider } from '@gitroom/nestjs-libraries/integrations/social/tumblr.provider';
+import { FileProvider } from '@gitroom/nestjs-libraries/integrations/social/file.provider';
 
 export const socialIntegrationList: Array<SocialAbstract & SocialProvider> = [
   new XProvider(),
@@ -73,15 +74,22 @@ export const socialIntegrationList: Array<SocialAbstract & SocialProvider> = [
   new SkoolProvider(),
   new MeweProvider(),
   new TumblrProvider(),
+  new FileProvider(),
   // new MastodonCustomProvider(),
 ];
 
 @Injectable()
 export class IntegrationManager {
+  private getAvailableSocialIntegrations() {
+    return socialIntegrationList.filter(
+      (provider) => !provider.isConfigured || provider.isConfigured()
+    );
+  }
+
   async getAllIntegrations() {
     return {
       social: await Promise.all(
-        socialIntegrationList.map(async (p) => ({
+        this.getAvailableSocialIntegrations().map(async (p) => ({
           name: p.name,
           identifier: p.identifier,
           toolTip: p.toolTip,
@@ -169,7 +177,7 @@ export class IntegrationManager {
   }
 
   getAllowedSocialsIntegrations() {
-    return socialIntegrationList.map((p) => p.identifier);
+    return this.getAvailableSocialIntegrations().map((p) => p.identifier);
   }
   getSocialIntegration(integration: string): SocialProvider {
     return socialIntegrationList.find((i) => i.identifier === integration)!;

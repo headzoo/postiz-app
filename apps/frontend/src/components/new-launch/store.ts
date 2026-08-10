@@ -25,6 +25,8 @@ export interface SelectedIntegrations {
   ref?: RefObject<any>;
 }
 
+export type PublishingMode = 'manual' | 'now' | 'pipeline';
+
 interface StoreState {
   editor: undefined | 'none' | 'normal' | 'markdown' | 'html';
   loaded: boolean;
@@ -41,6 +43,8 @@ interface StoreState {
   comments: boolean | 'no-media';
   locked: boolean;
   hide: boolean;
+  publishingMode: PublishingMode;
+  pipelineId?: string;
   setLocked: (locked: boolean) => void;
   integrations: Integrations[];
   selectedIntegrations: SelectedIntegrations[];
@@ -111,6 +115,8 @@ interface StoreState {
   ) => void;
   setTab: (tab: 0 | 1) => void;
   setHide: (hide: boolean) => void;
+  setPublishingMode: (publishingMode: PublishingMode) => void;
+  setPipelineId: (pipelineId?: string) => void;
   setDate: (date: dayjs.Dayjs) => void;
   setRepeater: (repeater: number) => void;
   setTags: (tags: { label: string; value: string }[]) => void;
@@ -150,6 +156,8 @@ const initialState = {
   current: 'global',
   locked: false,
   hide: false,
+  publishingMode: 'manual' as PublishingMode,
+  pipelineId: undefined as string | undefined,
   integrations: [] as Integrations[],
   selectedIntegrations: [] as SelectedIntegrations[],
   global: [] as Values[],
@@ -528,6 +536,15 @@ export const useLaunchStore = create<StoreState>()((set) => ({
   setHide: (hide: boolean) =>
     set((state) => ({
       hide: hide,
+    })),
+  setPublishingMode: (publishingMode: PublishingMode) =>
+    set(() => ({
+      publishingMode,
+      ...(publishingMode === 'pipeline' ? {} : { pipelineId: undefined }),
+    })),
+  setPipelineId: (pipelineId?: string) =>
+    set(() => ({
+      pipelineId,
     })),
   setDate: (date: dayjs.Dayjs) =>
     set((state) => ({

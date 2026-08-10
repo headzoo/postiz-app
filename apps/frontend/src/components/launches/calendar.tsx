@@ -661,6 +661,26 @@ export const CalendarColumn: FC<{
     drop: async (item: any) => {
       if (isBeforeNow) return;
 
+      // Projected Pipeline items have a dynamic (unsaved) date. Dropping one on
+      // an exact slot pins it to that time via the existing manual-schedule
+      // action, which detaches the whole group from the Pipeline queue.
+      if (item.pipelineItemId) {
+        changeDate(item.id, getDate);
+        const { status } = await fetch(
+          `/pipelines/items/${item.pipelineItemId}/schedule`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              date: getDate.utc().format(),
+            }),
+          }
+        );
+        if (status !== 500) {
+          reloadCalendarView();
+        }
+        return;
+      }
+
       // Find the post to check its state
       const post = posts.find((p) => p.id === item.id);
       let action: 'schedule' | 'update' = 'schedule';
@@ -1035,6 +1055,7 @@ const CalendarItem: FC<{
         id: post.id,
         interval: !!post.intervalInDays,
         date,
+        pipelineItemId: (post as any).pipelineItemId,
       },
       collect: (monitor) => ({
         opacity: monitor.isDragging() ? 0 : 1,

@@ -43,6 +43,7 @@ model Organization {
   webhooks            Webhooks[]
   oauthApp            OAuthApp[]
   oauthAuthorizations OAuthAuthorization[]
+  pipelines           Pipeline[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -341,6 +342,7 @@ model Integration {
   orderItems            OrderItems[]
   plugs                 Plugs[]
   posts                 Post[]
+  pipelineIntegrations PipelineIntegration[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -427,6 +429,8 @@ model Post {
   submittedForOrder          Orders?                   @relation(fields: [submittedForOrderId], references: [id])
   submittedForOrganization   Organization?             @relation("submittedForOrg", fields: [submittedForOrganizationId], references: [id])
   tags                       TagsPosts[]
+  pipelineQueueItemId        String?
+  pipelineQueueItem          PipelineQueueItem?         @relation(fields: [pipelineQueueItemId], references: [id])
 
   @@index([group])
   @@index([deletedAt])
@@ -443,6 +447,7 @@ model Post {
   @@index([updatedAt])
   @@index([releaseURL])
   @@index([integrationId])
+  @@index([pipelineQueueItemId])
 }
 
 model Notifications {
@@ -626,6 +631,102 @@ model AutoPost {
   organization    Organization @relation(fields: [organizationId], references: [id])
 
   @@index([deletedAt])
+}
+
+model Pipeline {
+  id               String                 @id @default(uuid())
+  organizationId   String
+  name             String
+  timezone         String
+  active           Boolean                @default(true)
+  scheduleRevision Int                    @default(1)
+  deletedAt        DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  organization     Organization           @relation(fields: [organizationId], references: [id])
+  integrations     PipelineIntegration[]
+  scheduleSlots    PipelineScheduleSlot[]
+  queueItems       PipelineQueueItem[]
+  slotExecutions   PipelineSlotExecution[]
+
+  @@index([organizationId, deletedAt])
+  @@index([organizationId, active])
+  @@index([organizationId, scheduleRevision])
+  @@index([deletedAt])
+}
+
+model PipelineIntegration {
+  id            String      @id @default(uuid())
+  pipelineId    String
+  integrationId String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  pipeline      Pipeline    @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  integration   Integration @relation(fields: [integrationId], references: [id])
+
+  @@unique([pipelineId, integrationId])
+  @@index([integrationId, pipelineId])
+  @@index([pipelineId])
+}
+
+model PipelineScheduleSlot {
+  id          String   @id @default(uuid())
+  pipelineId  String
+  dayOfWeek   Int
+  minuteOfDay Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  pipeline    Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+
+  @@unique([pipelineId, dayOfWeek, minuteOfDay])
+  @@index([pipelineId, dayOfWeek, minuteOfDay])
+}
+
+model PipelineQueueItem {
+  id             String                  @id @default(uuid())
+  pipelineId     String
+  group          String                  @unique
+  position       Int
+  status         PipelineQueueItemStatus @default(QUEUED)
+  claimedAt      DateTime?
+  publishedAt    DateTime?
+  failedAt       DateTime?
+  deletedAt      DateTime?
+  error          String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  pipeline       Pipeline                @relation(fields: [pipelineId], references: [id])
+  posts          Post[]
+  slotExecutions PipelineSlotExecution[]
+
+  @@index([pipelineId, status, position])
+  @@index([pipelineId, status, position, createdAt, id])
+  @@index([claimedAt])
+  @@index([failedAt])
+  @@index([deletedAt])
+}
+
+model PipelineSlotExecution {
+  id                  String                      @id @default(uuid())
+  pipelineId          String
+  pipelineQueueItemId String?
+  scheduledFor        DateTime
+  scheduleRevision    Int
+  status              PipelineSlotExecutionStatus @default(SKIPPED)
+  claimedAt           DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  error               String?
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
+  pipeline            Pipeline                    @relation(fields: [pipelineId], references: [id])
+  pipelineQueueItem   PipelineQueueItem?          @relation(fields: [pipelineQueueItemId], references: [id])
+
+  @@unique([pipelineId, scheduledFor])
+  @@index([pipelineId, status, scheduledFor])
+  @@index([pipelineQueueItemId])
+  @@index([claimedAt])
+  @@index([failedAt])
 }
 
 model Sets {
@@ -905,6 +1006,22 @@ enum State {
   PUBLISHED
   ERROR
   DRAFT
+}
+
+enum PipelineQueueItemStatus {
+  CREATING
+  QUEUED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  REMOVED
+}
+
+enum PipelineSlotExecutionStatus {
+  SKIPPED
+  CLAIMED
+  COMPLETED
+  FAILED
 }
 
 enum SubscriptionTier {

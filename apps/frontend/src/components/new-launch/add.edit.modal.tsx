@@ -82,11 +82,20 @@ export const AddEditModalInner: FC<AddEditModalProps> = (props) => {
       }
     }
 
-    if (existingData.integration) {
-      const integration = integrations.find(
-        (i) => i.id === existingData.integration
-      );
-      addOrRemoveSelectedIntegration(integration, existingData.settings);
+    const existingChannels = existingData.channels || (
+      existingData.integration
+        ? [{
+            integration: existingData.integration,
+            settings: existingData.settings,
+            posts: existingData.posts,
+          }]
+        : []
+    );
+    for (const channel of existingChannels) {
+      const integration = integrations.find((i) => i.id === channel.integration);
+      if (integration) {
+        addOrRemoveSelectedIntegration(integration, channel.settings);
+      }
     }
 
     if (props?.selectedChannels?.length) {
@@ -133,21 +142,28 @@ export const AddEditModalInnerInner: FC<AddEditModalProps> = (props) => {
   );
 
   useEffect(() => {
-    if (existingData.integration) {
-      if (existingData?.posts?.[0]?.intervalInDays) {
-        setRepeater(existingData.posts[0].intervalInDays);
+    const existingChannels = existingData.channels || (
+      existingData.integration
+        ? [{
+            integration: existingData.integration,
+            settings: existingData.settings,
+            posts: existingData.posts,
+          }]
+        : []
+    );
+    if (existingChannels.length) {
+      if (existingChannels[0]?.posts?.[0]?.intervalInDays) {
+        setRepeater(existingChannels[0].posts[0].intervalInDays);
       }
       setTags(
         // @ts-ignore
-        existingData?.posts?.[0]?.tags?.map((p: any) => ({
+        existingChannels[0]?.posts?.[0]?.tags?.map((p: any) => ({
           label: p.tag.name,
           value: p.tag.name,
         })) || []
       );
-      addInternalValue(
-        0,
-        existingData.integration,
-        existingData.posts.map((post) => ({
+      for (const channel of existingChannels) {
+        addInternalValue(0, channel.integration, channel.posts.map((post) => ({
           delay: post.delay,
           content:
             post.content.indexOf('<p>') > -1
@@ -159,9 +175,9 @@ export const AddEditModalInnerInner: FC<AddEditModalProps> = (props) => {
           id: post.id,
           // @ts-ignore
           media: post.image as any[],
-        }))
-      );
-      setCurrent(existingData.integration);
+        })));
+      }
+      setCurrent(existingChannels[0].integration);
     } else {
       setEditor('normal');
     }
