@@ -349,6 +349,64 @@ describe('Pipeline API boundaries', () => {
     });
   });
 
+  it('strips persisted schedule slot fields before recreating rows', async () => {
+    const update = jest.fn().mockResolvedValue({
+      id: 'pipeline',
+      scheduleRevision: 2,
+      scheduleSlots: [{ dayOfWeek: 1, minuteOfDay: 610 }],
+    });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({ id: 'pipeline' }),
+              update,
+            },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await repository.updatePipelineSchedule('org', 'pipeline', [
+      {
+        id: 'slot-id',
+        pipelineId: 'pipeline',
+        dayOfWeek: 3,
+        minuteOfDay: 540,
+        createdAt: '2026-08-10T13:23:42.960Z',
+        updatedAt: '2026-08-10T13:23:42.960Z',
+      } as any,
+      { dayOfWeek: 1, minuteOfDay: 610 },
+    ]);
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'pipeline' },
+      data: {
+        scheduleRevision: { increment: 1 },
+        scheduleSlots: {
+          deleteMany: {},
+          create: [
+            { dayOfWeek: 3, minuteOfDay: 540 },
+            { dayOfWeek: 1, minuteOfDay: 610 },
+          ],
+        },
+      },
+      include: {
+        scheduleSlots: {
+          orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }],
+        },
+      },
+    });
+  });
+
   it('returns active and paused schedule occurrences only from the requested organization', async () => {
     const repository = {
       getPipelinesForSchedule: jest.fn().mockResolvedValue([

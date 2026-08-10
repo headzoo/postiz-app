@@ -182,7 +182,7 @@ export class PipelineService {
       timezone: pipeline.timezone,
       active: pipeline.active,
       scheduleRevision: pipeline.scheduleRevision,
-      scheduleSlots: pipeline.scheduleSlots,
+      scheduleSlots: this.toScheduleSlots(pipeline.scheduleSlots),
       channels: pipeline.integrations.map(({ integration }) =>
         this.toComposerIntegration(integration)
       ),
@@ -234,7 +234,10 @@ export class PipelineService {
       body.scheduleSlots
     );
     if (!pipeline) throw new NotFoundException('Pipeline not found');
-    return pipeline;
+    return {
+      ...pipeline,
+      scheduleSlots: this.toScheduleSlots(pipeline.scheduleSlots),
+    };
   }
 
   async deletePipelineScheduleSlot(
@@ -376,6 +379,15 @@ export class PipelineService {
     if (new Set(integrationIds).size !== integrationIds.length) {
       throw new BadRequestException('Pipeline integrations must be unique');
     }
+  }
+
+  private toScheduleSlots(
+    scheduleSlots: Array<{ dayOfWeek: number; minuteOfDay: number }>
+  ) {
+    return scheduleSlots.map(({ dayOfWeek, minuteOfDay }) => ({
+      dayOfWeek,
+      minuteOfDay,
+    }));
   }
 
   private validateScheduleSlots(

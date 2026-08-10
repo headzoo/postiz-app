@@ -228,7 +228,10 @@ export class PipelineRepository {
           scheduleRevision: { increment: 1 },
           scheduleSlots: {
             deleteMany: {},
-            create: scheduleSlots,
+            create: scheduleSlots.map(({ dayOfWeek, minuteOfDay }) => ({
+              dayOfWeek,
+              minuteOfDay,
+            })),
           },
         },
         include: {
