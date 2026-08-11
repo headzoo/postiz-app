@@ -294,12 +294,6 @@ export const PipelineContextDocumentsPanel: FC<{
         </div>
         <div className="flex items-center gap-[8px] flex-wrap">
           {onEdit && <Button onClick={onEdit}>{t('edit', 'Edit')}</Button>}
-          <Link
-            href="/context-documents"
-            className="text-[13px] text-btnPrimary hover:underline"
-          >
-            {t('manage_context_documents', 'Manage library')}
-          </Link>
         </div>
       </div>
       <div className="flex flex-col gap-[8px]">

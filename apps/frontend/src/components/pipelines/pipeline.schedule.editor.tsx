@@ -1,6 +1,14 @@
 'use client';
 
-import { FC, Fragment, MouseEvent, ReactNode, useCallback } from 'react';
+import {
+  FC,
+  Fragment,
+  MouseEvent,
+  ReactNode,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import clsx from 'clsx';
 import { useDrag, useDrop } from 'react-dnd';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
@@ -19,6 +27,7 @@ import {
   PIPELINE_SCHEDULE_DRAG_TYPE,
   pipelineScheduleSlotsEqual,
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
+import { useScrollToHour } from '@gitroom/frontend/components/launches/helpers/use.scroll.to.hour';
 
 const SlotPill: FC<{
   dayLabel: string;
@@ -195,6 +204,16 @@ const PipelineScheduleEditorContent: FC<{
   const t = useT();
   const modal = useModals();
   const toaster = useToaster();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const earliestHour = useMemo(() => {
+    if (!value.length) {
+      return null;
+    }
+    return Math.min(
+      ...value.map((slot) => Math.floor(slot.minuteOfDay / 60))
+    );
+  }, [value]);
+  useScrollToHour(scrollRef, earliestHour, 'schedule');
 
   const addSlot = (dayOfWeek: number, minuteOfDay: number) => {
     if (
@@ -318,7 +337,10 @@ const PipelineScheduleEditorContent: FC<{
         Existing off-hour slots are retained and can be removed. Drag a slot to
         move it to another day or half-hour. Times use the Pipeline timezone.
       </div>
-      <div className="max-h-[640px] overflow-auto rounded-[10px] border border-newBorder bg-newBorder scrollbar scrollbar-thumb-newBorder scrollbar-track-newBgColor">
+      <div
+        ref={scrollRef}
+        className="max-h-[640px] overflow-auto rounded-[10px] border border-newBorder bg-newBorder scrollbar scrollbar-thumb-newBorder scrollbar-track-newBgColor"
+      >
         <div className="grid min-w-[1004px] grid-cols-[80px_repeat(7,_minmax(132px,_1fr))] gap-px">
           <div className="sticky start-0 top-0 z-30 h-[62px] bg-newTableHeader" />
           {PIPELINE_DAYS.map((day) => (
@@ -331,7 +353,10 @@ const PipelineScheduleEditorContent: FC<{
           ))}
           {Array.from({ length: 24 }, (_, hour) => (
             <Fragment key={hour}>
-              <div className="sticky start-0 z-10 flex min-h-[64px] items-start justify-end bg-newBgColor px-[12px] pt-[10px] text-[13px] text-newTableText">
+              <div
+                data-hour={hour}
+                className="sticky start-0 z-10 flex min-h-[64px] items-start justify-end bg-newBgColor px-[12px] pt-[10px] text-[13px] text-newTableText scroll-mt-[62px]"
+              >
                 {String(hour).padStart(2, '0')}:00
               </div>
               {PIPELINE_DAYS.map((day) => {

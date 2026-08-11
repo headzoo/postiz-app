@@ -7,6 +7,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
@@ -61,6 +62,7 @@ import {
   getReadableForegroundColor,
   resolveCalendarPostHeaderColor,
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
+import { useScrollToHour } from '@gitroom/frontend/components/launches/helpers/use.scroll.to.hour';
 
 // Extend dayjs with necessary plugins
 extend(localizedFormat);
@@ -399,8 +401,9 @@ export const DayView = () => {
   );
 };
 export const WeekView = () => {
-  const { startDate, endDate } = useCalendar();
+  const { startDate, endDate, posts, loading } = useCalendar();
   const t = useT();
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Use dayjs to get localized day names
   const localizedDays = useMemo(() => {
@@ -420,10 +423,38 @@ export const WeekView = () => {
     return days;
   }, [i18next.resolvedLanguage, startDate]);
 
+  const earliestHour = useMemo(() => {
+    if (loading) {
+      return null;
+    }
+
+    const weekStart = newDayjs(startDate).startOf('day');
+    const weekEnd = newDayjs(endDate).endOf('day');
+    let minHour: number | null = null;
+
+    for (const post of posts) {
+      const local = newDayjs(post.publishDate).local();
+      if (local.isBefore(weekStart) || local.isAfter(weekEnd)) {
+        continue;
+      }
+      const hour = local.hour();
+      if (minHour === null || hour < minHour) {
+        minHour = hour;
+      }
+    }
+
+    return minHour ?? 0;
+  }, [endDate, loading, posts, startDate]);
+
+  useScrollToHour(scrollRef, earliestHour, `${startDate}:${endDate}`);
+
   return (
     <div className="flex flex-col text-textColor flex-1">
       <div className="flex-1 relative">
-        <div className="grid [grid-template-columns:136px_repeat(7,_minmax(0,_1fr))] gap-[4px] rounded-[10px] absolute h-full start-0 top-0 w-full overflow-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
+        <div
+          ref={scrollRef}
+          className="grid [grid-template-columns:136px_repeat(7,_minmax(0,_1fr))] gap-[4px] rounded-[10px] absolute h-full start-0 top-0 w-full overflow-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor"
+        >
           <div className="z-10 bg-newTableHeader flex justify-center items-center flex-col h-[62px] rounded-[8px] sticky top-0"></div>
           {localizedDays.map((day, index) => (
             <div
@@ -449,7 +480,10 @@ export const WeekView = () => {
           ))}
           {hours.map((hour) => (
             <Fragment key={hour}>
-              <div className="p-2 pe-4 text-center items-center justify-center flex text-[14px] text-newTableText">
+              <div
+                data-hour={hour}
+                className="p-2 pe-4 text-center items-center justify-center flex text-[14px] text-newTableText scroll-mt-[62px]"
+              >
                 {convertTimeFormatBasedOnLocality(hour)}
               </div>
               {localizedDays.map((day, indexDay) => (
