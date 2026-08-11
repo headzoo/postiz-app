@@ -55,6 +55,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           sentryDsn={process.env.NEXT_PUBLIC_SENTRY_DSN!}
           extensionId={process.env.EXTENSION_ID || ''}
           giphyEnabled={!!process.env.GIPHY_API_KEY}
+          imgflipEnabled={
+            !!process.env.IMGFLIP_USERNAME && !!process.env.IMGFLIP_PASSWORD
+          }
           transloadit={
             process.env.TRANSLOADIT_AUTH && process.env.TRANSLOADIT_TEMPLATE
               ? [

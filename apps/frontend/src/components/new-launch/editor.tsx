@@ -73,6 +73,7 @@ import {
   GifPicker,
   GiphyGifItem,
 } from '@gitroom/frontend/components/media/gif.picker';
+import { MemeComposerButton } from '@gitroom/frontend/components/media/meme.generator';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 
 const MAX_UPLOAD_SIZE = 1024 * 1024 * 1024; // 1 GB
@@ -910,6 +911,14 @@ export const Editor: FC<{
                           />
                         </div>
                       )}
+                      <MemeComposerButton
+                        appendImages={appendImages}
+                        mediaNotAvailable={mediaNotAvailable}
+                        onOpen={() => {
+                          setEmojiPickerOpen(false);
+                          setGiphyPickerOpen(false);
+                        }}
+                      />
                     </div>
                   }
                   onChange={(value) => {

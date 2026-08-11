@@ -92,6 +92,8 @@ services:
       # === Misc Settings
       OPENAI_API_KEY: ''
       GIPHY_API_KEY: ''
+      IMGFLIP_USERNAME: ''
+      IMGFLIP_PASSWORD: ''
       NEXT_PUBLIC_DISCORD_SUPPORT: ''
       NEXT_PUBLIC_POLOTNO: ''
       API_LIMIT: 30

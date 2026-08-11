@@ -31,6 +31,11 @@ import {
 } from '@gitroom/nestjs-libraries/dtos/media/giphy.search.dto';
 import { UploadDto } from '@gitroom/nestjs-libraries/dtos/media/upload.dto';
 import { OpenGraphDto } from '@gitroom/nestjs-libraries/dtos/media/open.graph.dto';
+import {
+  GenerateImgflipMemeDto,
+  SaveImgflipMemeDto,
+} from '@gitroom/nestjs-libraries/dtos/media/imgflip.dto';
+import { ImgflipService } from '@gitroom/nestjs-libraries/imgflip/imgflip.service';
 
 @ApiTags('Media')
 @Controller('/media')
@@ -38,7 +43,8 @@ export class MediaController {
   private storage = UploadFactory.createStorage();
   constructor(
     private _mediaService: MediaService,
-    private _subscriptionService: SubscriptionService
+    private _subscriptionService: SubscriptionService,
+    private _imgflipService: ImgflipService
   ) {}
 
   @Post('/open-graph')
@@ -182,6 +188,24 @@ export class MediaController {
     @Body() body: UploadDto
   ) {
     return this._mediaService.uploadFromUrl(org.id, body.url, true);
+  }
+
+  @Get('/memes/templates')
+  getMemeTemplates() {
+    return this._imgflipService.getTemplates();
+  }
+
+  @Post('/memes/generate')
+  generateMeme(@Body() body: GenerateImgflipMemeDto) {
+    return this._imgflipService.generateMeme(body);
+  }
+
+  @Post('/memes/save')
+  saveGeneratedMeme(
+    @GetOrgFromRequest() org: Organization,
+    @Body() body: SaveImgflipMemeDto
+  ) {
+    return this._imgflipService.saveGeneratedMeme(org.id, body);
   }
 
   @Post('/:endpoint')

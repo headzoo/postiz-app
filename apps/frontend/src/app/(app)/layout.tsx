@@ -86,6 +86,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           googleAdsId={process.env.NEXT_PUBLIC_GTM_ID}
           googleAdsTrialTracking={process.env.NEXT_PUBLIC_TRACKING_TRIAL}
           giphyEnabled={!!process.env.GIPHY_API_KEY}
+          imgflipEnabled={
+            !!process.env.IMGFLIP_USERNAME && !!process.env.IMGFLIP_PASSWORD
+          }
           language={language}
           transloadit={
             process.env.TRANSLOADIT_AUTH && process.env.TRANSLOADIT_TEMPLATE

@@ -113,7 +113,12 @@ export class MediaService {
     return this._giphyService.trending(offset, limit);
   }
 
-  async uploadFromUrl(org: string, url: string, hidden = false) {
+  async uploadFromUrl(
+    org: string,
+    url: string,
+    hidden = false,
+    originalName?: string
+  ) {
     let response: globalThis.Response;
     try {
       response = await fetch(url, {
@@ -161,7 +166,7 @@ export class MediaService {
       org,
       getFile.originalname,
       getFile.path,
-      getFile.originalname,
+      originalName || getFile.originalname,
       hidden
     );
   }
