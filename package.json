@@ -99,6 +99,7 @@
     "@temporalio/workflow": "^1.14.0",
     "@tiptap/extension-bold": "^3.0.6",
     "@tiptap/extension-document": "^3.0.6",
+    "@tiptap/extension-hard-break": "^3.0.6",
     "@tiptap/extension-heading": "^3.0.7",
     "@tiptap/extension-history": "^3.0.7",
     "@tiptap/extension-link": "^3.0.9",

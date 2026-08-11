@@ -226,9 +226,11 @@ export const stripHtmlValidation = (
     .replace(/&nbsp;/gi, ' ')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    .replace(/<p[^>]*>\s*<br\s*\/?>\s*<\/p>/gi, '\n')
     .replace(/^<p[^>]*>/i, '')
     .replace(/<p[^>]*>/gi, '\n')
-    .replace(/<\/p>/gi, '');
+    .replace(/<\/p>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n');
 
   if (none) {
     return striptags(html).replace(/&gt;/gi, '>').replace(/&lt;/gi, '<');

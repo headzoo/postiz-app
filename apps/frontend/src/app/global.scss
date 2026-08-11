@@ -8,7 +8,9 @@
 @tailwind utilities;
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 body {
@@ -631,6 +633,7 @@ html[dir='rtl'] [dir='ltr'] {
   font-weight: bold;
 }
 
+.ProseMirror p,
 .preview p {
   min-height: 24px;
 }

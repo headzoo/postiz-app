@@ -10,6 +10,14 @@ import { useShallow } from 'zustand/react/shallow';
 import { useExistingData } from '@gitroom/frontend/components/launches/helpers/use.existing.data';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
 
+const toEditorHtml = (content: string) =>
+  content.indexOf('<p>') > -1
+    ? content
+    : content
+      .split('\n')
+      .map((line) => (line ? `<p>${line}</p>` : '<p><br></p>'))
+      .join('');
+
 export interface AddEditModalProps {
   dummy?: boolean;
   date: dayjs.Dayjs;
@@ -85,10 +93,10 @@ export const AddEditModalInner: FC<AddEditModalProps> = (props) => {
     const existingChannels = existingData.channels || (
       existingData.integration
         ? [{
-            integration: existingData.integration,
-            settings: existingData.settings,
-            posts: existingData.posts,
-          }]
+          integration: existingData.integration,
+          settings: existingData.settings,
+          posts: existingData.posts,
+        }]
         : []
     );
     for (const channel of existingChannels) {
@@ -145,10 +153,10 @@ export const AddEditModalInnerInner: FC<AddEditModalProps> = (props) => {
     const existingChannels = existingData.channels || (
       existingData.integration
         ? [{
-            integration: existingData.integration,
-            settings: existingData.settings,
-            posts: existingData.posts,
-          }]
+          integration: existingData.integration,
+          settings: existingData.settings,
+          posts: existingData.posts,
+        }]
         : []
     );
     if (existingChannels.length) {
@@ -165,13 +173,7 @@ export const AddEditModalInnerInner: FC<AddEditModalProps> = (props) => {
       for (const channel of existingChannels) {
         addInternalValue(0, channel.integration, channel.posts.map((post) => ({
           delay: post.delay,
-          content:
-            post.content.indexOf('<p>') > -1
-              ? post.content
-              : post.content
-                  .split('\n')
-                  .map((line: string) => `<p>${line}</p>`)
-                  .join(''),
+          content: toEditorHtml(post.content),
           id: post.id,
           // @ts-ignore
           media: post.image as any[],
@@ -190,30 +192,18 @@ export const AddEditModalInnerInner: FC<AddEditModalProps> = (props) => {
       0,
       props.onlyValues?.length
         ? props.onlyValues.map((p) => ({
-            content:
-              p.content.indexOf('<p>') > -1
-                ? p.content
-                : p.content
-                    .split('\n')
-                    .map((line: string) => `<p>${line}</p>`)
-                    .join(''),
-            id: makeId(10),
-            media: p.image || [],
-          }))
+          content: toEditorHtml(p.content),
+          id: makeId(10),
+          media: p.image || [],
+        }))
         : props.set?.posts?.length
-        ? props.set.posts[0].value.map((p: any) => ({
+          ? props.set.posts[0].value.map((p: any) => ({
             id: makeId(10),
-            content:
-              p.content.indexOf('<p>') > -1
-                ? p.content
-                : p.content
-                    .split('\n')
-                    .map((line: string) => `<p>${line}</p>`)
-                    .join(''),
+            content: toEditorHtml(p.content),
             // @ts-ignore
             media: p.media,
           }))
-        : [
+          : [
             {
               content: '',
               id: makeId(10),

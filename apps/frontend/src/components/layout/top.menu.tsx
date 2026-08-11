@@ -115,7 +115,7 @@ export const useMenuItem = () => {
       path: '/media',
     },
     {
-      name: t('context_documents', 'Context documents'),
+      name: t('context_documents', 'Docs'),
       icon: (
         <svg
           xmlns="http://www.w3.org/2000/svg"
