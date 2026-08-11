@@ -30,6 +30,7 @@ import {
   GiphyTrendingDto,
 } from '@gitroom/nestjs-libraries/dtos/media/giphy.search.dto';
 import { UploadDto } from '@gitroom/nestjs-libraries/dtos/media/upload.dto';
+import { OpenGraphDto } from '@gitroom/nestjs-libraries/dtos/media/open.graph.dto';
 
 @ApiTags('Media')
 @Controller('/media')
@@ -39,6 +40,11 @@ export class MediaController {
     private _mediaService: MediaService,
     private _subscriptionService: SubscriptionService
   ) {}
+
+  @Post('/open-graph')
+  getOpenGraph(@Body() body: OpenGraphDto) {
+    return this._mediaService.getOpenGraph(body.url);
+  }
 
   @Delete('/:id')
   deleteMedia(@GetOrgFromRequest() org: Organization, @Param('id') id: string) {

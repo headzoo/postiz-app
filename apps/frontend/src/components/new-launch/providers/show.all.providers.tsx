@@ -41,6 +41,7 @@ import WhopProvider from '@gitroom/frontend/components/new-launch/providers/whop
 import MeweProvider from '@gitroom/frontend/components/new-launch/providers/mewe/mewe.provider';
 import TumblrProvider from '@gitroom/frontend/components/new-launch/providers/tumblr/tumblr.provider';
 import FileProvider from '@gitroom/frontend/components/new-launch/providers/file/file.provider';
+import { ComposerOpenGraphPreview } from '@gitroom/frontend/components/new-launch/open-graph/open.graph.preview';
 
 export const Providers = [
   {
@@ -242,6 +243,7 @@ export const ShowAllProviders = forwardRef((props, ref) => {
           ) : (
             <div className="border border-borderPreview rounded-[12px] shadow-previewShadow">
               <GeneralPreviewComponent maximumCharacters={100000000} />
+              <ComposerOpenGraphPreview content={global[0]?.content} />
             </div>
           )}
         </IntegrationContext.Provider>

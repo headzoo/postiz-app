@@ -17,6 +17,7 @@ import { GiphyService } from '@gitroom/nestjs-libraries/giphy/giphy.service';
 import { getMaxSize } from '@gitroom/nestjs-libraries/upload/custom.upload.validation';
 import { ssrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { Readable } from 'stream';
+import { OpenGraphRepository } from '@gitroom/nestjs-libraries/database/prisma/media/open.graph.repository';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { fromBuffer } = require('file-type');
 
@@ -40,8 +41,13 @@ export class MediaService {
     private _openAi: OpenaiService,
     private _subscriptionService: SubscriptionService,
     private _videoManager: VideoManager,
-    private _giphyService: GiphyService
+    private _giphyService: GiphyService,
+    private _openGraphRepository: OpenGraphRepository
   ) {}
+
+  getOpenGraph(url: string) {
+    return this._openGraphRepository.getOpenGraph(url);
+  }
 
   async deleteMedia(org: string, id: string) {
     return this._mediaRepository.deleteMedia(org, id);

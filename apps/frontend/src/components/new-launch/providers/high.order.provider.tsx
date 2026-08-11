@@ -22,6 +22,7 @@ import { InternalChannels } from '@gitroom/frontend/components/launches/internal
 import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 import SafeImage from '@gitroom/react/helpers/safe.image';
+import { ComposerOpenGraphPreview } from '@gitroom/frontend/components/new-launch/open-graph/open.graph.preview';
 
 class Empty {
   @IsOptional()
@@ -260,31 +261,37 @@ export const withProvider = function <T extends object>(params: {
                 (!SettingsComponent && !data?.internalPlugs?.length)) &&
               !!value?.[0]?.content?.length &&
               (CustomPreviewComponent ? (
-                <CustomPreviewComponent
-                  maximumCharacters={
-                    typeof maximumCharacters === 'number'
-                      ? maximumCharacters
-                      : maximumCharacters(
-                          JSON.parse(
-                            selectedIntegration.integration
-                              .additionalSettings || '[]'
+                <>
+                  <CustomPreviewComponent
+                    maximumCharacters={
+                      typeof maximumCharacters === 'number'
+                        ? maximumCharacters
+                        : maximumCharacters(
+                            JSON.parse(
+                              selectedIntegration.integration
+                                .additionalSettings || '[]'
+                            )
                           )
-                        )
-                  }
-                />
+                    }
+                  />
+                  <ComposerOpenGraphPreview content={value[0]?.content} />
+                </>
               ) : (
-                <GeneralPreviewComponent
-                  maximumCharacters={
-                    typeof maximumCharacters === 'number'
-                      ? maximumCharacters
-                      : maximumCharacters(
-                          JSON.parse(
-                            selectedIntegration.integration
-                              .additionalSettings || '[]'
+                <>
+                  <GeneralPreviewComponent
+                    maximumCharacters={
+                      typeof maximumCharacters === 'number'
+                        ? maximumCharacters
+                        : maximumCharacters(
+                            JSON.parse(
+                              selectedIntegration.integration
+                                .additionalSettings || '[]'
+                            )
                           )
-                        )
-                  }
-                />
+                    }
+                  />
+                  <ComposerOpenGraphPreview content={value[0]?.content} />
+                </>
               ))}
             {(SettingsComponent || !!data?.internalPlugs?.length) &&
               createPortal(

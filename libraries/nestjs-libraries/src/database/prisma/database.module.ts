@@ -49,6 +49,7 @@ import { PipelineRepository } from '@gitroom/nestjs-libraries/database/prisma/pi
 import { PipelineService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.service';
 import { PipelineManager } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.manager';
 import { PipelineExecutionRepository } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.execution.repository';
+import { OpenGraphRepository } from '@gitroom/nestjs-libraries/database/prisma/media/open.graph.repository';
 
 @Global()
 @Module({
@@ -79,6 +80,7 @@ import { PipelineExecutionRepository } from '@gitroom/nestjs-libraries/database/
     SignatureService,
     MediaService,
     MediaRepository,
+    OpenGraphRepository,
     AgenciesService,
     AgenciesRepository,
     IntegrationManager,
