@@ -148,7 +148,10 @@ const ScheduleDropZone: FC<{
       },
       collect: (monitor) => ({
         isOver: monitor.isOver({ shallow: true }),
-        draggedItem: monitor.getItem<PipelineScheduleDragItem>(),
+        draggedItem:
+          monitor.getItemType() === PIPELINE_SCHEDULE_DRAG_TYPE
+            ? monitor.getItem<PipelineScheduleDragItem>()
+            : null,
       }),
     }),
     [dayOfWeek, minuteOfDay, onMoveSlot]
@@ -156,7 +159,7 @@ const ScheduleDropZone: FC<{
 
   const target: PipelineScheduleSlot = { dayOfWeek, minuteOfDay };
   const isIdenticalTarget =
-    draggedItem != null &&
+    !!draggedItem?.source &&
     pipelineScheduleSlotsEqual(draggedItem.source, target);
   const isOccupied = value.some(
     (slot) =>
@@ -171,12 +174,12 @@ const ScheduleDropZone: FC<{
       className={clsx(
         'flex min-h-[28px] flex-1 flex-col justify-center rounded-[6px] border border-transparent transition-colors',
         isOver &&
-          isValidVisualTarget &&
-          'border-btnPrimary bg-btnPrimary/10 cursor-copy',
+        isValidVisualTarget &&
+        'border-btnPrimary bg-btnPrimary/10 cursor-copy',
         isOver &&
-          !isValidVisualTarget &&
-          !isIdenticalTarget &&
-          'border-red-500/40 bg-red-500/5 cursor-not-allowed opacity-80'
+        !isValidVisualTarget &&
+        !isIdenticalTarget &&
+        'border-red-500/40 bg-red-500/5 cursor-not-allowed opacity-80'
       )}
     >
       {children}

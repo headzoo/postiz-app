@@ -362,7 +362,7 @@ export const MediaBox: FC<{
                 height="100%"
                 className="w-full h-full max-h-[100%] max-w-[100%] object-cover"
                 src={mediaDirectory.set(media.path)}
-                alt="media"
+                alt={media.alt || 'media'}
               />
             )}
           </div>
@@ -391,6 +391,25 @@ export const MediaBox: FC<{
       mutate();
     },
     [mutate]
+  );
+
+  const openMediaSettings = useCallback(
+    (media: Media) => (e: any) => {
+      e.stopPropagation();
+      modals.openModal({
+        title: t('media_settings', 'Media Settings'),
+        children: (close) => (
+          <MediaComponentInner
+            media={media as any}
+            onClose={close}
+            onSelect={() => {
+              mutate();
+            }}
+          />
+        ),
+      });
+    },
+    [modals, mutate, t]
   );
 
   const btn = useMemo(() => {
@@ -558,6 +577,23 @@ export const MediaBox: FC<{
                         onClick={deleteImage(media)}
                       />
                     )}
+                    {standalone && (
+                      <div
+                        className="cursor-pointer hidden z-[100] group-hover:flex items-center justify-center absolute -top-[5px] -start-[5px] bg-black/70 rounded-full text-white w-[18px] h-[18px]"
+                        onClick={openMediaSettings(media)}
+                        title={t('media_settings', 'Media Settings')}
+                      >
+                        <MediaSettingsIcon size={14} />
+                      </div>
+                    )}
+                    {!!media.alt && (
+                      <div
+                        className="absolute bottom-[10px] start-[10px] z-[100] bg-black/60 text-white text-[10px] font-[600] px-[4px] py-[1px] rounded-[4px]"
+                        title={media.alt}
+                      >
+                        {t('alt', 'ALT')}
+                      </div>
+                    )}
                     <div className="absolute bottom-[10px] end-[10px] z-[100]">{media.originalName}</div>
                     <div className="w-full h-full rounded-[6px] overflow-hidden relative">
                       <div className="absolute z-[20] left-[50%] top-[50%] -translate-x-[50%] -translate-y-[50%]">
@@ -587,7 +623,7 @@ export const MediaBox: FC<{
                           height="100%"
                           className="w-full h-full object-cover"
                           src={mediaDirectory.set(media.path)}
-                          alt="media"
+                          alt={media.alt || 'media'}
                         />
                       )}
                     </div>

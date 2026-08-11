@@ -247,6 +247,55 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     [integrations]
   );
 
+  const initialSnapshotRef = useRef<string | null>(null);
+  const isEditingExistingPost = !!existingData?.group;
+
+  const getComposerSnapshot = useCallback(() => {
+    const normalizeContent = (content: string) =>
+      stripHtmlValidation(editor || 'normal', content || '', true).trim();
+
+    return JSON.stringify({
+      global: global.map((value) => ({
+        content: normalizeContent(value.content),
+        media: value.media.map((media) => media.id).sort(),
+        delay: value.delay ?? 0,
+      })),
+      internal: internal.map((item) => ({
+        integrationId: item.integration.id,
+        values: item.integrationValue.map((value) => ({
+          content: normalizeContent(value.content),
+          media: value.media.map((media) => media.id).sort(),
+          delay: value.delay ?? 0,
+        })),
+      })),
+      tags: [...tags.map((tag) => tag.value)].sort(),
+      date: date.utc().format('YYYY-MM-DDTHH:mm:ss'),
+      repeater: repeater ?? null,
+      settings: selectedIntegrations
+        .map((integration) => ({
+          id: integration.integration.id,
+          settings: integration.settings,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    });
+  }, [
+    editor,
+    global,
+    internal,
+    tags,
+    date,
+    repeater,
+    selectedIntegrations,
+  ]);
+
+  useEffect(() => {
+    if (!isEditingExistingPost || initialSnapshotRef.current !== null) {
+      return;
+    }
+
+    initialSnapshotRef.current = getComposerSnapshot();
+  }, [isEditingExistingPost, getComposerSnapshot]);
+
   const hasComposerText = useCallback(() => {
     const hasText = (content: string) =>
       stripHtmlValidation(editor || 'normal', content || '', true).trim()
@@ -259,6 +308,22 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       )
     );
   }, [editor, global, internal]);
+
+  const hasUnsavedChanges = useCallback(() => {
+    if (isEditingExistingPost) {
+      if (initialSnapshotRef.current === null) {
+        return false;
+      }
+
+      return getComposerSnapshot() !== initialSnapshotRef.current;
+    }
+
+    return hasComposerText();
+  }, [
+    isEditingExistingPost,
+    getComposerSnapshot,
+    hasComposerText,
+  ]);
 
   const closeComposer = useCallback(() => {
     if (customClose) {
@@ -273,7 +338,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       return;
     }
 
-    if (!hasComposerText()) {
+    if (!hasUnsavedChanges()) {
       closeComposer();
       return;
     }
@@ -289,7 +354,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     ) {
       closeComposer();
     }
-  }, [activateExitButton, dummy, hasComposerText, closeComposer, t]);
+  }, [activateExitButton, dummy, hasUnsavedChanges, closeComposer, t]);
 
   useHotkeys(
     'Escape',
@@ -450,11 +515,11 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
         for (const item of notEnoughChars) {
           toaster.show(
             `${capitalize(item.identifier.split('-')[0])} (${item.name}):` +
-              ' ' +
-              t(
-                'post_needs_content_or_image',
-                'Your post should have at least one character or one image.'
-              ),
+            ' ' +
+            t(
+              'post_needs_content_or_image',
+              'Your post should have at least one character or one image.'
+            ),
             'warning'
           );
           setLoading(false);
@@ -466,9 +531,8 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
           for (const item of checkAllValid) {
             if (item.valid === false) {
               toaster.show(
-                `${capitalize(item.identifier.split('-')[0])} (${item.name}): ${
-                  item.settingsError ||
-                  t('please_fix_your_settings', 'Please fix your settings')
+                `${capitalize(item.identifier.split('-')[0])} (${item.name}): ${item.settingsError ||
+                t('please_fix_your_settings', 'Please fix your settings')
                 }`,
                 'warning'
               );
@@ -480,8 +544,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
 
             if (item.errors !== true) {
               toaster.show(
-                `${capitalize(item.identifier.split('-')[0])} (${item.name}): ${
-                  item.errors
+                `${capitalize(item.identifier.split('-')[0])} (${item.name}): ${item.errors
                 }`,
                 'warning'
               );
@@ -556,14 +619,14 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
       };
       const pipelineData = shouldEnqueueInPipeline
         ? {
-            pipelineId: selectedPipeline!.id,
-            post: {
-              type: 'draft' as const,
-              tags,
-              shortLink,
-              posts,
-            },
-          }
+          pipelineId: selectedPipeline!.id,
+          post: {
+            type: 'draft' as const,
+            tags,
+            shortLink,
+            posts,
+          },
+        }
         : undefined;
 
       if (dummy) {
@@ -599,9 +662,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
             addEditSets
               ? addEditSets(data)
               : await fetch('/posts', {
-                  method: 'POST',
-                  body: JSON.stringify(data),
-                });
+                method: 'POST',
+                body: JSON.stringify(data),
+              });
           }
         } catch (error: any) {
           toaster.show(
@@ -625,8 +688,8 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
             shouldEnqueueInPipeline
               ? t('added_to_pipeline', 'Added to Pipeline')
               : !existingData.integration
-              ? t('added_successfully', 'Added successfully')
-              : t('updated_successfully', 'Updated successfully')
+                ? t('added_successfully', 'Added successfully')
+                : t('updated_successfully', 'Updated successfully')
           );
         }
         if (customClose) {
@@ -923,8 +986,8 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                     pipelineMode
                       ? 'schedule'
                       : publishingMode === 'now'
-                      ? 'now'
-                      : 'schedule'
+                        ? 'now'
+                        : 'schedule'
                   )}
                   className="text-white relative min-w-[180px] btnSub disabled:cursor-not-allowed disabled:opacity-80 outline-none gap-[8px] flex justify-center items-center h-[44px] rounded-[8px] bg-[#612BD3] ps-[20px] pe-[16px]"
                 >
@@ -942,16 +1005,16 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                     {selectedIntegrations.length === 0
                       ? t('check_circles_above', 'Check the circles above')
                       : dummy
-                      ? t('create_output', 'Create output')
-                      : pipelineMode
-                      ? t('add_to_pipeline', 'Add to Pipeline')
-                      : publishingMode === 'now'
-                      ? t('post_now', 'Post Now')
-                      : !existingData?.integration
-                      ? t('add_to_calendar', 'Add to calendar')
-                      : existingData?.posts?.[0]?.state === 'DRAFT'
-                      ? t('schedule', 'Schedule')
-                      : t('update', 'Update')}
+                        ? t('create_output', 'Create output')
+                        : pipelineMode
+                          ? t('add_to_pipeline', 'Add to Pipeline')
+                          : publishingMode === 'now'
+                            ? t('post_now', 'Post Now')
+                            : !existingData?.integration
+                              ? t('add_to_calendar', 'Add to calendar')
+                              : existingData?.posts?.[0]?.state === 'DRAFT'
+                                ? t('schedule', 'Schedule')
+                                : t('update', 'Update')}
                   </div>
                   {!dummy && (
                     <div className="flex justify-center items-center h-[20px] w-[20px] pt-[4px] arrow-change">

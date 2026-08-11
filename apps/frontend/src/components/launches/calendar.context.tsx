@@ -40,13 +40,17 @@ export function getCalendarCellKey(
   date: dayjs.Dayjs,
   display: string
 ): string {
-  if (display === 'day') {
+  if (display === 'day' || display === 'list') {
     return date.format('YYYY-MM-DD HH:mm');
   }
   if (display === 'week') {
     return date.format('YYYY-MM-DD HH');
   }
   return date.format('DD/MM/YYYY');
+}
+
+export function getListStackKey(publishDate: string): string {
+  return getCalendarCellKey(newDayjs(publishDate).local(), 'list');
 }
 
 function getPostCellKey(publishDate: string, display: string): string {
@@ -102,7 +106,7 @@ export const CalendarContext = createContext({
   }) => {
     /** empty **/
   },
-  changeDate: (id: string, date: dayjs.Dayjs) => {
+  changeDate: (id: string | string[], date: dayjs.Dayjs) => {
     /** empty **/
   },
   // List view specific
@@ -405,11 +409,16 @@ export const CalendarWeekProvider: FC<{
   const listTotalPages = Math.ceil(listTotal / 100);
 
   const changeDate = useCallback(
-    (id: string, date: dayjs.Dayjs) => {
-      setDateOverrides((prev) => ({
-        ...prev,
-        [id]: date.utc().format('YYYY-MM-DDTHH:mm:ss'),
-      }));
+    (id: string | string[], date: dayjs.Dayjs) => {
+      const formatted = date.utc().format('YYYY-MM-DDTHH:mm:ss');
+      const ids = Array.isArray(id) ? id : [id];
+      setDateOverrides((prev) => {
+        const next = { ...prev };
+        for (const postId of ids) {
+          next[postId] = formatted;
+        }
+        return next;
+      });
     },
     []
   );

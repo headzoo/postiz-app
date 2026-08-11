@@ -11,6 +11,8 @@ import React, {
 } from 'react';
 import {
   CalendarContext,
+  CalendarPost,
+  getListStackKey,
   Integrations,
   useCalendar,
 } from '@gitroom/frontend/components/launches/calendar.context';
@@ -35,7 +37,6 @@ import clsx from 'clsx';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { ExistingDataContextProvider } from '@gitroom/frontend/components/launches/helpers/use.existing.data';
 import { useDrag, useDrop } from 'react-dnd';
-import { Integration, Post, State, Tags } from '@prisma/client';
 import { useAddProvider } from '@gitroom/frontend/components/launches/add.provider.component';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
@@ -93,6 +94,66 @@ export const hours = Array.from(
   (_, i) => i
 );
 
+type CalendarItemPost = CalendarPost & {
+  pipelineColor?: string;
+  pipelineItemId?: string;
+};
+
+type CellEntry =
+  | { kind: 'single'; post: CalendarItemPost }
+  | { kind: 'stack'; group: string; posts: CalendarItemPost[] };
+
+const MAX_STACK_AVATARS = 3;
+
+function pickPrimaryPost(posts: CalendarItemPost[]): CalendarItemPost {
+  return [...posts].sort((a, b) => {
+    const dateDiff =
+      newDayjs(a.publishDate).valueOf() - newDayjs(b.publishDate).valueOf();
+    if (dateDiff !== 0) {
+      return dateDiff;
+    }
+    return a.id.localeCompare(b.id);
+  })[0];
+}
+
+function groupPostsInCell(posts: CalendarItemPost[]): CellEntry[] {
+  const grouped = groupBy(posts, (post) => post.group || post.id);
+  const seen = new Set<string>();
+  const entries: CellEntry[] = [];
+
+  for (const post of posts) {
+    const key = post.group || post.id;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const siblings = grouped[key] || [post];
+    if (siblings.length === 1) {
+      entries.push({ kind: 'single', post: siblings[0] });
+      continue;
+    }
+    entries.push({
+      kind: 'stack',
+      group: key,
+      posts: [...siblings].sort((a, b) =>
+        (a.integration?.name || '').localeCompare(b.integration?.name || '')
+      ),
+    });
+  }
+
+  return entries;
+}
+
+function cellEntryKey(entry: CellEntry): string {
+  if (entry.kind === 'single') {
+    return entry.post.id;
+  }
+  return `${entry.group}:${entry.posts
+    .map((post) => post.id)
+    .sort()
+    .join(',')}`;
+}
+
 // Shared hook for post actions (edit, delete, statistics)
 const usePostActions = (onMutate?: () => void) => {
   const t = useT();
@@ -139,14 +200,14 @@ const usePostActions = (onMutate?: () => void) => {
             <AddEditModal
               {...(isDuplicate
                 ? {
-                    onlyValues: data.posts.map(
-                      ({ image, settings, content }: any) => ({
-                        image,
-                        settings,
-                        content,
-                      })
-                    ),
-                  }
+                  onlyValues: data.posts.map(
+                    ({ image, settings, content }: any) => ({
+                      image,
+                      settings,
+                      content,
+                    })
+                  ),
+                }
                 : {})}
               allIntegrations={integrations.map((p) => ({ ...p }))}
               reopenModal={editPost(post)}
@@ -155,12 +216,12 @@ const usePostActions = (onMutate?: () => void) => {
                 isDuplicate
                   ? integrations
                   : integrations
-                      .slice(0)
-                      .filter((f) => f.id === data.integration)
-                      .map((p) => ({
-                        ...p,
-                        picture: data.integrationPicture,
-                      }))
+                    .slice(0)
+                    .filter((f) => f.id === data.integration)
+                    .map((p) => ({
+                      ...p,
+                      picture: data.integrationPicture,
+                    }))
               }
               date={publishDate}
             />
@@ -375,7 +436,7 @@ export const WeekView = () => {
                 className={clsx(
                   'text-[14px] font-[600] flex items-center justify-center gap-[6px]',
                   day.day === newDayjs().format('L') &&
-                    'text-newTableTextFocused'
+                  'text-newTableTextFocused'
                 )}
               >
                 {day.day === newDayjs().format('L') && (
@@ -493,17 +554,17 @@ export const ListView = () => {
     listState === 'scheduled'
       ? t('no_upcoming_posts', 'No upcoming posts scheduled')
       : listState === 'draft'
-      ? t('no_draft_posts', 'No draft posts')
-      : listState === 'published'
-      ? t('no_published_posts', 'No published posts')
-      : t('no_posts', 'No posts');
+        ? t('no_draft_posts', 'No draft posts')
+        : listState === 'published'
+          ? t('no_published_posts', 'No published posts')
+          : t('no_posts', 'No posts');
 
   // Use shared post actions hook
   const { editPost, deletePost, copyDebugJson, openStatistics, openMissingRelease } = usePostActions();
 
-  // Group posts by date
+  // Group posts by date, then stack same-group posts that share a minute.
   const groupedPosts = useMemo(() => {
-    const groups: { [key: string]: any[] } = {};
+    const groups: { [key: string]: CalendarItemPost[] } = {};
     listPosts.forEach((post) => {
       const dateKey = newDayjs(post.publishDate).local().format('YYYY-MM-DD');
       if (!groups[dateKey]) {
@@ -511,7 +572,17 @@ export const ListView = () => {
       }
       groups[dateKey].push(post);
     });
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    return Object.entries(groups)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dateKey, datePosts]) => {
+        const byMinute = groupBy(datePosts, (post) =>
+          getListStackKey(String(post.publishDate))
+        );
+        const entries = Object.values(byMinute).flatMap((minutePosts) =>
+          groupPostsInCell(minutePosts)
+        );
+        return [dateKey, entries] as const;
+      });
   }, [listPosts]);
 
   if (loading) {
@@ -539,24 +610,31 @@ export const ListView = () => {
               {newDayjs(dateKey).format(isUSCitizen() ? 'dddd, MMMM D, YYYY' : 'dddd, D MMMM YYYY')}
             </div>
             <div className="flex flex-col gap-[10px] mb-[20px] px-[10px]">
-              {datePosts.map((post) => (
-                <CalendarItem
-                  key={post.id}
-                  display="day"
-                  isBeforeNow={false}
-                  date={newDayjs(post.publishDate)}
-                  state={post.state}
-                  statistics={openStatistics(post.id)}
-                  missingRelease={openMissingRelease(post.id)}
-                  editPost={editPost(post, false)}
-                  duplicatePost={editPost(post, true)}
-                  copyDebugJson={user?.isSuperAdmin ? copyDebugJson(post) : undefined}
-                  post={post}
-                  integrations={integrations}
-                  deletePost={deletePost(post)}
-                  showTime={true}
-                />
-              ))}
+              {datePosts.map((entry) => {
+                const post =
+                  entry.kind === 'stack'
+                    ? pickPrimaryPost(entry.posts)
+                    : entry.post;
+                return (
+                  <CalendarEntry
+                    key={cellEntryKey(entry)}
+                    entry={entry}
+                    display="day"
+                    isBeforeNow={false}
+                    date={newDayjs(post.publishDate)}
+                    statistics={openStatistics(post.id)}
+                    missingRelease={openMissingRelease(post.id)}
+                    editPost={editPost(post, false)}
+                    duplicatePost={editPost(post, true)}
+                    copyDebugJson={
+                      user?.isSuperAdmin ? copyDebugJson(post) : undefined
+                    }
+                    integrations={integrations}
+                    deletePost={deletePost(post)}
+                    showTime={true}
+                  />
+                );
+              })}
             </div>
           </Fragment>
         ))}
@@ -607,6 +685,10 @@ export const CalendarColumn: FC<{
   // Use shared post actions hook
   const { editPost, deletePost, copyDebugJson, openStatistics, openMissingRelease } = usePostActions();
   const postList = useMemo(() => getCellPosts(getDate), [getCellPosts, getDate]);
+  const cellEntries = useMemo(
+    () => groupPostsInCell(postList as CalendarItemPost[]),
+    [postList]
+  );
   const [showAll, setShowAll] = useState(false);
   const showAllFunc = useCallback(() => {
     setShowAll(true);
@@ -616,10 +698,10 @@ export const CalendarColumn: FC<{
   }, []);
   const list = useMemo(() => {
     if (showAll) {
-      return postList;
+      return cellEntries;
     }
-    return postList.slice(0, 3);
-  }, [postList, showAll]);
+    return cellEntries.slice(0, 3);
+  }, [cellEntries, showAll]);
 
   const isBeforeNow = useMemo(() => {
     const originalUtc = getDate.startOf('hour');
@@ -649,11 +731,14 @@ export const CalendarColumn: FC<{
     drop: async (item: any) => {
       if (isBeforeNow) return;
 
+      const postIds: string[] =
+        item.postIds?.length > 0 ? item.postIds : [item.id];
+
       // Projected Pipeline items have a dynamic (unsaved) date. Dropping one on
       // an exact slot pins it to that time via the existing manual-schedule
       // action, which detaches the whole group from the Pipeline queue.
       if (item.pipelineItemId) {
-        changeDate(item.id, getDate);
+        changeDate(postIds, getDate);
         const { status } = await fetch(
           `/pipelines/items/${item.pipelineItemId}/schedule`,
           {
@@ -740,25 +825,39 @@ export const CalendarColumn: FC<{
         action = whatToDo;
       }
 
-      if (!item.interval) {
-        changeDate(item.id, getDate);
-      }
-      const { status } = await fetch(`/posts/${item.id}/date`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          date: getDate.utc().format('YYYY-MM-DDTHH:mm:ss'),
-          action,
-          // published posts always confirm via the modal before reaching here;
-          // for QUEUE posts the flag is a no-op on the server
-          ...(action === 'schedule' ? { republish: true } : {}),
-        }),
+      const primaryDate = post
+        ? newDayjs(post.publishDate)
+        : getDate;
+      const delta = getDate.diff(primaryDate);
+      const nextDates = postIds.map((postId) => {
+        const source = posts.find((p) => p.id === postId);
+        return source
+          ? newDayjs(source.publishDate).add(delta, 'millisecond')
+          : getDate;
       });
-      if (status !== 500) {
+
+      if (!item.interval) {
+        changeDate(postIds, getDate);
+      }
+
+      const results = await Promise.all(
+        postIds.map((postId, index) =>
+          fetch(`/posts/${postId}/date`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              date: nextDates[index].utc().format('YYYY-MM-DDTHH:mm:ss'),
+              action,
+              // published posts always confirm via the modal before reaching here;
+              // for QUEUE posts the flag is a no-op on the server
+              ...(action === 'schedule' ? { republish: true } : {}),
+            }),
+          })
+        )
+      );
+      if (results.every((response) => response.status !== 500)) {
         if (item.interval || action === 'schedule') {
           reloadCalendarView();
-          return;
         }
-        return;
       }
     },
     collect: (monitor) => ({
@@ -770,28 +869,28 @@ export const CalendarColumn: FC<{
     const set: any = !sets.length
       ? undefined
       : await new Promise((resolve) => {
-          modal.openModal({
-            title: t('select_set', 'Select a Set'),
-            closeOnClickOutside: true,
-            askClose: false,
-            closeOnEscape: true,
-            withCloseButton: true,
-            onClose: () => resolve('exit'),
-            children: (
-              <SetSelectionModal
-                sets={sets}
-                onSelect={(selectedSet) => {
-                  resolve(selectedSet);
-                  modal.closeAll();
-                }}
-                onContinueWithoutSet={() => {
-                  resolve(undefined);
-                  modal.closeAll();
-                }}
-              />
-            ),
-          });
+        modal.openModal({
+          title: t('select_set', 'Select a Set'),
+          closeOnClickOutside: true,
+          askClose: false,
+          closeOnEscape: true,
+          withCloseButton: true,
+          onClose: () => resolve('exit'),
+          children: (
+            <SetSelectionModal
+              sets={sets}
+              onSelect={(selectedSet) => {
+                resolve(selectedSet);
+                modal.closeAll();
+              }}
+              onContinueWithoutSet={() => {
+                resolve(undefined);
+                modal.closeAll();
+              }}
+            />
+          ),
         });
+      });
 
     if (set === 'exit') return;
 
@@ -817,20 +916,20 @@ export const CalendarColumn: FC<{
           mutate={reloadCalendarView}
           {...(signature?.id && !set
             ? {
-                onlyValues: [
-                  {
-                    content: '\n' + signature.content,
-                  },
-                ],
-              }
+              onlyValues: [
+                {
+                  content: '\n' + signature.content,
+                },
+              ],
+            }
             : {})}
           date={
             randomHour
               ? getDate.hour(Math.floor(Math.random() * 24))
               : getDate.format('YYYY-MM-DDTHH:mm:ss') ===
                 newDayjs().startOf('hour').format('YYYY-MM-DDTHH:mm:ss')
-              ? newDayjs().add(10, 'minute')
-              : getDate
+                ? newDayjs().add(10, 'minute')
+                : getDate
           }
           {...(set?.content ? { set: JSON.parse(set.content) } : {})}
           reopenModal={() => ({})}
@@ -874,40 +973,47 @@ export const CalendarColumn: FC<{
               <div className="h-full w-full bg-newSettings rounded-[10px]" />
             </div>
           )}
-          {list.map((post) => (
-            <div
-              key={post.id}
-              className={clsx(
-                'text-textColor p-[2.5px] relative flex flex-col justify-center items-center'
-              )}
-            >
-              <div className="relative w-full flex flex-col items-center p-[2.5px]">
-                <CalendarItem
-                  display={display as 'day' | 'week' | 'month'}
-                  isBeforeNow={isBeforeNow}
-                  date={getDate}
-                  state={post.state}
-                  statistics={openStatistics(post.id)}
-                  missingRelease={openMissingRelease(post.id)}
-                  editPost={editPost(post, false)}
-                  duplicatePost={editPost(post, true)}
-                  copyDebugJson={user?.isSuperAdmin ? copyDebugJson(post) : undefined}
-                  post={post}
-                  integrations={integrations}
-                  deletePost={deletePost(post)}
-                />
+          {list.map((entry) => {
+            const post =
+              entry.kind === 'stack'
+                ? pickPrimaryPost(entry.posts)
+                : entry.post;
+            return (
+              <div
+                key={cellEntryKey(entry)}
+                className={clsx(
+                  'text-textColor p-[2.5px] relative flex flex-col justify-center items-center'
+                )}
+              >
+                <div className="relative w-full flex flex-col items-center p-[2.5px]">
+                  <CalendarEntry
+                    entry={entry}
+                    display={display as 'day' | 'week' | 'month'}
+                    isBeforeNow={isBeforeNow}
+                    date={getDate}
+                    statistics={openStatistics(post.id)}
+                    missingRelease={openMissingRelease(post.id)}
+                    editPost={editPost(post, false)}
+                    duplicatePost={editPost(post, true)}
+                    copyDebugJson={
+                      user?.isSuperAdmin ? copyDebugJson(post) : undefined
+                    }
+                    integrations={integrations}
+                    deletePost={deletePost(post)}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
-          {!showAll && postList.length > 3 && (
+            );
+          })}
+          {!showAll && cellEntries.length > 3 && (
             <div
               className="text-center hover:underline py-[5px] text-textColor"
               onClick={showAllFunc}
             >
-              {t('show_more', '+ Show more')} ({postList.length - 3})
+              {t('show_more', '+ Show more')} ({cellEntries.length - 3})
             </div>
           )}
-          {showAll && postList.length > 3 && (
+          {showAll && cellEntries.length > 3 && (
             <div
               className="text-center hover:underline py-[5px]"
               onClick={showLessFunc}
@@ -926,8 +1032,8 @@ export const CalendarColumn: FC<{
                 display === ('month' as any)
                   ? 'flex-1 min-h-[40px] w-full'
                   : !postList.length
-                  ? 'min-h-full w-full p-[5px]'
-                  : 'min-h-[40px] w-full',
+                    ? 'min-h-full w-full p-[5px]'
+                    : 'min-h-[40px] w-full',
                 'flex items-center justify-center cursor-pointer pb-[2.5px]'
               )}
             >
@@ -992,6 +1098,107 @@ export const CalendarColumn: FC<{
     </div>
   );
 });
+const CalendarEntry: FC<{
+  entry: CellEntry;
+  date: dayjs.Dayjs;
+  isBeforeNow: boolean;
+  editPost: () => void;
+  duplicatePost: () => void;
+  copyDebugJson?: () => void;
+  deletePost: () => void;
+  statistics: () => void;
+  missingRelease?: () => void;
+  integrations: Integrations[];
+  display: 'day' | 'week' | 'month';
+  showTime?: boolean;
+}> = memo((props) => {
+  const { entry, ...itemProps } = props;
+  if (entry.kind === 'stack') {
+    return <StackedCalendarItem posts={entry.posts} {...itemProps} />;
+  }
+  return <CalendarItem post={entry.post} {...itemProps} />;
+});
+
+const ChannelAvatar: FC<{
+  post: CalendarItemPost;
+  size?: number;
+}> = ({ post, size = 20 }) => {
+  const badge = Math.round(size * 0.6);
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <img
+        className="w-full h-full rounded-[8px]"
+        src={post.integration.picture! || '/no-picture.jpg'}
+      />
+      <img
+        className="rounded-[8px] absolute z-10 top-[10px] end-0 border border-fifth"
+        style={{ width: badge, height: badge }}
+        src={`/icons/platforms/${post.integration?.providerIdentifier}.png`}
+      />
+    </div>
+  );
+};
+
+const StackedCalendarItem: FC<{
+  date: dayjs.Dayjs;
+  isBeforeNow: boolean;
+  editPost: () => void;
+  duplicatePost: () => void;
+  copyDebugJson?: () => void;
+  deletePost: () => void;
+  statistics: () => void;
+  missingRelease?: () => void;
+  integrations: Integrations[];
+  display: 'day' | 'week' | 'month';
+  showTime?: boolean;
+  posts: CalendarItemPost[];
+}> = memo((props) => {
+  const { posts, ...itemProps } = props;
+  const primary = pickPrimaryPost(posts);
+  const overflow = posts.length - MAX_STACK_AVATARS;
+  const visiblePosts = posts.slice(0, MAX_STACK_AVATARS);
+
+  return (
+    <div className="relative w-full">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute start-0 end-[6px] top-0 bottom-[6px] rounded-[10px] bg-newColColor border border-newTextColor/10 translate-x-[5px] translate-y-[4px] rotate-[2.5deg]"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute start-0 end-[6px] top-0 bottom-[6px] rounded-[10px] bg-newColColor border border-newTextColor/10 translate-x-[2.5px] translate-y-[2px] rotate-[1.25deg]"
+      />
+      <div className="relative z-[1] pb-[6px] pe-[6px]">
+        <CalendarItem
+          {...itemProps}
+          post={primary}
+          stackPosts={posts}
+          hideChannelAvatar
+        />
+      </div>
+      <div className="absolute z-[2] top-[28px] end-[4px] flex flex-col items-center">
+        {visiblePosts.map((post, index) => (
+          <div
+            key={post.id}
+            className={clsx(
+              'rounded-[8px] border border-fifth bg-newColColor',
+              index > 0 && '-mt-[6px]'
+            )}
+            style={{ zIndex: visiblePosts.length - index }}
+          >
+            <ChannelAvatar post={post} />
+          </div>
+        ))}
+        {overflow > 0 && (
+          <div className="mt-[2px] min-w-[20px] h-[16px] rounded-full bg-btnPrimary text-white text-[9px] font-[600] flex items-center justify-center px-[4px]">
+            +{overflow}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+
 const CalendarItem: FC<{
   date: dayjs.Dayjs;
   isBeforeNow: boolean;
@@ -1002,16 +1209,11 @@ const CalendarItem: FC<{
   statistics: () => void;
   missingRelease?: () => void;
   integrations: Integrations[];
-  state: State;
   display: 'day' | 'week' | 'month';
   showTime?: boolean;
-  post: Post & {
-    integration: Integration;
-    pipelineColor?: string;
-    tags: {
-      tag: Tags;
-    }[];
-  };
+  hideChannelAvatar?: boolean;
+  stackPosts?: CalendarItemPost[];
+  post: CalendarItemPost;
 }> = memo((props) => {
   const t = useT();
   const {
@@ -1022,12 +1224,19 @@ const CalendarItem: FC<{
     post,
     date,
     isBeforeNow,
-    state,
-    display,
     deletePost,
     showTime,
     missingRelease,
+    hideChannelAvatar,
+    stackPosts,
   } = props;
+  const stackedPosts = stackPosts?.length ? stackPosts : [post];
+  const hasError = stackedPosts.some((item) => item.state === 'ERROR');
+  const isDraft = stackedPosts.some((item) => item.state === 'DRAFT');
+  const errorMessage = stackedPosts
+    .filter((item) => item.state === 'ERROR' && item.error)
+    .map((item) => item.error)
+    .join('\n');
   const { disableXAnalytics } = useVariables();
   const user = useUser();
   const showCreationMethodBadge =
@@ -1049,15 +1258,17 @@ const CalendarItem: FC<{
       type: 'post',
       item: {
         id: post.id,
-        interval: !!post.intervalInDays,
+        postIds: stackedPosts.map((item) => item.id),
+        group: post.group,
+        interval: stackedPosts.some((item) => !!item.intervalInDays),
         date,
-        pipelineItemId: (post as any).pipelineItemId,
+        pipelineItemId: post.pipelineItemId,
       },
       collect: (monitor) => ({
         opacity: monitor.isDragging() ? 0 : isBeforeNow ? 0.6 : 1,
       }),
     }),
-    [isBeforeNow]
+    [isBeforeNow, stackPosts, post, date]
   );
   return (
     <div
@@ -1066,17 +1277,19 @@ const CalendarItem: FC<{
       className={clsx(
         'w-full flex h-full flex-1 flex-col group',
         'relative',
-        state === 'ERROR' && 'rounded-[10px] ring-2 ring-red-500'
+        hasError && 'rounded-[10px] ring-2 ring-red-500'
       )}
       style={{
         opacity,
       }}
     >
-      {state === 'ERROR' && (
+      {hasError && (
         <div
           className="absolute -top-[6px] -left-[6px] z-20 w-[18px] h-[18px] rounded-full bg-red-500 flex items-center justify-center text-white text-[11px] font-bold cursor-pointer"
           data-tooltip-id="tooltip"
-          data-tooltip-content={post.error || 'An error occurred while publishing this post'}
+          data-tooltip-content={
+            errorMessage || 'An error occurred while publishing this post'
+          }
         >
           !
         </div>
@@ -1178,29 +1391,21 @@ const CalendarItem: FC<{
         className={clsx(
           'gap-[5px] w-full flex h-full flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor',
           'relative',
+          hideChannelAvatar && 'pe-[22px]',
           isBeforeNow && '!grayscale'
         )}
       >
-        <div className={clsx('relative min-w-[20px]')}>
-          <img
-            className="w-[20px] h-[20px] rounded-[8px]"
-            src={post.integration.picture! || '/no-picture.jpg'}
-          />
-          <img
-            className="w-[12px] h-[12px] rounded-[8px] absolute z-10 top-[10px] end-0 border border-fifth"
-            src={`/icons/platforms/${post.integration?.providerIdentifier}.png`}
-          />
-        </div>
+        {!hideChannelAvatar && <ChannelAvatar post={post} />}
         <div className="w-full flex-1 flex flex-col min-h-[40px]">
           <div className="text-start">
-            {state === 'DRAFT' ? t('draft', 'Draft') + ': ' : ''}
+            {isDraft ? t('draft', 'Draft') + ': ' : ''}
           </div>
-            <div className="w-full relative">
-              <div className="absolute top-0 start-0 w-full text-ellipsis break-words line-clamp-1 text-start">
-                {stripHtmlValidation('none', post.content, false, true, false) ||
-                  t('no_content', 'no content')}
-              </div>
+          <div className="w-full relative">
+            <div className="absolute top-0 start-0 w-full text-ellipsis break-words line-clamp-1 text-start">
+              {stripHtmlValidation('none', post.content, false, true, false) ||
+                t('no_content', 'no content')}
             </div>
+          </div>
         </div>
         {showTime && (
           <div className="text-textColor/50 text-[12px] whitespace-nowrap flex items-center">

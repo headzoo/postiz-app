@@ -26,7 +26,13 @@ import NostrProvider from '@gitroom/frontend/components/new-launch/providers/nos
 import VkProvider from '@gitroom/frontend/components/new-launch/providers/vk/vk.provider';
 import { useLaunchStore } from '@gitroom/frontend/components/new-launch/store';
 import { useShallow } from 'zustand/react/shallow';
-import React, { FC, forwardRef, useEffect, useImperativeHandle } from 'react';
+import React, {
+  FC,
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+} from 'react';
 import { GeneralPreviewComponent } from '@gitroom/frontend/components/launches/general.preview.component';
 import { IntegrationContext } from '@gitroom/frontend/components/launches/helpers/use.integration';
 import { Button } from '@gitroom/react/form/button';
@@ -199,6 +205,14 @@ export const ShowAllProviders = forwardRef((props, ref) => {
 
   const t = useT();
 
+  const hasPreviewContent = useMemo(
+    () =>
+      global?.some(
+        (item) => !!item.content?.length || !!item.media?.length
+      ),
+    [global]
+  );
+
   useImperativeHandle(ref, () => ({
     checkAllValid: async () => {
       return Promise.all(
@@ -233,7 +247,7 @@ export const ShowAllProviders = forwardRef((props, ref) => {
             })),
           }}
         >
-          {global?.[0]?.content?.length === 0 ? (
+          {!hasPreviewContent ? (
             <div>
               {t(
                 'start_writing_your_post',
