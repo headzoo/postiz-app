@@ -62,9 +62,9 @@ const isIanaTimezone = (timezoneName: string): boolean => {
 
 /**
  * Resolves a local minute to UTC without relying on Day.js's ambiguous-time
- * parsing policy. Scanning bounded UTC minutes makes the policy explicit:
- * return the first UTC occurrence during fall-back and no occurrence during
- * spring-forward.
+ * parsing policy. Candidates are derived from the UTC offsets in effect around
+ * the target instant, which keeps the policy explicit: return the first UTC
+ * occurrence during fall-back and no occurrence during spring-forward.
  */
 const resolveLocalMinute = (
   localDate: string,
@@ -75,30 +75,35 @@ const resolveLocalMinute = (
     .utc(`${localDate}T00:00:00.000`)
     .add(minuteOfDay, 'minute')
     .valueOf();
-  const earliestCandidate =
-    localMinuteAsUtc - MAX_TIMEZONE_OFFSET_MINUTES * 60 * 1000;
-  const latestCandidate =
-    localMinuteAsUtc + MAX_TIMEZONE_OFFSET_MINUTES * 60 * 1000;
   const expectedTime = `${String(Math.floor(minuteOfDay / 60)).padStart(
     2,
     '0'
   )}:${String(minuteOfDay % 60).padStart(2, '0')}`;
 
-  for (
-    let candidate = earliestCandidate;
-    candidate <= latestCandidate;
-    candidate += 60 * 1000
-  ) {
+  // A transition between the probes yields two offsets, which surfaces both
+  // sides of an ambiguous local time rather than only the one Day.js picks.
+  const candidateOffsets = new Set(
+    [
+      localMinuteAsUtc - MAX_TIMEZONE_OFFSET_MINUTES * 60 * 1000,
+      localMinuteAsUtc,
+      localMinuteAsUtc + MAX_TIMEZONE_OFFSET_MINUTES * 60 * 1000,
+    ].map((probe) => dayjs(probe).tz(timezoneName).utcOffset())
+  );
+
+  let firstOccurrence: number | undefined;
+  for (const offset of candidateOffsets) {
+    const candidate = localMinuteAsUtc - offset * 60 * 1000;
     const localized = dayjs(candidate).tz(timezoneName);
     if (
       localized.format('YYYY-MM-DD') === localDate &&
-      localized.format('HH:mm') === expectedTime
+      localized.format('HH:mm') === expectedTime &&
+      (firstOccurrence === undefined || candidate < firstOccurrence)
     ) {
-      return new Date(candidate);
+      firstOccurrence = candidate;
     }
   }
 
-  return undefined;
+  return firstOccurrence === undefined ? undefined : new Date(firstOccurrence);
 };
 
 const getOccurrences = (
