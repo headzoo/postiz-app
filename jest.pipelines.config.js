@@ -8,6 +8,7 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/posts/posts.repository.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/file.provider.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/imgflip/**/*.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/database/prisma/media/media.service.spec.ts',
     '<rootDir>/apps/orchestrator/src/workflows/pipeline-workflows/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/pipelines/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/new-launch/open-graph/**/*.spec.ts',

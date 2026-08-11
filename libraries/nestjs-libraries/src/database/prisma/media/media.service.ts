@@ -18,6 +18,7 @@ import { getMaxSize } from '@gitroom/nestjs-libraries/upload/custom.upload.valid
 import { ssrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { Readable } from 'stream';
 import { OpenGraphRepository } from '@gitroom/nestjs-libraries/database/prisma/media/open.graph.repository';
+import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { fromBuffer } = require('file-type');
 
@@ -103,6 +104,43 @@ export class MediaService {
 
   saveMediaInformation(org: string, data: SaveMediaInformationDto) {
     return this._mediaRepository.saveMediaInformation(org, data);
+  }
+
+  async generateAlt(org: Organization, mediaId: string) {
+    const media = await this.getMediaById(mediaId);
+    if (!media || media.organizationId !== org.id || media.deletedAt) {
+      throw new HttpException('Media not found', 404);
+    }
+
+    if (hasExtension(media.path, 'mp4')) {
+      throw new HttpException(
+        'Alt text can only be generated for images',
+        400
+      );
+    }
+
+    const total = await this._subscriptionService.checkCredits(org);
+    if (process.env.STRIPE_PUBLISHABLE_KEY && total.credits <= 0) {
+      throw new HttpException('You have no AI credits left', 400);
+    }
+
+    try {
+      return await this._subscriptionService.useCredit(
+        org,
+        'ai_images',
+        async () => {
+          const alt = await this._openAi.generateAltText(media.path);
+          return this.saveMediaInformation(org.id, {
+            id: media.id,
+            alt,
+            thumbnail: media.thumbnail || undefined,
+            thumbnailTimestamp: media.thumbnailTimestamp ?? undefined,
+          } as SaveMediaInformationDto);
+        }
+      );
+    } catch (err) {
+      throw generationError(err);
+    }
   }
 
   searchGifs(q: string, offset = 0, limit = 25) {

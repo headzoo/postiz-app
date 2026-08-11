@@ -269,4 +269,39 @@ export class OpenaiService {
 
     return [];
   }
+
+  async generateAltText(imageUrl: string) {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4.1',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You generate concise accessibility alt text for social media images. Describe the image in one sentence, maximum 125 characters. Do not use quotes, markdown, or prefixes like "Alt text:". Return only the alt text.',
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Generate alt text for this image.',
+            },
+            {
+              type: 'image_url',
+              image_url: { url: imageUrl },
+            },
+          ],
+        },
+      ],
+      max_tokens: 80,
+    });
+
+    const alt = response.choices[0]?.message?.content?.trim() || '';
+    const cleaned = alt.replace(/^["']|["']$/g, '').trim();
+    if (!cleaned) {
+      throw new Error('Empty alt text');
+    }
+
+    return cleaned.slice(0, 125);
+  }
 }

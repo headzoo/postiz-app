@@ -32,6 +32,7 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { ThirdPartyMedia } from '@gitroom/frontend/components/third-parties/third-party.media';
 import { ReactSortable } from 'react-sortablejs';
 import { MediaComponentInner } from '@gitroom/frontend/components/launches/helpers/media.settings.component';
+import { useMediaAltPrompt } from '@gitroom/frontend/components/media/use.media.alt.prompt';
 import { AiVideo } from '@gitroom/frontend/components/launches/ai.video';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { ThirdPartyMediaLibrary } from '@gitroom/frontend/components/third-parties/third-party.media-library';
@@ -40,7 +41,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   PlusIcon,
-  DeleteCircleIcon,
   CloseCircleIcon,
   DragHandleIcon,
   MediaSettingsIcon,
@@ -571,30 +571,18 @@ export const MediaBox: FC<{
                       <div className="text-white flex z-[101] justify-center items-center text-[14px] font-[500] w-[24px] h-[24px] rounded-full bg-[#612BD3] absolute -bottom-[10px] -end-[10px]">
                         {selected.findIndex((z: any) => z.id === media.id) + 1}
                       </div>
-                    ) : (
-                      <DeleteCircleIcon
-                        className="cursor-pointer hidden z-[100] group-hover:block absolute -top-[5px] -end-[5px]"
-                        onClick={deleteImage(media)}
-                      />
-                    )}
-                    {standalone && (
-                      <div
-                        className="cursor-pointer hidden z-[100] group-hover:flex items-center justify-center absolute -top-[5px] -start-[5px] bg-black/70 rounded-full text-white w-[18px] h-[18px]"
-                        onClick={openMediaSettings(media)}
-                        title={t('media_settings', 'Media Settings')}
-                      >
-                        <MediaSettingsIcon size={14} />
-                      </div>
-                    )}
+                    ) : null}
                     {!!media.alt && (
                       <div
-                        className="absolute bottom-[10px] start-[10px] z-[100] bg-black/60 text-white text-[10px] font-[600] px-[4px] py-[1px] rounded-[4px]"
+                        className="absolute bottom-[10px] start-[10px] z-[100] pointer-events-none bg-black/60 text-white text-[10px] font-[600] px-[4px] py-[1px] rounded-[4px] transition-opacity group-hover:opacity-0"
                         title={media.alt}
                       >
                         {t('alt', 'ALT')}
                       </div>
                     )}
-                    <div className="absolute bottom-[10px] end-[10px] z-[100]">{media.originalName}</div>
+                    <div className="absolute bottom-[10px] end-[10px] z-[100] pointer-events-none transition-opacity group-hover:opacity-0">
+                      {media.originalName}
+                    </div>
                     <div className="w-full h-full rounded-[6px] overflow-hidden relative">
                       <div className="absolute z-[20] left-[50%] top-[50%] -translate-x-[50%] -translate-y-[50%]">
                         <div
@@ -627,6 +615,26 @@ export const MediaBox: FC<{
                         />
                       )}
                     </div>
+                    {!selected.find((p: any) => p.id === media.id) && (
+                      <div className="absolute bottom-0 inset-x-0 z-[110] hidden group-hover:flex items-center justify-center gap-[6px] p-[8px] bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none">
+                        {standalone && (
+                          <button
+                            type="button"
+                            onClick={openMediaSettings(media)}
+                            className="pointer-events-auto cursor-pointer text-white text-[11px] font-[600] px-[10px] py-[4px] rounded-[6px] bg-white/20 hover:bg-white/30 border border-white/20"
+                          >
+                            {t('settings', 'Settings')}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={deleteImage(media)}
+                          className="pointer-events-auto cursor-pointer text-white text-[11px] font-[600] px-[10px] py-[4px] rounded-[6px] bg-red-500/80 hover:bg-red-500 border border-red-400/50"
+                        >
+                          {t('delete', 'Delete')}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -713,6 +721,7 @@ export const MultiMediaComponent: FC<{
   const user = useUser();
   const modals = useModals();
   const t = useT();
+  const { enrichMediaWithAlt } = useMediaAltPrompt();
   useEffect(() => {
     if (value) {
       setCurrentMedia(value);
@@ -722,19 +731,22 @@ export const MultiMediaComponent: FC<{
   const [currentMedia, setCurrentMedia] = useState(value);
   const mediaDirectory = useMediaDirectory();
   const changeMedia = useCallback(
-    (
+    async (
       m:
         | {
           path: string;
           id: string;
+          alt?: string;
         }
         | {
           path: string;
           id: string;
+          alt?: string;
         }[]
     ) => {
       const mediaArray = Array.isArray(m) ? m : [m];
-      const newMedia = [...(currentMedia || []), ...mediaArray];
+      const enriched = await enrichMediaWithAlt(mediaArray);
+      const newMedia = [...(currentMedia || []), ...enriched];
       setCurrentMedia(newMedia);
       onChange({
         target: {
@@ -743,7 +755,7 @@ export const MultiMediaComponent: FC<{
         },
       });
     },
-    [currentMedia]
+    [currentMedia, enrichMediaWithAlt, name, onChange]
   );
   const showModal = useCallback(() => {
     modals.openModal({

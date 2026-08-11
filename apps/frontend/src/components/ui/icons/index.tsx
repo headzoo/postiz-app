@@ -721,6 +721,59 @@ export const MediaSettingsIcon: FC<IconProps> = ({
   </svg>
 );
 
+export const MagicWandIcon: FC<IconProps> = ({
+  size = 16,
+  className,
+  ...props
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    {...props}
+  >
+    <path
+      d="M2 14L9.5 6.5"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M8.5 5.5L10.5 7.5"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M11.5 2V4.5"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M14 4.5H11.5"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M13.75 2.25L12.25 3.75"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+    <path
+      d="M13.75 6.75L12.25 5.25"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 // Insert Media Icon
 export const InsertMediaIcon: FC<IconProps> = ({
   size = 16,

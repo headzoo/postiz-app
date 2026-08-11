@@ -2,11 +2,17 @@
 
 import { EventEmitter } from 'events';
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
+import clsx from 'clsx';
 import { TopTitle } from '@gitroom/frontend/components/launches/helpers/top.title.component';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { useLaunchStore } from '@gitroom/frontend/components/new-launch/store';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
+import { useUser } from '@gitroom/frontend/components/layout/user.context';
+import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import { MagicWandIcon } from '@gitroom/frontend/components/ui/icons';
+import Loading from '@gitroom/frontend/components/layout/loading';
 const postUrlEmitter = new EventEmitter();
 
 export const MediaSettingsLayout = () => {
@@ -28,7 +34,7 @@ export const MediaSettingsLayout = () => {
       path: string;
       thumbnail: string;
       alt: string;
-    }) => {},
+    }) => { },
   } as any);
   useEffect(() => {
     postUrlEmitter.on(
@@ -88,14 +94,14 @@ export const useMediaSettings = () => {
 export const CreateThumbnail: FC<{
   onSelect: (blob: Blob, timestampMs: number) => void;
   media:
-    | {
-        id: string;
-        name: string;
-        path: string;
-        thumbnail?: string;
-        alt?: string;
-      }
-    | undefined;
+  | {
+    id: string;
+    name: string;
+    path: string;
+    thumbnail?: string;
+    alt?: string;
+  }
+  | undefined;
   altText?: string;
   onAltTextChange?: (altText: string) => void;
 }> = (props) => {
@@ -239,9 +245,8 @@ export const CreateThumbnail: FC<{
               onChange={handleSeek}
               className="w-full h-2 bg-fifth rounded-lg appearance-none cursor-pointer slider"
               style={{
-                background: `linear-gradient(to right, #4f46e5 0%, #4f46e5 ${
-                  (currentTime / duration) * 100
-                }%, #374151 ${(currentTime / duration) * 100}%, #374151 100%)`,
+                background: `linear-gradient(to right, #4f46e5 0%, #4f46e5 ${(currentTime / duration) * 100
+                  }%, #374151 ${(currentTime / duration) * 100}%, #374151 100%)`,
               }}
             />
             <div className="flex justify-between text-sm text-textColor">
@@ -298,23 +303,29 @@ export const MediaComponentInner: FC<{
     alt: string;
   }) => void;
   media:
-    | {
-        id: string;
-        name: string;
-        path: string;
-        thumbnail: string;
-        alt: string;
-        thumbnailTimestamp?: number;
-      }
-    | undefined;
+  | {
+    id: string;
+    name: string;
+    path: string;
+    thumbnail: string;
+    alt: string;
+    thumbnailTimestamp?: number;
+  }
+  | undefined;
 }> = (props) => {
   const { onClose, onSelect, media } = props;
   const setActivateExitButton = useLaunchStore((e) => e.setActivateExitButton);
   const newFetch = useFetch();
+  const user = useUser();
+  const t = useT();
+  const toaster = useToaster();
   const [newThumbnail, setNewThumbnail] = useState<string | null>(null);
   const [isEditingThumbnail, setIsEditingThumbnail] = useState(false);
   const [altText, setAltText] = useState<string>(media?.alt || '');
   const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const canGenerateAlt =
+    !!user?.tier?.ai && !!media?.id && !hasExtension(media?.path, 'mp4');
   const [thumbnail, setThumbnail] = useState<string | null>(
     props.media?.thumbnail || null
   );
@@ -362,19 +373,95 @@ export const MediaComponentInner: FC<{
     onClose();
   }, [altText, newThumbnail, thumbnail, thumbnailTimestamp]);
 
+  const generateAlt = useCallback(async () => {
+    if (!media?.id || generating || loading) {
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const response = await newFetch('/media/generate-alt', {
+        method: 'POST',
+        body: JSON.stringify({ id: media.id }),
+      });
+
+      if (!response.ok) {
+        let message = t(
+          'failed_to_generate_alt_text',
+          'Failed to generate alt text'
+        );
+        try {
+          const body = await response.json();
+          if (typeof body?.message === 'string' && body.message) {
+            message = body.message;
+          }
+        } catch {
+          // keep the fallback message
+        }
+        toaster.show(message, 'warning');
+        return;
+      }
+
+      const updated = await response.json();
+      if (typeof updated?.alt !== 'string' || !updated.alt) {
+        toaster.show(
+          t('failed_to_generate_alt_text', 'Failed to generate alt text'),
+          'warning'
+        );
+        return;
+      }
+
+      setAltText(updated.alt);
+    } catch {
+      toaster.show(
+        t('failed_to_generate_alt_text', 'Failed to generate alt text'),
+        'warning'
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }, [generating, loading, media?.id, newFetch, t, toaster]);
+
   return (
     <div className="mt-[10px] flex flex-col gap-[20px]">
       <div className="flex flex-col space-y-2">
         <label className="text-sm text-textColor font-medium">
           Alt Text (for accessibility)
         </label>
-        <input
-          type="text"
-          value={altText}
-          onChange={(e) => setAltText(e.target.value)}
-          placeholder="Describe the image/video content..."
-          className="w-full px-3 py-2 bg-fifth border border-tableBorder rounded-lg text-textColor placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-forth focus:border-transparent"
-        />
+        <div className="relative">
+          <input
+            type="text"
+            value={altText}
+            onChange={(e) => setAltText(e.target.value)}
+            placeholder="Describe the image/video content..."
+            className={clsx(
+              'w-full px-3 py-2 bg-fifth border border-tableBorder rounded-lg text-textColor placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-forth focus:border-transparent',
+              canGenerateAlt && 'pe-[44px]'
+            )}
+          />
+          {canGenerateAlt && (
+            <button
+              type="button"
+              onClick={generateAlt}
+              disabled={generating || loading}
+              title={t(
+                'generate_alt_text_with_ai',
+                'Generate alt text with AI'
+              )}
+              aria-label={t(
+                'generate_alt_text_with_ai',
+                'Generate alt text with AI'
+              )}
+              className="absolute end-[6px] top-1/2 -translate-y-1/2 w-[28px] h-[28px] flex items-center justify-center rounded-[6px] text-textColor hover:bg-tableBorder disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {generating ? (
+                <Loading width={16} height={16} />
+              ) : (
+                <MagicWandIcon />
+              )}
+            </button>
+          )}
+        </div>
       </div>
       {hasExtension(media?.path, 'mp4') && (
         <>
@@ -475,7 +562,7 @@ export const MediaComponentInner: FC<{
       {!isEditingThumbnail && (
         <div className="flex space-x-2 !mt-[20px]">
           <button
-            disabled={loading}
+            disabled={loading || generating}
             onClick={onClose}
             className="flex-1 bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all"
           >
@@ -483,7 +570,8 @@ export const MediaComponentInner: FC<{
           </button>
           <button
             onClick={save}
-            className="flex-1 bg-forth text-white px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all"
+            disabled={loading || generating}
+            className="flex-1 bg-forth text-white px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save Changes
           </button>

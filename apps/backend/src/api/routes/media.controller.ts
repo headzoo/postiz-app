@@ -36,6 +36,7 @@ import {
   SaveImgflipMemeDto,
 } from '@gitroom/nestjs-libraries/dtos/media/imgflip.dto';
 import { ImgflipService } from '@gitroom/nestjs-libraries/imgflip/imgflip.service';
+import { GenerateAltDto } from '@gitroom/nestjs-libraries/dtos/media/generate.alt.dto';
 
 @ApiTags('Media')
 @Controller('/media')
@@ -64,6 +65,14 @@ export class MediaController {
   ) {
     console.log('hello');
     return this._mediaService.generateVideo(org, body);
+  }
+
+  @Post('/generate-alt')
+  generateAlt(
+    @GetOrgFromRequest() org: Organization,
+    @Body() body: GenerateAltDto
+  ) {
+    return this._mediaService.generateAlt(org, body.id);
   }
 
   @Post('/generate-image')

@@ -74,6 +74,7 @@ import {
   GiphyGifItem,
 } from '@gitroom/frontend/components/media/gif.picker';
 import { MemeComposerButton } from '@gitroom/frontend/components/media/meme.generator';
+import { useMediaAltPrompt } from '@gitroom/frontend/components/media/use.media.alt.prompt';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 
 const MAX_UPLOAD_SIZE = 1024 * 1024 * 1024; // 1 GB
@@ -180,6 +181,7 @@ export const EditorWrapper: FC<{
   );
 
   const existingData = useExistingData();
+  const { enrichMediaWithAlt } = useMediaAltPrompt();
   const [loaded, setLoaded] = useState(true);
 
   useEffect(() => {
@@ -267,14 +269,15 @@ export const EditorWrapper: FC<{
   );
 
   const appendImages = useCallback(
-    (index: number) => (value: any[]) => {
+    (index: number) => async (value: any[]) => {
+      const enriched = await enrichMediaWithAlt(value);
       if (internal) {
-        return appendInternalValueMedia(current, index, value);
+        return appendInternalValueMedia(current, index, enriched);
       }
 
-      return appendGlobalValueMedia(index, value);
+      return appendGlobalValueMedia(index, enriched);
     },
-    [current, global, internal]
+    [appendGlobalValueMedia, appendInternalValueMedia, current, enrichMediaWithAlt, internal]
   );
 
   const changeOrder = useCallback(
