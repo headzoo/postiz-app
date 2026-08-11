@@ -248,6 +248,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
   );
 
   const initialSnapshotRef = useRef<string | null>(null);
+  const baselineReadyRef = useRef(false);
   const isEditingExistingPost = !!existingData?.group;
 
   const getComposerSnapshot = useCallback(() => {
@@ -257,14 +258,14 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     return JSON.stringify({
       global: global.map((value) => ({
         content: normalizeContent(value.content),
-        media: value.media.map((media) => media.id).sort(),
+        media: (value.media || []).map((media) => media.id).sort(),
         delay: value.delay ?? 0,
       })),
       internal: internal.map((item) => ({
         integrationId: item.integration.id,
         values: item.integrationValue.map((value) => ({
           content: normalizeContent(value.content),
-          media: value.media.map((media) => media.id).sort(),
+          media: (value.media || []).map((media) => media.id).sort(),
           delay: value.delay ?? 0,
         })),
       })),
@@ -288,12 +289,21 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
     selectedIntegrations,
   ]);
 
+  // Existing posts keep hydrating after first paint (editor mode, TipTap HTML
+  // normalization, provider settings). Refresh the baseline until state is idle,
+  // then lock so only real user edits count as unsaved.
   useEffect(() => {
-    if (!isEditingExistingPost || initialSnapshotRef.current !== null) {
+    if (!isEditingExistingPost || baselineReadyRef.current) {
       return;
     }
 
     initialSnapshotRef.current = getComposerSnapshot();
+    const lockTimer = window.setTimeout(() => {
+      initialSnapshotRef.current = getComposerSnapshot();
+      baselineReadyRef.current = true;
+    }, 500);
+
+    return () => window.clearTimeout(lockTimer);
   }, [isEditingExistingPost, getComposerSnapshot]);
 
   const hasComposerText = useCallback(() => {
@@ -311,7 +321,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
 
   const hasUnsavedChanges = useCallback(() => {
     if (isEditingExistingPost) {
-      if (initialSnapshotRef.current === null) {
+      if (!baselineReadyRef.current || initialSnapshotRef.current === null) {
         return false;
       }
 

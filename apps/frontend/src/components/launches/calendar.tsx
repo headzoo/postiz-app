@@ -1248,9 +1248,12 @@ const StackPeekCard: FC<{
 
   return (
     <div
-      onClick={onClick}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
       className={clsx(
-        'w-full h-full rounded-[10px] flex items-center gap-[6px] px-[8px] cursor-pointer',
+        'w-full h-full rounded-[10px] flex items-center gap-[6px] px-[8px] cursor-pointer relative',
         STACK_SHADOW,
         !headerColor && 'text-white bg-btnPrimary'
       )}
@@ -1281,7 +1284,8 @@ const StackedCalendarItem: FC<{
   showTime?: boolean;
   posts: CalendarItemPost[];
 }> = memo((props) => {
-  const { posts, date, isBeforeNow, editPost, ...itemProps } = props;
+  const { posts, date, isBeforeNow, editPost: _editPost, ...itemProps } = props;
+  const { editPost: openEdit } = usePostActions();
   const primary = pickPrimaryPost(posts);
   // Wallet order: peeks on top (behind), full card at the bottom (front).
   const ordered = [
@@ -1335,6 +1339,7 @@ const StackedCalendarItem: FC<{
       )}
       {ordered.map((post, index) => {
         const isFront = index === ordered.length - 1;
+        const openThisPost = openEdit(post, false);
         return (
           <div
             key={post.id}
@@ -1355,14 +1360,14 @@ const StackedCalendarItem: FC<{
                 {...itemProps}
                 date={date}
                 isBeforeNow={isBeforeNow}
-                editPost={editPost}
+                editPost={openThisPost}
                 post={post}
                 stackPosts={posts}
                 disableDrag
                 stackShadow
               />
             ) : (
-              <StackPeekCard post={post} onClick={editPost} />
+              <StackPeekCard post={post} onClick={openThisPost} />
             )}
           </div>
         );
@@ -1426,9 +1431,16 @@ const CalendarItem: FC<{
   const showStatistics =
     !(post.integration.providerIdentifier === 'x' && disableXAnalytics) &&
     !!post.releaseId;
+  const canOpenPublished = !!post.releaseURL;
   const preview = useCallback(() => {
     window.open(`/p/` + post.id + '?share=true', '_blank');
   }, [post]);
+  const openPublished = useCallback(() => {
+    if (!post.releaseURL) {
+      return;
+    }
+    window.open(post.releaseURL, '_blank', 'noopener,noreferrer');
+  }, [post.releaseURL]);
   const [{ opacity }, dragRef] = useDrag(
     () => ({
       type: 'post',
@@ -1452,8 +1464,10 @@ const CalendarItem: FC<{
       // @ts-ignore
       ref={disableDrag ? undefined : dragRef}
       className={clsx(
-        'w-full flex h-full flex-1 flex-col group',
+        // Stacked front cards must not use h-full or they cover peek clicks.
+        'w-full flex flex-col group',
         'relative',
+        !stackShadow && 'h-full flex-1',
         stackShadow && STACK_SHADOW,
         hasError && !stackPosts && 'rounded-[10px] ring-2 ring-red-500'
       )}
@@ -1481,8 +1495,9 @@ const CalendarItem: FC<{
         </div>
       )}
       <div
+        onClick={editPost}
         className={clsx(
-          'text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center gap-[6px] px-[8px]',
+          'text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center gap-[6px] px-[8px] cursor-pointer',
           !headerColor && 'text-white bg-btnPrimary'
         )}
         style={{
@@ -1498,7 +1513,7 @@ const CalendarItem: FC<{
       <div
         onClick={editPost}
         className={clsx(
-          'w-full flex flex-col gap-[4px] flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor',
+          'w-full flex flex-col gap-[4px] flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor cursor-pointer',
           'relative',
           isBeforeNow && '!grayscale'
         )}
@@ -1528,9 +1543,18 @@ const CalendarItem: FC<{
           <div className="hover:underline cursor-pointer" onClick={duplicatePost}>
             <Duplicate />
           </div>
-          <div className="hover:underline cursor-pointer" onClick={preview}>
-            <Preview />
-          </div>
+          {canOpenPublished ? (
+            <div
+              className="hover:underline cursor-pointer"
+              onClick={openPublished}
+            >
+              <OpenPublished />
+            </div>
+          ) : (
+            <div className="hover:underline cursor-pointer" onClick={preview}>
+              <Preview />
+            </div>
+          )}
           {showStatistics &&
             (post.releaseId === 'missing' && missingRelease ? (
               <div
@@ -1658,6 +1682,28 @@ const Preview = () => {
         d="M30.9137 15.595C30.87 15.4963 29.8112 13.1475 27.4575 10.7937C24.3212 7.6575 20.36 6 16 6C11.64 6 7.67874 7.6575 4.54249 10.7937C2.18874 13.1475 1.12499 15.5 1.08624 15.595C1.02938 15.7229 1 15.8613 1 16.0012C1 16.1412 1.02938 16.2796 1.08624 16.4075C1.12999 16.5062 2.18874 18.8538 4.54249 21.2075C7.67874 24.3425 11.64 26 16 26C20.36 26 24.3212 24.3425 27.4575 21.2075C29.8112 18.8538 30.87 16.5062 30.9137 16.4075C30.9706 16.2796 31 16.1412 31 16.0012C31 15.8613 30.9706 15.7229 30.9137 15.595ZM16 24C12.1525 24 8.79124 22.6012 6.00874 19.8438C4.86704 18.7084 3.89572 17.4137 3.12499 16C3.89551 14.5862 4.86686 13.2915 6.00874 12.1562C8.79124 9.39875 12.1525 8 16 8C19.8475 8 23.2087 9.39875 25.9912 12.1562C27.1352 13.2912 28.1086 14.5859 28.8812 16C27.98 17.6825 24.0537 24 16 24ZM16 10C14.8133 10 13.6533 10.3519 12.6666 11.0112C11.6799 11.6705 10.9108 12.6075 10.4567 13.7039C10.0026 14.8003 9.88377 16.0067 10.1153 17.1705C10.3468 18.3344 10.9182 19.4035 11.7573 20.2426C12.5965 21.0818 13.6656 21.6532 14.8294 21.8847C15.9933 22.1162 17.1997 21.9974 18.2961 21.5433C19.3924 21.0892 20.3295 20.3201 20.9888 19.3334C21.6481 18.3467 22 17.1867 22 16C21.9983 14.4092 21.3657 12.884 20.2408 11.7592C19.1159 10.6343 17.5908 10.0017 16 10ZM16 20C15.2089 20 14.4355 19.7654 13.7777 19.3259C13.1199 18.8864 12.6072 18.2616 12.3045 17.5307C12.0017 16.7998 11.9225 15.9956 12.0768 15.2196C12.2312 14.4437 12.6122 13.731 13.1716 13.1716C13.731 12.6122 14.4437 12.2312 15.2196 12.0769C15.9956 11.9225 16.7998 12.0017 17.5307 12.3045C18.2616 12.6072 18.8863 13.1199 19.3259 13.7777C19.7654 14.4355 20 15.2089 20 16C20 17.0609 19.5786 18.0783 18.8284 18.8284C18.0783 19.5786 17.0609 20 16 20Z"
         fill="currentColor"
       />
+    </svg>
+  );
+};
+const OpenPublished = () => {
+  const t = useT();
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      data-tooltip-id="tooltip"
+      data-tooltip-content={t('open_post', 'Open Post')}
+    >
+      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
     </svg>
   );
 };
