@@ -48,6 +48,7 @@ export class PipelineService {
       channels: pipeline.integrations.map(({ integration }) =>
         this.toComposerIntegration(integration)
       ),
+      contextDocuments: this.toContextDocuments(pipeline.contextDocuments || []),
       queueCount: pipeline._count.queueItems,
       nextSlot: pipeline.active
         ? getNextPipelineSlot(pipeline.scheduleSlots, pipeline.timezone, now)
@@ -211,6 +212,7 @@ export class PipelineService {
       channels: pipeline.integrations.map(({ integration }) =>
         this.toComposerIntegration(integration)
       ),
+      contextDocuments: this.toContextDocuments(pipeline.contextDocuments || []),
       queueItems: pipeline.queueItems.map((item) => ({
         id: item.id,
         group: item.group,
@@ -231,13 +233,26 @@ export class PipelineService {
   async createPipeline(orgId: string, body: CreatePipelineDto) {
     this.validateMetadata(body);
     await this.validateIntegrations(orgId, body.integrations.map((entry) => entry.id));
+    if (body.contextDocumentIds !== undefined) {
+      this.validateContextDocumentIds(body.contextDocumentIds);
+      await this.validateContextDocuments(orgId, body.contextDocumentIds);
+    }
     return this._pipelineRepository.createPipeline(orgId, body);
   }
 
   async updatePipeline(orgId: string, id: string, body: UpdatePipelineDto) {
     this.validateMetadata(body);
     await this.validateIntegrations(orgId, body.integrations.map((entry) => entry.id));
+    if (body.contextDocumentIds !== undefined) {
+      this.validateContextDocumentIds(body.contextDocumentIds);
+      await this.validateContextDocuments(orgId, body.contextDocumentIds);
+    }
     const pipeline = await this._pipelineRepository.updatePipeline(orgId, id, body);
+    if (pipeline === 'invalid-context-documents') {
+      throw new BadRequestException(
+        'Pipeline context documents must belong to the organization'
+      );
+    }
     if (pipeline === false) {
       throw new ConflictException(
         'Pipeline integrations cannot change while queued items reference them'
@@ -442,6 +457,50 @@ export class PipelineService {
     if (new Set(integrationIds).size !== integrationIds.length) {
       throw new BadRequestException('Pipeline integrations must be unique');
     }
+  }
+
+  private validateContextDocumentIds(documentIds: string[]) {
+    if (new Set(documentIds).size !== documentIds.length) {
+      throw new BadRequestException('Pipeline context document IDs must be unique');
+    }
+  }
+
+  private async validateContextDocuments(orgId: string, documentIds: string[]) {
+    if (!documentIds.length) {
+      return;
+    }
+    const documents = await this._pipelineRepository.getOwnedContextDocuments(
+      orgId,
+      documentIds
+    );
+    if (documents.length !== documentIds.length) {
+      throw new BadRequestException(
+        'Pipeline context documents must belong to the organization'
+      );
+    }
+  }
+
+  private toContextDocuments(
+    assignments: Array<{
+      contextDocument: {
+        id: string;
+        name: string;
+        fileSize: number;
+        updatedAt: Date;
+      };
+    }>
+  ) {
+    return [...assignments]
+      .map(({ contextDocument }) => ({
+        id: contextDocument.id,
+        name: contextDocument.name,
+        fileSize: contextDocument.fileSize,
+        updatedAt: contextDocument.updatedAt,
+      }))
+      .sort(
+        (first, second) =>
+          first.name.localeCompare(second.name) || first.id.localeCompare(second.id)
+      );
   }
 
   private toScheduleSlots(

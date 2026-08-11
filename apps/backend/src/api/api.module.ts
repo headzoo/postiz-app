@@ -44,6 +44,7 @@ import { FarcasterProvider } from '@gitroom/backend/services/auth/providers/farc
 import { WalletProvider } from '@gitroom/backend/services/auth/providers/wallet.provider';
 import { OauthProvider } from '@gitroom/backend/services/auth/providers/oauth.provider';
 import { PipelinesController } from '@gitroom/backend/api/routes/pipelines.controller';
+import { ContextDocumentsController } from '@gitroom/backend/api/routes/context-documents.controller';
 
 const authenticatedController = [
   UsersController,
@@ -66,6 +67,7 @@ const authenticatedController = [
   AnnouncementsController,
   AdminController,
   PipelinesController,
+  ContextDocumentsController,
 ];
 @Module({
   imports: [UploadModule],

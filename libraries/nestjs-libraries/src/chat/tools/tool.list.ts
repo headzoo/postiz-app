@@ -12,6 +12,7 @@ import { PostsListTool } from '@gitroom/nestjs-libraries/chat/tools/posts.list.t
 import { PipelinesListTool } from '@gitroom/nestjs-libraries/chat/tools/pipelines.list.tool';
 import { PipelinePostsListTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.posts.list.tool';
 import { PipelineEnqueuePostTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.enqueue.post.tool';
+import { PipelineContextDocumentReadTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.context-document.read.tool';
 
 export const toolList = [
   IntegrationListTool,
@@ -20,6 +21,7 @@ export const toolList = [
   PipelinesListTool,
   PipelinePostsListTool,
   PipelineEnqueuePostTool,
+  PipelineContextDocumentReadTool,
   IntegrationValidationTool,
   IntegrationTriggerTool,
   IntegrationSchedulePostTool,

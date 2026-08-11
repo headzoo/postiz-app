@@ -62,6 +62,26 @@ describe('Pipeline API boundaries', () => {
           active: true,
           scheduleRevision: 1,
           integrations: [{ integration: twitter }, { integration: linkedin }],
+          contextDocuments: [
+            {
+              contextDocument: {
+                id: 'doc-b',
+                name: 'Brand guide',
+                fileSize: 2048,
+                updatedAt: new Date('2026-08-10T12:00:00.000Z'),
+                content: 'must-not-leak',
+              },
+            },
+            {
+              contextDocument: {
+                id: 'doc-a',
+                name: 'Audience notes',
+                fileSize: 1024,
+                updatedAt: new Date('2026-08-09T12:00:00.000Z'),
+                content: 'must-not-leak',
+              },
+            },
+          ],
           scheduleSlots: [],
           _count: { queueItems: 1 },
         },
@@ -77,6 +97,26 @@ describe('Pipeline API boundaries', () => {
         integrations: [
           { integration: twitter },
           { integration: linkedin },
+        ],
+        contextDocuments: [
+          {
+            contextDocument: {
+              id: 'doc-b',
+              name: 'Brand guide',
+              fileSize: 2048,
+              updatedAt: new Date('2026-08-10T12:00:00.000Z'),
+              content: 'must-not-leak',
+            },
+          },
+          {
+            contextDocument: {
+              id: 'doc-a',
+              name: 'Audience notes',
+              fileSize: 1024,
+              updatedAt: new Date('2026-08-09T12:00:00.000Z'),
+              content: 'must-not-leak',
+            },
+          },
         ],
         queueItems: [
           {
@@ -136,6 +176,21 @@ describe('Pipeline API boundaries', () => {
 
     expect(list[0]).toMatchObject({ color: '#612BD3' });
     expect(detail).toMatchObject({ color: '#612BD3' });
+    expect(list[0].contextDocuments).toEqual([
+      {
+        id: 'doc-a',
+        name: 'Audience notes',
+        fileSize: 1024,
+        updatedAt: new Date('2026-08-09T12:00:00.000Z'),
+      },
+      {
+        id: 'doc-b',
+        name: 'Brand guide',
+        fileSize: 2048,
+        updatedAt: new Date('2026-08-10T12:00:00.000Z'),
+      },
+    ]);
+    expect(detail.contextDocuments).toEqual(list[0].contextDocuments);
     expect(list[0].channels).toEqual([
       expect.objectContaining({ id: 'twitter', identifier: 'x' }),
       expect.objectContaining({ id: 'linkedin', identifier: 'linkedin' }),
@@ -217,6 +272,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       transaction as any
     );
 
@@ -268,6 +324,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       transaction as any
     );
     const body = {
@@ -314,6 +371,7 @@ describe('Pipeline API boundaries', () => {
     };
     const repository = new PipelineRepository(
       { model: { pipeline: { create } } } as any,
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -397,6 +455,7 @@ describe('Pipeline API boundaries', () => {
       },
     };
     const repository = new PipelineRepository(
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -526,6 +585,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       transaction as any
     );
 
@@ -565,6 +625,7 @@ describe('Pipeline API boundaries', () => {
       },
     };
     const repository = new PipelineRepository(
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -672,6 +733,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       { model: {} } as any
     );
 
@@ -745,6 +807,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       transaction as any
     );
 
@@ -782,6 +845,7 @@ describe('Pipeline API boundaries', () => {
       },
     };
     const repository = new PipelineRepository(
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -861,6 +925,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       transaction as any
     );
 
@@ -912,6 +977,7 @@ describe('Pipeline API boundaries', () => {
       },
     };
     const repository = new PipelineRepository(
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -984,6 +1050,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       staleTransaction as any
     );
     const move = {
@@ -1001,6 +1068,7 @@ describe('Pipeline API boundaries', () => {
 
     const occupiedRevisionUpdate = jest.fn();
     const occupiedRepository = new PipelineRepository(
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -1030,6 +1098,7 @@ describe('Pipeline API boundaries', () => {
     expect(occupiedRevisionUpdate).not.toHaveBeenCalled();
 
     const raceRepository = new PipelineRepository(
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -1216,6 +1285,7 @@ describe('Pipeline API boundaries', () => {
       },
     };
     const repository = new PipelineRepository(
+      { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
@@ -1422,6 +1492,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       transaction as any
     );
 
@@ -1472,6 +1543,7 @@ describe('Pipeline API boundaries', () => {
       { model: {} } as any,
       { model: {} } as any,
       { model: {} } as any,
+      { model: {} } as any,
       transaction as any
     );
 
@@ -1488,5 +1560,256 @@ describe('Pipeline API boundaries', () => {
         data: { deletedAt: expect.any(Date) },
       })
     );
+  });
+
+  it('creates pipelines with assigned context documents', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'pipeline' });
+    const repository = new PipelineRepository(
+      { model: { pipeline: { create } } } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any
+    );
+
+    await repository.createPipeline('org', {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+      contextDocumentIds: ['doc-a', 'doc-b'],
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        contextDocuments: {
+          create: [{ contextDocumentId: 'doc-a' }, { contextDocumentId: 'doc-b' }],
+        },
+      }),
+    });
+  });
+
+  it('replaces context document assignments on update and preserves them when omitted', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'pipeline' });
+    const contextDocumentFindMany = jest.fn(async ({ where }: any) =>
+      (where.id?.in || []).map((id: string) => ({ id }))
+    );
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'pipeline',
+                integrations: [{ integrationId: 'channel' }],
+              }),
+              update,
+            },
+            pipelineQueueItem: { findFirst: jest.fn().mockResolvedValue(null) },
+            contextDocument: { findMany: contextDocumentFindMany },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+    const base = {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+    };
+
+    await repository.updatePipeline('org', 'pipeline', {
+      ...base,
+      contextDocumentIds: ['doc-a', 'doc-b'],
+    });
+    await repository.updatePipeline('org', 'pipeline', {
+      ...base,
+      contextDocumentIds: [],
+    });
+    await repository.updatePipeline('org', 'pipeline', base);
+
+    expect(update).toHaveBeenNthCalledWith(1, {
+      where: { id: 'pipeline' },
+      data: expect.objectContaining({
+        contextDocuments: {
+          deleteMany: {},
+          create: [{ contextDocumentId: 'doc-a' }, { contextDocumentId: 'doc-b' }],
+        },
+      }),
+    });
+    expect(update).toHaveBeenNthCalledWith(2, {
+      where: { id: 'pipeline' },
+      data: expect.objectContaining({
+        contextDocuments: { deleteMany: {}, create: [] },
+      }),
+    });
+    expect(update).toHaveBeenNthCalledWith(3, {
+      where: { id: 'pipeline' },
+      data: {
+        name: 'Pipeline',
+        timezone: 'UTC',
+      },
+    });
+    expect(update.mock.calls[2][0].data).not.toHaveProperty('contextDocuments');
+    expect(update.mock.calls[2][0].data).not.toHaveProperty('scheduleRevision');
+  });
+
+  it('rejects duplicate and foreign context document ids before repository writes', async () => {
+    const repository = {
+      getOwnedIntegrations: jest.fn().mockResolvedValue([{ id: 'channel' }]),
+      getOwnedContextDocuments: jest.fn().mockResolvedValue([{ id: 'doc-a' }]),
+      createPipeline: jest.fn(),
+      updatePipeline: jest.fn(),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+    const base = {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+    };
+
+    await expect(
+      service.createPipeline('org', {
+        ...base,
+        contextDocumentIds: ['doc-a', 'doc-a'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Pipeline context document IDs must be unique',
+    });
+    await expect(
+      service.createPipeline('org', {
+        ...base,
+        contextDocumentIds: ['doc-a', 'foreign-doc'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Pipeline context documents must belong to the organization',
+    });
+    expect(repository.createPipeline).not.toHaveBeenCalled();
+
+    await expect(
+      service.updatePipeline('org', 'pipeline', {
+        ...base,
+        contextDocumentIds: ['doc-a', 'doc-a'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Pipeline context document IDs must be unique',
+    });
+    await expect(
+      service.updatePipeline('org', 'pipeline', {
+        ...base,
+        contextDocumentIds: ['doc-a', 'foreign-doc'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Pipeline context documents must belong to the organization',
+    });
+    expect(repository.updatePipeline).not.toHaveBeenCalled();
+  });
+
+  it('rolls back document replacement when ownership changes inside the update transaction', async () => {
+    const update = jest.fn();
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'pipeline',
+                integrations: [{ integrationId: 'channel' }],
+              }),
+              update,
+            },
+            pipelineQueueItem: { findFirst: jest.fn().mockResolvedValue(null) },
+            contextDocument: { findMany: jest.fn().mockResolvedValue([{ id: 'doc-a' }]) },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+    const service = new PipelineService(
+      {
+        getOwnedIntegrations: jest.fn().mockResolvedValue([{ id: 'channel' }]),
+        getOwnedContextDocuments: jest
+          .fn()
+          .mockResolvedValue([{ id: 'doc-a' }, { id: 'doc-b' }]),
+        updatePipeline: repository.updatePipeline.bind(repository),
+      } as any,
+      {} as any
+    );
+
+    await expect(
+      service.updatePipeline('org', 'pipeline', {
+        name: 'Pipeline',
+        timezone: 'UTC',
+        integrations: [{ id: 'channel' }],
+        contextDocumentIds: ['doc-a', 'doc-b'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Pipeline context documents must belong to the organization',
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('does not increment schedule revision when only context documents change', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'pipeline', scheduleRevision: 3 });
+    const transaction = {
+      model: {
+        $transaction: jest.fn(async (callback: any) =>
+          callback({
+            pipeline: {
+              findFirst: jest.fn().mockResolvedValue({
+                id: 'pipeline',
+                integrations: [{ integrationId: 'channel' }],
+              }),
+              update,
+            },
+            pipelineQueueItem: { findFirst: jest.fn().mockResolvedValue(null) },
+            contextDocument: {
+              findMany: jest.fn().mockResolvedValue([{ id: 'doc-a' }]),
+            },
+          })
+        ),
+      },
+    };
+    const repository = new PipelineRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      transaction as any
+    );
+
+    await repository.updatePipeline('org', 'pipeline', {
+      name: 'Pipeline',
+      timezone: 'UTC',
+      integrations: [{ id: 'channel' }],
+      contextDocumentIds: ['doc-a'],
+    });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'pipeline' },
+      data: expect.objectContaining({
+        contextDocuments: {
+          deleteMany: {},
+          create: [{ contextDocumentId: 'doc-a' }],
+        },
+      }),
+    });
+    expect(update.mock.calls[0][0].data).not.toHaveProperty('scheduleRevision');
+    expect(update.mock.calls[0][0].data).not.toHaveProperty('scheduleSlots');
   });
 });

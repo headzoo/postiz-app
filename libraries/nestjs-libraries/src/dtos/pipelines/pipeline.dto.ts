@@ -61,6 +61,11 @@ export class CreatePipelineDto {
     message: 'Pipeline color must be a six-digit hex value (#RRGGBB)',
   })
   color?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  contextDocumentIds?: string[];
 }
 
 export class UpdatePipelineDto extends CreatePipelineDto {}

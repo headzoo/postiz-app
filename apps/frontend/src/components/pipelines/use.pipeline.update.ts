@@ -10,6 +10,7 @@ import {
 import { parseApiError } from '@gitroom/frontend/components/pipelines/pipeline.utils';
 import { PIPELINES_KEY } from '@gitroom/frontend/components/pipelines/use.pipeline.list';
 import { pipelineDetailKey } from '@gitroom/frontend/components/pipelines/use.pipeline.detail';
+import { CONTEXT_DOCUMENTS_KEY } from '@gitroom/frontend/components/context-documents/use.context-document.list';
 
 export const useUpdatePipeline = () => {
   const fetch = useFetch();
@@ -28,6 +29,7 @@ export const useUpdatePipeline = () => {
       await Promise.all([
         mutate(PIPELINES_KEY),
         mutate(pipelineDetailKey(id)),
+        mutate(CONTEXT_DOCUMENTS_KEY),
       ]);
       return updated;
     },

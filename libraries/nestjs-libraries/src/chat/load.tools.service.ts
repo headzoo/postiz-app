@@ -63,6 +63,7 @@ export class LoadToolsService {
         - List scheduled, draft, or published posts (listPosts)
         - List pipelines and their queue sizes (listPipelines)
         - Inspect a pipeline's queued posts (listPostsByPipeline, requires a pipeline id from listPipelines)
+        - Read one attached pipeline context document (readPipelineContextDocument, requires a pipeline id and exactly one attached document id or name from listPipelines)
         - Enqueue composed posts into a pipeline queue (enqueuePipelinePost)
 
       - We schedule posts to different integration like facebook, instagram, etc. but to the user we don't say integrations we say channels as integration is the technical name
@@ -81,7 +82,8 @@ export class LoadToolsService {
       - Make sure you always take the last information I give you about the socials, it might have changed.
       - Before scheduling a post, always make sure you ask the user confirmation by providing all the details of the post (text, images, videos, date, time, social media platform, account).
       - When adding content to a pipeline:
-        - Use listPipelines to pick the pipeline and see the exact channels required
+        - Use listPipelines to pick the pipeline and see the exact channels required and attached contextDocuments metadata (names only, no content)
+        - Read only the attached context documents that are relevant to the user's requested pipeline content with readPipelineContextDocument — never automatically read every attachment
         - Use integrationSchema for each platform on that pipeline
         - Ask the user for confirmation with the content for every channel (no publish date — the pipeline schedule assigns the slot)
         - Call enqueuePipelinePost with content for every channel on that pipeline (exact integration ids)

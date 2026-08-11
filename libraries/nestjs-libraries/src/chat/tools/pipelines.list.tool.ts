@@ -13,7 +13,7 @@ export class PipelinesListTool implements AgentToolInterface {
   run() {
     return createTool({
       id: 'listPipelines',
-      description: `This tool lists the organization's pipelines (content queues with weekly schedules). Use a pipeline id with the listPostsByPipeline tool to inspect queued posts, or with the enqueuePipelinePost tool to compose and enqueue new content for every channel on that pipeline.`,
+      description: `This tool lists the organization's pipelines (content queues with weekly schedules). Each pipeline may include attached contextDocuments metadata (id, name, fileSize, updatedAt) only — use readPipelineContextDocument to load the Markdown content for one relevant attached document before drafting pipeline content. Use a pipeline id with listPostsByPipeline to inspect queued posts, or with enqueuePipelinePost to compose and enqueue new content for every channel on that pipeline.`,
       inputSchema: z.object({}),
       mcp: {
         annotations: {
@@ -39,6 +39,14 @@ export class PipelinesListTool implements AgentToolInterface {
                 name: z.string(),
                 platform: z.string(),
                 picture: z.string().nullable().optional(),
+              })
+            ),
+            contextDocuments: z.array(
+              z.object({
+                id: z.string(),
+                name: z.string(),
+                fileSize: z.number(),
+                updatedAt: z.string(),
               })
             ),
           })
@@ -70,6 +78,19 @@ export class PipelinesListTool implements AgentToolInterface {
               platform: channel.identifier,
               picture: channel.picture,
             })),
+            contextDocuments: (pipeline.contextDocuments || []).map(
+              (document: {
+                id: string;
+                name: string;
+                fileSize: number;
+                updatedAt: Date | string;
+              }) => ({
+                id: document.id,
+                name: document.name,
+                fileSize: document.fileSize,
+                updatedAt: new Date(document.updatedAt).toISOString(),
+              })
+            ),
           })),
         };
       },

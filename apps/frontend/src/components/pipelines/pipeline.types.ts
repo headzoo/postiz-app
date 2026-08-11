@@ -5,6 +5,13 @@ export interface PipelineScheduleSlot {
   minuteOfDay: number;
 }
 
+export interface PipelineContextDocument {
+  id: string;
+  name: string;
+  fileSize: number;
+  updatedAt: string;
+}
+
 export interface PipelineSummary {
   id: string;
   name: string;
@@ -15,6 +22,7 @@ export interface PipelineSummary {
   channels: Integrations[];
   queueCount: number;
   nextSlot?: string;
+  contextDocuments?: PipelineContextDocument[];
 }
 
 export interface PipelineDetail extends PipelineSummary {
@@ -55,6 +63,7 @@ export interface CreatePipelinePayload {
   timezone: string;
   color?: string;
   integrations: { id: string }[];
+  contextDocumentIds?: string[];
 }
 
 export type UpdatePipelinePayload = CreatePipelinePayload;

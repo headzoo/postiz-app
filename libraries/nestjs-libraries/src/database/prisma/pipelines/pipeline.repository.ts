@@ -18,6 +18,7 @@ const TRANSACTION_ATTEMPTS = 3;
 class PipelineQueueChangedError extends Error {}
 class PipelineScheduleRevisionChangedError extends Error {}
 class PipelineScheduleSourceChangedError extends Error {}
+class PipelineContextDocumentsChangedError extends Error {}
 
 export const pipelineIntegrationSelect = {
   id: true,
@@ -59,6 +60,17 @@ const pipelinePostSelect = {
   },
 } satisfies Prisma.PostSelect;
 
+const pipelineContextDocumentInclude = {
+  contextDocument: {
+    select: {
+      id: true,
+      name: true,
+      fileSize: true,
+      updatedAt: true,
+    },
+  },
+} satisfies Prisma.PipelineContextDocumentInclude;
+
 @Injectable()
 export class PipelineRepository {
   constructor(
@@ -66,6 +78,7 @@ export class PipelineRepository {
     private _post: PrismaRepository<'post'>,
     private _integration: PrismaRepository<'integration'>,
     private _queueItem: PrismaRepository<'pipelineQueueItem'>,
+    private _contextDocument: PrismaRepository<'contextDocument'>,
     private _transaction: PrismaTransaction
   ) {}
 
@@ -74,6 +87,7 @@ export class PipelineRepository {
       where: { organizationId: orgId, deletedAt: null },
       include: {
         integrations: { include: { integration: { select: pipelineIntegrationSelect } } },
+        contextDocuments: { include: pipelineContextDocumentInclude },
         scheduleSlots: { orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }] },
         _count: { select: { queueItems: { where: { status: 'QUEUED', deletedAt: null } } } },
       },
@@ -86,6 +100,7 @@ export class PipelineRepository {
       where: { id, organizationId: orgId, deletedAt: null },
       include: {
         integrations: { include: { integration: { select: pipelineIntegrationSelect } } },
+        contextDocuments: { include: pipelineContextDocumentInclude },
         scheduleSlots: { orderBy: [{ dayOfWeek: 'asc' }, { minuteOfDay: 'asc' }] },
         queueItems: {
           where: { deletedAt: null },
@@ -158,6 +173,19 @@ export class PipelineRepository {
     });
   }
 
+  getOwnedContextDocuments(orgId: string, documentIds: string[]) {
+    if (!documentIds.length) {
+      return Promise.resolve([]);
+    }
+    return this._contextDocument.model.contextDocument.findMany({
+      where: {
+        organizationId: orgId,
+        id: { in: documentIds },
+      },
+      select: { id: true },
+    });
+  }
+
   async createPipeline(orgId: string, body: CreatePipelineDto) {
     return this._pipeline.model.pipeline.create({
       data: {
@@ -168,50 +196,90 @@ export class PipelineRepository {
         integrations: {
           create: body.integrations.map(({ id }) => ({ integrationId: id })),
         },
+        ...(body.contextDocumentIds?.length
+          ? {
+              contextDocuments: {
+                create: body.contextDocumentIds.map((contextDocumentId) => ({
+                  contextDocumentId,
+                })),
+              },
+            }
+          : {}),
       },
     });
   }
 
   async updatePipeline(orgId: string, id: string, body: UpdatePipelineDto) {
-    return this.withSerializableRetry(async (tx) => {
-      const existing = await tx.pipeline.findFirst({
-        where: { id, organizationId: orgId, deletedAt: null },
-        include: { integrations: true },
-      });
-      if (!existing) {
-        return null;
-      }
+    try {
+      return await this.withSerializableRetry(async (tx) => {
+        const existing = await tx.pipeline.findFirst({
+          where: { id, organizationId: orgId, deletedAt: null },
+          include: { integrations: true },
+        });
+        if (!existing) {
+          return null;
+        }
 
-      const queued = await tx.pipelineQueueItem.findFirst({
-        where: { pipelineId: id, status: 'QUEUED', deletedAt: null },
-        select: { id: true },
-      });
-      const oldIds = existing.integrations.map((item: any) => item.integrationId).sort();
-      const newIds = body.integrations.map((item) => item.id).sort();
-      const integrationsChanged = oldIds.join(',') !== newIds.join(',');
-      if (queued && integrationsChanged) {
-        return false;
-      }
+        const queued = await tx.pipelineQueueItem.findFirst({
+          where: { pipelineId: id, status: 'QUEUED', deletedAt: null },
+          select: { id: true },
+        });
+        const oldIds = existing.integrations.map((item: any) => item.integrationId).sort();
+        const newIds = body.integrations.map((item) => item.id).sort();
+        const integrationsChanged = oldIds.join(',') !== newIds.join(',');
+        if (queued && integrationsChanged) {
+          return false;
+        }
 
-      return tx.pipeline.update({
-        where: { id },
-        data: {
-          name: body.name,
-          timezone: body.timezone,
-          ...(body.color !== undefined ? { color: body.color } : {}),
-          ...(integrationsChanged
-            ? {
-                integrations: {
-                  deleteMany: {},
-                  create: body.integrations.map(({ id: integrationId }) => ({
-                    integrationId,
-                  })),
-                },
-              }
-            : {}),
-        },
+        const documentsChanged = body.contextDocumentIds !== undefined;
+        if (documentsChanged) {
+          const ownedDocuments = await tx.contextDocument.findMany({
+            where: {
+              organizationId: orgId,
+              id: { in: body.contextDocumentIds },
+            },
+            select: { id: true },
+          });
+          if (ownedDocuments.length !== body.contextDocumentIds.length) {
+            throw new PipelineContextDocumentsChangedError();
+          }
+        }
+
+        return tx.pipeline.update({
+          where: { id },
+          data: {
+            name: body.name,
+            timezone: body.timezone,
+            ...(body.color !== undefined ? { color: body.color } : {}),
+            ...(integrationsChanged
+              ? {
+                  integrations: {
+                    deleteMany: {},
+                    create: body.integrations.map(({ id: integrationId }) => ({
+                      integrationId,
+                    })),
+                  },
+                }
+              : {}),
+            ...(documentsChanged
+              ? {
+                  contextDocuments: {
+                    deleteMany: {},
+                    create: body.contextDocumentIds!.map((contextDocumentId) => ({
+                      contextDocumentId,
+                    })),
+                  },
+                }
+              : {}),
+          },
+        });
       });
-    });
+    } catch (error) {
+      if (error instanceof PipelineContextDocumentsChangedError) {
+        return 'invalid-context-documents' as const;
+      }
+      throw error;
+    }
   }
 
   async updatePipelineSchedule(

@@ -17,6 +17,7 @@ import { usePipelineDetail } from '@gitroom/frontend/components/pipelines/use.pi
 import { usePipelineStatus } from '@gitroom/frontend/components/pipelines/use.pipeline.status';
 import { useDeletePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.delete';
 import { PipelineSummary } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import { PipelineContextDocumentsPanel } from '@gitroom/frontend/components/context-documents/context-document.assignment-picker';
 
 const PipelineEditModal: FC<{
   pipelineId: string;
@@ -198,6 +199,10 @@ export const Pipelines: FC = () => {
                   <div className="text-[13px] opacity-70">
                     {t('timezone', 'Timezone')}: {pipeline.timezone}
                   </div>
+                  <PipelineContextDocumentsPanel
+                    documents={pipeline.contextDocuments}
+                    compact
+                  />
                 </div>
                 <div className="flex items-center gap-[10px] flex-wrap">
                   <Button onClick={() => router.push(`/pipelines/${pipeline.id}`)}>

@@ -27,6 +27,7 @@ import { usePipelineStatus } from '@gitroom/frontend/components/pipelines/use.pi
 import { useDeletePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.delete';
 import { usePipelineList } from '@gitroom/frontend/components/pipelines/use.pipeline.list';
 import { useUpdatePipelineSchedule } from '@gitroom/frontend/components/pipelines/use.pipeline.schedule.update';
+import { PipelineContextDocumentsPanel } from '@gitroom/frontend/components/context-documents/context-document.assignment-picker';
 
 const EMPTY_SCHEDULE_SLOTS: PipelineScheduleSlot[] = [];
 
@@ -254,6 +255,11 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
           </div>
         </div>
       </div>
+
+      <PipelineContextDocumentsPanel
+        documents={data.contextDocuments}
+        onEdit={openEdit}
+      />
 
       <div className="rounded-[12px] border border-newBorder bg-newBgColor overflow-hidden">
         <div className="flex flex-col gap-[10px] border-b border-newBorder px-[20px] py-[14px] sm:flex-row sm:items-center sm:justify-between">

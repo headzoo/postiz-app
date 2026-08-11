@@ -21,6 +21,7 @@ import {
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
 import { useCreatePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.create';
 import { useUpdatePipeline } from '@gitroom/frontend/components/pipelines/use.pipeline.update';
+import { ContextDocumentAssignmentPicker } from '@gitroom/frontend/components/context-documents/context-document.assignment-picker';
 
 dayjs.extend(timezone);
 
@@ -43,6 +44,9 @@ export const PipelineForm: FC<{
     pipeline?.channels?.map((channel) => ({ ...channel })) || []
   );
   const [color, setColor] = useState(pipeline?.color || PIPELINE_DEFAULT_COLOR);
+  const [selectedContextDocumentIds, setSelectedContextDocumentIds] = useState<string[]>(
+    pipeline?.contextDocuments?.map((document) => document.id) || []
+  );
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -81,6 +85,7 @@ export const PipelineForm: FC<{
         integrations: selectedIntegrations.map((integration) => ({
           id: integration.id,
         })),
+        contextDocumentIds: selectedContextDocumentIds,
       };
       if (pipeline?.id) {
         await updatePipeline(pipeline.id, payload);
@@ -110,6 +115,7 @@ export const PipelineForm: FC<{
     name,
     onSaved,
     pipeline?.id,
+    selectedContextDocumentIds,
     selectedIntegrations,
     t,
     timezoneValue,
@@ -273,6 +279,11 @@ export const PipelineForm: FC<{
           </div>
         )}
       </div>
+      <ContextDocumentAssignmentPicker
+        selectedIds={selectedContextDocumentIds}
+        onChange={setSelectedContextDocumentIds}
+        knownDocuments={pipeline?.contextDocuments}
+      />
       <div className="flex gap-[10px] justify-end sticky bottom-0 bg-newBgColorInner pt-[12px]">
         <Button type="button" secondary onClick={() => modal.closeAll()}>
           {t('cancel', 'Cancel')}

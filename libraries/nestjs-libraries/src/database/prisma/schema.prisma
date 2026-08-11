@@ -44,6 +44,7 @@ model Organization {
   oauthApp            OAuthApp[]
   oauthAuthorizations OAuthAuthorization[]
   pipelines           Pipeline[]
+  contextDocuments    ContextDocument[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -668,6 +669,7 @@ model Pipeline {
   scheduleSlots    PipelineScheduleSlot[]
   queueItems       PipelineQueueItem[]
   slotExecutions   PipelineSlotExecution[]
+  contextDocuments PipelineContextDocument[]
 
   @@index([organizationId, deletedAt])
   @@index([organizationId, active])
@@ -747,6 +749,33 @@ model PipelineSlotExecution {
   @@index([pipelineQueueItemId])
   @@index([claimedAt])
   @@index([failedAt])
+}
+
+model ContextDocument {
+  id                  String                    @id @default(uuid())
+  organizationId      String
+  name                String
+  content             String
+  fileSize            Int
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  organization        Organization              @relation(fields: [organizationId], references: [id])
+  pipelineAssignments PipelineContextDocument[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model PipelineContextDocument {
+  pipelineId        String
+  contextDocumentId String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  pipeline          Pipeline        @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  contextDocument   ContextDocument @relation(fields: [contextDocumentId], references: [id], onDelete: Cascade)
+
+  @@id([pipelineId, contextDocumentId])
+  @@index([contextDocumentId, pipelineId])
 }
 
 model Sets {
