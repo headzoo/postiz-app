@@ -179,15 +179,66 @@ const usePostActions = (onMutate?: () => void) => {
       };
 
       const data = await (await fetch(`/posts/group/${post.group}`)).json();
+      const clickedIntegrationId =
+        post.integration?.id || data.integration;
+      const postIntegrationId = (item: any) =>
+        item.integrationId || item.integration?.id;
+      const parseSettings = (settings: unknown) => {
+        if (!settings) {
+          return {};
+        }
+        if (typeof settings === 'string') {
+          try {
+            return JSON.parse(settings || '{}');
+          } catch {
+            return {};
+          }
+        }
+        return settings as Record<string, unknown>;
+      };
+      // Shared groups (e.g. Pipelines) contain one root per channel. Split by
+      // integration so the composer does not treat sibling channels as a thread.
+      const channels = data.posts
+        .filter((item: any) => !item.parentPostId)
+        .map((root: any) => {
+          const integrationId = postIntegrationId(root);
+          return {
+            integration: integrationId,
+            posts: data.posts.filter(
+              (item: any) => postIntegrationId(item) === integrationId
+            ),
+            settings: parseSettings(root.settings),
+          };
+        });
+      const orderedChannels = [
+        ...channels.filter(
+          (channel: any) => channel.integration === clickedIntegrationId
+        ),
+        ...channels.filter(
+          (channel: any) => channel.integration !== clickedIntegrationId
+        ),
+      ];
+      const focusedChannel = orderedChannels[0];
       const date = !isDuplicate
         ? null
         : (await (await fetch('/posts/find-slot')).json()).date;
       const publishDate = dayjs
-        .utc(date || data.posts[0].publishDate)
+        .utc(
+          date ||
+          focusedChannel?.posts?.[0]?.publishDate ||
+          data.posts[0].publishDate
+        )
         .local();
       const ExistingData = !isDuplicate
         ? ExistingDataContextProvider
         : Fragment;
+      const channelIntegrations = integrations
+        .slice(0)
+        .filter((integration) =>
+          orderedChannels.some(
+            (channel: any) => channel.integration === integration.id
+          )
+        );
       modal.openModal({
         id: 'add-edit-modal',
         closeOnClickOutside: false,
@@ -200,11 +251,19 @@ const usePostActions = (onMutate?: () => void) => {
           modal: 'w-[100%] max-w-[1400px] text-textColor',
         },
         children: (
-          <ExistingData value={data}>
+          <ExistingData
+            value={{
+              ...data,
+              integration: focusedChannel?.integration || data.integration,
+              posts: focusedChannel?.posts || data.posts,
+              settings: focusedChannel?.settings || data.settings,
+              channels: orderedChannels,
+            }}
+          >
             <AddEditModal
               {...(isDuplicate
                 ? {
-                  onlyValues: data.posts.map(
+                  onlyValues: (focusedChannel?.posts || []).map(
                     ({ image, settings, content }: any) => ({
                       image,
                       settings,
@@ -216,16 +275,15 @@ const usePostActions = (onMutate?: () => void) => {
               allIntegrations={integrations.map((p) => ({ ...p }))}
               reopenModal={editPost(post)}
               mutate={mutate}
+              focusedChannel={clickedIntegrationId}
               integrations={
                 isDuplicate
                   ? integrations
-                  : integrations
-                    .slice(0)
-                    .filter((f) => f.id === data.integration)
-                    .map((p) => ({
-                      ...p,
-                      picture: data.integrationPicture,
-                    }))
+                  : channelIntegrations.length
+                    ? channelIntegrations
+                    : integrations
+                      .slice(0)
+                      .filter((f) => f.id === clickedIntegrationId)
               }
               date={publishDate}
             />
@@ -1459,7 +1517,7 @@ const CalendarItem: FC<{
           )}
         </div>
         <div
-          className="hidden group-hover:flex items-center gap-[8px]"
+          className="flex items-center gap-[8px] h-[15px] invisible opacity-0 pointer-events-none group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto"
           onClick={(event) => event.stopPropagation()}
         >
           {copyDebugJson && (
