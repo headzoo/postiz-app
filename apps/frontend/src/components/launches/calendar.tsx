@@ -103,7 +103,8 @@ type CellEntry =
   | { kind: 'single'; post: CalendarItemPost }
   | { kind: 'stack'; group: string; posts: CalendarItemPost[] };
 
-const MAX_STACK_AVATARS = 3;
+/** Visible height of each tucked channel card above the front card. */
+const STACK_PEEK_PX = 32;
 
 function pickPrimaryPost(posts: CalendarItemPost[]): CalendarItemPost {
   return [...posts].sort((a, b) => {
@@ -1123,18 +1124,53 @@ const ChannelAvatar: FC<{
   post: CalendarItemPost;
   size?: number;
 }> = ({ post, size = 20 }) => {
-  const badge = Math.round(size * 0.6);
+  const badge = Math.max(10, Math.round(size * 0.6));
   return (
-    <div className="relative" style={{ width: size, height: size }}>
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
       <img
         className="w-full h-full rounded-[8px]"
         src={post.integration.picture! || '/no-picture.jpg'}
       />
       <img
-        className="rounded-[8px] absolute z-10 top-[10px] end-0 border border-fifth"
+        className="rounded-[8px] absolute z-10 -bottom-[2px] -end-[2px] border border-fifth"
         style={{ width: badge, height: badge }}
         src={`/icons/platforms/${post.integration?.providerIdentifier}.png`}
       />
+    </div>
+  );
+};
+
+/** Colored strip peek for a channel tucked behind the front card. */
+const StackPeekCard: FC<{
+  post: CalendarItemPost;
+  onClick: () => void;
+}> = ({ post, onClick }) => {
+  const headerColor = resolveCalendarPostHeaderColor(
+    post.pipelineColor,
+    post?.tags?.[0]?.tag?.color
+  );
+  const headerForeground = headerColor
+    ? getReadableForegroundColor(headerColor)
+    : undefined;
+
+  return (
+    <div
+      onClick={onClick}
+      className={clsx(
+        'w-full h-full rounded-[10px] flex items-center justify-between gap-[8px] px-[8px] cursor-pointer shadow-[0_1px_0_rgba(0,0,0,0.18)]',
+        !headerColor && 'text-white bg-btnPrimary'
+      )}
+      style={{
+        backgroundColor: headerColor,
+        color: headerForeground,
+      }}
+    >
+      <div className="min-w-0 flex-1 text-[11px] font-[600] truncate text-start">
+        {post.integration?.name || post.integration?.providerIdentifier}
+      </div>
+      <div className="shrink-0 rounded-[6px] overflow-hidden border border-white/25 bg-white/15">
+        <ChannelAvatar post={post} size={18} />
+      </div>
     </div>
   );
 };
@@ -1153,48 +1189,91 @@ const StackedCalendarItem: FC<{
   showTime?: boolean;
   posts: CalendarItemPost[];
 }> = memo((props) => {
-  const { posts, ...itemProps } = props;
+  const { posts, date, isBeforeNow, editPost, ...itemProps } = props;
   const primary = pickPrimaryPost(posts);
-  const overflow = posts.length - MAX_STACK_AVATARS;
-  const visiblePosts = posts.slice(0, MAX_STACK_AVATARS);
+  // Wallet order: peeks on top (behind), full card at the bottom (front).
+  const ordered = [
+    ...posts.filter((post) => post.id !== primary.id),
+    primary,
+  ];
+  const hasError = posts.some((item) => item.state === 'ERROR');
+  const errorMessage = posts
+    .filter((item) => item.state === 'ERROR' && item.error)
+    .map((item) => item.error)
+    .join('\n');
+
+  const [{ opacity }, dragRef] = useDrag(
+    () => ({
+      type: 'post',
+      item: {
+        id: primary.id,
+        postIds: posts.map((item) => item.id),
+        group: primary.group,
+        interval: posts.some((item) => !!item.intervalInDays),
+        date,
+        pipelineItemId: primary.pipelineItemId,
+      },
+      collect: (monitor) => ({
+        opacity: monitor.isDragging() ? 0 : isBeforeNow ? 0.6 : 1,
+      }),
+    }),
+    [isBeforeNow, posts, primary, date]
+  );
 
   return (
-    <div className="relative w-full">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute start-0 end-[6px] top-0 bottom-[6px] rounded-[10px] bg-newColColor border border-newTextColor/10 translate-x-[5px] translate-y-[4px] rotate-[2.5deg]"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute start-0 end-[6px] top-0 bottom-[6px] rounded-[10px] bg-newColColor border border-newTextColor/10 translate-x-[2.5px] translate-y-[2px] rotate-[1.25deg]"
-      />
-      <div className="relative z-[1] pb-[6px] pe-[6px]">
-        <CalendarItem
-          {...itemProps}
-          post={primary}
-          stackPosts={posts}
-          hideChannelAvatar
-        />
-      </div>
-      <div className="absolute z-[2] top-[28px] end-[4px] flex flex-col items-center">
-        {visiblePosts.map((post, index) => (
+    <div
+      // @ts-ignore
+      ref={dragRef}
+      className={clsx(
+        'relative w-full',
+        hasError && 'rounded-[10px] ring-2 ring-red-500'
+      )}
+      style={{ opacity }}
+    >
+      {hasError && (
+        <div
+          className="absolute -top-[6px] -left-[6px] z-30 w-[18px] h-[18px] rounded-full bg-red-500 flex items-center justify-center text-white text-[11px] font-bold cursor-pointer"
+          data-tooltip-id="tooltip"
+          data-tooltip-content={
+            errorMessage || 'An error occurred while publishing this post'
+          }
+        >
+          !
+        </div>
+      )}
+      {ordered.map((post, index) => {
+        const isFront = index === ordered.length - 1;
+        return (
           <div
             key={post.id}
-            className={clsx(
-              'rounded-[8px] border border-fifth bg-newColColor',
-              index > 0 && '-mt-[6px]'
-            )}
-            style={{ zIndex: visiblePosts.length - index }}
+            className="relative w-full"
+            style={{
+              zIndex: index + 1,
+              ...(isFront
+                ? {}
+                : {
+                  height: STACK_PEEK_PX,
+                  minHeight: STACK_PEEK_PX,
+                  marginBottom: -10,
+                }),
+            }}
           >
-            <ChannelAvatar post={post} />
+            {isFront ? (
+              <CalendarItem
+                {...itemProps}
+                date={date}
+                isBeforeNow={isBeforeNow}
+                editPost={editPost}
+                post={post}
+                stackPosts={posts}
+                disableDrag
+              />
+            ) : (
+              <StackPeekCard post={post} onClick={editPost} />
+            )}
           </div>
-        ))}
-        {overflow > 0 && (
-          <div className="mt-[2px] min-w-[20px] h-[16px] rounded-full bg-btnPrimary text-white text-[9px] font-[600] flex items-center justify-center px-[4px]">
-            +{overflow}
-          </div>
-        )}
-      </div>
+        );
+      })}
     </div>
   );
 });
@@ -1211,7 +1290,7 @@ const CalendarItem: FC<{
   integrations: Integrations[];
   display: 'day' | 'week' | 'month';
   showTime?: boolean;
-  hideChannelAvatar?: boolean;
+  disableDrag?: boolean;
   stackPosts?: CalendarItemPost[];
   post: CalendarItemPost;
 }> = memo((props) => {
@@ -1227,7 +1306,7 @@ const CalendarItem: FC<{
     deletePost,
     showTime,
     missingRelease,
-    hideChannelAvatar,
+    disableDrag,
     stackPosts,
   } = props;
   const stackedPosts = stackPosts?.length ? stackPosts : [post];
@@ -1264,26 +1343,27 @@ const CalendarItem: FC<{
         date,
         pipelineItemId: post.pipelineItemId,
       },
+      canDrag: !disableDrag,
       collect: (monitor) => ({
         opacity: monitor.isDragging() ? 0 : isBeforeNow ? 0.6 : 1,
       }),
     }),
-    [isBeforeNow, stackPosts, post, date]
+    [isBeforeNow, stackPosts, post, date, disableDrag]
   );
   return (
     <div
       // @ts-ignore
-      ref={dragRef}
+      ref={disableDrag ? undefined : dragRef}
       className={clsx(
         'w-full flex h-full flex-1 flex-col group',
         'relative',
-        hasError && 'rounded-[10px] ring-2 ring-red-500'
+        hasError && !stackPosts && 'rounded-[10px] ring-2 ring-red-500'
       )}
       style={{
-        opacity,
+        opacity: disableDrag ? 1 : opacity,
       }}
     >
-      {hasError && (
+      {hasError && !stackPosts && (
         <div
           className="absolute -top-[6px] -left-[6px] z-20 w-[18px] h-[18px] rounded-full bg-red-500 flex items-center justify-center text-white text-[11px] font-bold cursor-pointer"
           data-tooltip-id="tooltip"
@@ -1391,11 +1471,10 @@ const CalendarItem: FC<{
         className={clsx(
           'gap-[5px] w-full flex h-full flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor',
           'relative',
-          hideChannelAvatar && 'pe-[22px]',
           isBeforeNow && '!grayscale'
         )}
       >
-        {!hideChannelAvatar && <ChannelAvatar post={post} />}
+        <ChannelAvatar post={post} />
         <div className="w-full flex-1 flex flex-col min-h-[40px]">
           <div className="text-start">
             {isDraft ? t('draft', 'Draft') + ': ' : ''}
