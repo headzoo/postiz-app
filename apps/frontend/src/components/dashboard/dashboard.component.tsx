@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import {
@@ -73,12 +73,6 @@ export const Dashboard = () => {
     isLoading: analyticsLoading,
   } = useDashboardAnalytics(date);
 
-  const channelsById = useMemo(
-    () => new Map(channels?.map((channel) => [channel.id, channel])),
-    [channels]
-  );
-
-  const successfulChannels = channels?.filter((channel) => channel.state === 'ok') || [];
   const allUnsupported =
     !!channels?.length && channels.every((channel) => channel.state === 'unsupported');
   const changeItemGroup = useCallback(

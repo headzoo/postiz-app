@@ -107,6 +107,7 @@ type CellEntry =
 
 /** Visible height of each tucked channel card above the front card. */
 const STACK_PEEK_PX = 32;
+const STACK_SHADOW = 'shadow-[0_2px_6px_rgba(0,0,0,0.35)]';
 
 function pickPrimaryPost(posts: CalendarItemPost[]): CalendarItemPost {
   return [...posts].sort((a, b) => {
@@ -1191,7 +1192,8 @@ const StackPeekCard: FC<{
     <div
       onClick={onClick}
       className={clsx(
-        'w-full h-full rounded-[10px] flex items-center justify-between gap-[8px] px-[8px] cursor-pointer shadow-[0_1px_0_rgba(0,0,0,0.18)]',
+        'w-full h-full rounded-[10px] flex items-center gap-[6px] px-[8px] cursor-pointer',
+        STACK_SHADOW,
         !headerColor && 'text-white bg-btnPrimary'
       )}
       style={{
@@ -1199,11 +1201,9 @@ const StackPeekCard: FC<{
         color: headerForeground,
       }}
     >
+      <ChannelAvatar post={post} size={18} />
       <div className="min-w-0 flex-1 text-[11px] font-[600] truncate text-start">
         {post.integration?.name || post.integration?.providerIdentifier}
-      </div>
-      <div className="shrink-0 rounded-[6px] overflow-hidden border border-white/25 bg-white/15">
-        <ChannelAvatar post={post} size={18} />
       </div>
     </div>
   );
@@ -1301,6 +1301,7 @@ const StackedCalendarItem: FC<{
                 post={post}
                 stackPosts={posts}
                 disableDrag
+                stackShadow
               />
             ) : (
               <StackPeekCard post={post} onClick={editPost} />
@@ -1325,6 +1326,7 @@ const CalendarItem: FC<{
   display: 'day' | 'week' | 'month';
   showTime?: boolean;
   disableDrag?: boolean;
+  stackShadow?: boolean;
   stackPosts?: CalendarItemPost[];
   post: CalendarItemPost;
 }> = memo((props) => {
@@ -1341,11 +1343,11 @@ const CalendarItem: FC<{
     showTime,
     missingRelease,
     disableDrag,
+    stackShadow,
     stackPosts,
   } = props;
   const stackedPosts = stackPosts?.length ? stackPosts : [post];
   const hasError = stackedPosts.some((item) => item.state === 'ERROR');
-  const isDraft = stackedPosts.some((item) => item.state === 'DRAFT');
   const errorMessage = stackedPosts
     .filter((item) => item.state === 'ERROR' && item.error)
     .map((item) => item.error)
@@ -1363,6 +1365,9 @@ const CalendarItem: FC<{
   const headerForeground = headerColor
     ? getReadableForegroundColor(headerColor)
     : undefined;
+  const showStatistics =
+    !(post.integration.providerIdentifier === 'x' && disableXAnalytics) &&
+    !!post.releaseId;
   const preview = useCallback(() => {
     window.open(`/p/` + post.id + '?share=true', '_blank');
   }, [post]);
@@ -1391,6 +1396,7 @@ const CalendarItem: FC<{
       className={clsx(
         'w-full flex h-full flex-1 flex-col group',
         'relative',
+        stackShadow && STACK_SHADOW,
         hasError && !stackPosts && 'rounded-[10px] ring-2 ring-red-500'
       )}
       style={{
@@ -1418,7 +1424,7 @@ const CalendarItem: FC<{
       )}
       <div
         className={clsx(
-          'text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center justify-center gap-[10px] px-[5px]',
+          'text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center gap-[6px] px-[8px]',
           !headerColor && 'text-white bg-btnPrimary'
         )}
         style={{
@@ -1426,105 +1432,64 @@ const CalendarItem: FC<{
           color: headerForeground,
         }}
       >
-        <div
-          className={clsx(
-            !headerColor && post?.tags?.[0]?.tag?.color
-              ? 'mix-blend-difference'
-              : '',
-            'group-hover:hidden cursor-pointer'
-          )}
-        >
-          {post.tags.map((p) => p.tag.name).join(', ')}
-        </div>
-        {copyDebugJson && (
-          <div
-            className={clsx(
-              'hidden group-hover:block hover:underline cursor-pointer',
-              !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
-            )}
-            onClick={copyDebugJson}
-          >
-            <CopyDebug />
-          </div>
-        )}
-        <div
-          className={clsx(
-            'hidden group-hover:block hover:underline cursor-pointer',
-            !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
-          )}
-          onClick={duplicatePost}
-        >
-          <Duplicate />
-        </div>
-        <div
-          className={clsx(
-            'hidden group-hover:block hover:underline cursor-pointer',
-            !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
-          )}
-          onClick={preview}
-        >
-          <Preview />
-        </div>{' '}
-        {((post.integration.providerIdentifier === 'x' && disableXAnalytics) || !post.releaseId) ? (
-          <></>
-        ) : post.releaseId === 'missing' && missingRelease ? (
-          <div
-            className={clsx(
-              'hidden group-hover:block hover:underline cursor-pointer',
-              !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
-            )}
-            onClick={missingRelease}
-          >
-            <Statistics />
-          </div>
-        ) : post.releaseId !== 'missing' ? (
-          <div
-            className={clsx(
-              'hidden group-hover:block hover:underline cursor-pointer',
-              !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
-            )}
-            onClick={statistics}
-          >
-            <Statistics />
-          </div>
-        ) : (
-          <></>
-        )}{' '}
-        <div
-          className={clsx(
-            'hidden group-hover:block hover:underline cursor-pointer',
-            !headerColor && post?.tags?.[0]?.tag?.color && 'mix-blend-difference'
-          )}
-          onClick={deletePost}
-        >
-          <DeletePost />
+        <ChannelAvatar post={post} size={18} />
+        <div className="min-w-0 flex-1 font-[600] truncate text-start">
+          {post.integration?.name || post.integration?.providerIdentifier}
         </div>
       </div>
       <div
         onClick={editPost}
         className={clsx(
-          'gap-[5px] w-full flex h-full flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor',
+          'w-full flex flex-col gap-[4px] flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor',
           'relative',
           isBeforeNow && '!grayscale'
         )}
       >
-        <ChannelAvatar post={post} />
-        <div className="w-full flex-1 flex flex-col min-h-[40px]">
-          <div className="text-start">
-            {isDraft ? t('draft', 'Draft') + ': ' : ''}
+        <div className="flex items-center gap-[6px] min-w-0">
+          <div className="flex-1 min-w-0 text-ellipsis break-words line-clamp-1 text-start">
+            {stripHtmlValidation('none', post.content, false, true, false) ||
+              t('no_content', 'no content')}
           </div>
-          <div className="w-full relative">
-            <div className="absolute top-0 start-0 w-full text-ellipsis break-words line-clamp-1 text-start">
-              {stripHtmlValidation('none', post.content, false, true, false) ||
-                t('no_content', 'no content')}
+          {showTime && (
+            <div className="text-textColor/50 text-[12px] whitespace-nowrap shrink-0">
+              {newDayjs(post.publishDate)
+                .local()
+                .format(isUSCitizen() ? 'hh:mm A' : 'HH:mm')}
             </div>
+          )}
+        </div>
+        <div
+          className="hidden group-hover:flex items-center gap-[8px]"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {copyDebugJson && (
+            <div className="hover:underline cursor-pointer" onClick={copyDebugJson}>
+              <CopyDebug />
+            </div>
+          )}
+          <div className="hover:underline cursor-pointer" onClick={duplicatePost}>
+            <Duplicate />
+          </div>
+          <div className="hover:underline cursor-pointer" onClick={preview}>
+            <Preview />
+          </div>
+          {showStatistics &&
+            (post.releaseId === 'missing' && missingRelease ? (
+              <div
+                className="hover:underline cursor-pointer"
+                onClick={missingRelease}
+              >
+                <Statistics />
+              </div>
+            ) : post.releaseId !== 'missing' ? (
+              <div className="hover:underline cursor-pointer" onClick={statistics}>
+                <Statistics />
+              </div>
+            ) : null)}
+          <div className="hover:underline cursor-pointer" onClick={deletePost}>
+            <DeletePost />
           </div>
         </div>
-        {showTime && (
-          <div className="text-textColor/50 text-[12px] whitespace-nowrap flex items-center">
-            {newDayjs(post.publishDate).local().format(isUSCitizen() ? 'hh:mm A' : 'HH:mm')}
-          </div>
-        )}
       </div>
     </div>
   );
