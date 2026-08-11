@@ -41,6 +41,14 @@ export class ContextDocumentsController {
     return this._contextDocumentService.uploadDocument(org.id, file);
   }
 
+  @Get('/:id')
+  getDocument(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ) {
+    return this._contextDocumentService.getDocumentById(org.id, id);
+  }
+
   @Delete('/:id')
   deleteDocument(
     @GetOrgFromRequest() org: Organization,

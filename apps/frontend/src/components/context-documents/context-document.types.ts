@@ -12,6 +12,16 @@ export type ContextDocumentMetadata = {
   warning?: string;
 };
 
+export type ContextDocumentContent = {
+  id: string;
+  name: string;
+  content: string;
+  fileSize: number;
+  updatedAt: string;
+  isLarge: boolean;
+  warning?: string;
+};
+
 export type ContextDocumentUploadResponse = ContextDocumentMetadata;
 
 const ALLOWED_EXTENSIONS = ['.markdown', '.md'] as const;

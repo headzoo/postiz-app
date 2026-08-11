@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ContextDocumentRepository } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.repository';
 import {
+  ContextDocumentContentDto,
   ContextDocumentMetadataDto,
   ContextDocumentUploadResponseDto,
 } from '@gitroom/nestjs-libraries/dtos/context-documents/context-document.dto';
@@ -45,7 +46,10 @@ export class ContextDocumentService {
     return this.toMetadata(document);
   }
 
-  async getDocumentById(organizationId: string, id: string) {
+  async getDocumentById(
+    organizationId: string,
+    id: string
+  ): Promise<ContextDocumentContentDto> {
     const document = await this._contextDocumentRepository.findById(
       organizationId,
       id
@@ -137,7 +141,9 @@ export class ContextDocumentService {
     };
   }
 
-  private toContentResponse(document: ContextDocument) {
+  private toContentResponse(
+    document: ContextDocument
+  ): ContextDocumentContentDto {
     const warning = getContextDocumentLargeWarning(document.fileSize);
 
     return {

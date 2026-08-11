@@ -9,4 +9,14 @@ export type ContextDocumentMetadataDto = {
   warning?: string;
 };
 
+export type ContextDocumentContentDto = {
+  id: string;
+  name: string;
+  content: string;
+  fileSize: number;
+  updatedAt: Date;
+  isLarge: boolean;
+  warning?: string;
+};
+
 export type ContextDocumentUploadResponseDto = ContextDocumentMetadataDto;

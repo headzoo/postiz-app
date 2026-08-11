@@ -8,12 +8,19 @@ import {
   useState,
 } from 'react';
 import clsx from 'clsx';
-import dayjs from 'dayjs';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { useClickOutside } from '@mantine/hooks';
 import { Button } from '@gitroom/react/form/button';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
-import { useDecisionModal } from '@gitroom/frontend/components/layout/new-modal';
+import Loading, {
+  LoadingComponent,
+} from '@gitroom/frontend/components/layout/loading';
+import {
+  useDecisionModal,
+  useModals,
+} from '@gitroom/frontend/components/layout/new-modal';
 import {
   CONTEXT_DOCUMENT_LARGE_WARNING_BYTES,
   CONTEXT_DOCUMENT_MAX_BYTES,
@@ -23,8 +30,225 @@ import {
   normalizeContextDocumentName,
 } from '@gitroom/frontend/components/context-documents/context-document.types';
 import { useContextDocumentList } from '@gitroom/frontend/components/context-documents/use.context-document.list';
+import { useContextDocumentContent } from '@gitroom/frontend/components/context-documents/use.context-document.content';
 import { useContextDocumentUpload } from '@gitroom/frontend/components/context-documents/use.context-document.upload';
 import { useContextDocumentDelete } from '@gitroom/frontend/components/context-documents/use.context-document.delete';
+
+const ContextDocumentMarkdown: FC<{
+  content: string;
+  compact?: boolean;
+}> = ({ content, compact }) => {
+  return (
+    <div
+      className={clsx(
+        compact
+          ? 'text-[5pt] leading-[1.25] text-textColor [&_*]:!text-[5pt] [&_*]:!leading-[1.25] [&_*]:!my-[1px] [&_ul]:!ps-[8px] [&_ol]:!ps-[8px] [&_pre]:overflow-hidden [&_img]:max-w-full'
+          : clsx(
+              'whitespace-normal text-[14px] leading-[1.6] text-textColor',
+              '[&_h1]:text-[24px] [&_h1]:font-[600] [&_h1]:mb-[12px] [&_h1]:mt-[8px]',
+              '[&_h2]:text-[20px] [&_h2]:font-[600] [&_h2]:mb-[10px] [&_h2]:mt-[16px]',
+              '[&_h3]:text-[16px] [&_h3]:font-[600] [&_h3]:mb-[8px] [&_h3]:mt-[14px]',
+              '[&_p]:mb-[10px]',
+              '[&_ul]:list-disc [&_ul]:ps-[20px] [&_ul]:mb-[10px]',
+              '[&_ol]:list-decimal [&_ol]:ps-[20px] [&_ol]:mb-[10px]',
+              '[&_li]:mb-[4px]',
+              '[&_blockquote]:border-s-[3px] [&_blockquote]:border-newBorder [&_blockquote]:ps-[12px] [&_blockquote]:opacity-80 [&_blockquote]:mb-[10px]',
+              '[&_pre]:bg-newBgColor [&_pre]:p-[12px] [&_pre]:rounded-[8px] [&_pre]:overflow-x-auto [&_pre]:mb-[10px] [&_pre]:text-[13px]',
+              '[&_code]:font-mono [&_code]:text-[13px]',
+              '[&_a]:underline',
+              '[&_hr]:border-newBorder [&_hr]:my-[16px]',
+              '[&_table]:w-full [&_table]:mb-[12px] [&_th]:border [&_td]:border [&_th]:border-newBorder [&_td]:border-newBorder [&_th]:p-[6px] [&_td]:p-[6px] [&_th]:text-start',
+              '[&_img]:max-w-full [&_img]:rounded-[8px]'
+            )
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={
+          compact
+            ? undefined
+            : {
+                a: ({ href, children }) => (
+                  <a href={href} target="_blank" rel="noreferrer">
+                    {children}
+                  </a>
+                ),
+              }
+        }
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+};
+
+const ContextDocumentReader: FC<{ documentId: string }> = ({ documentId }) => {
+  const t = useT();
+  const { data, error, isLoading } = useContextDocumentContent(documentId);
+
+  if (isLoading && !data) {
+    return (
+      <div className="flex items-center justify-center py-[40px]">
+        <Loading width={40} height={40} />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="text-[14px] text-red-500">
+        {t(
+          'context_document_read_error',
+          'Failed to load this document. Please try again.'
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[70vh] overflow-auto pr-[4px]">
+      <ContextDocumentMarkdown content={data.content} />
+    </div>
+  );
+};
+
+const ContextDocumentMenu: FC<{
+  disabled?: boolean;
+  onReplace: () => void;
+  onDelete: () => void;
+}> = ({ disabled, onReplace, onDelete }) => {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside<HTMLDivElement>(() => setOpen(false));
+  const run = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label={t('context_document_actions', 'Document actions')}
+        onClick={() => setOpen((current) => !current)}
+        className="flex items-center justify-center w-[28px] h-[28px] rounded-[6px] text-menuDots hover:text-menuDotsHover hover:bg-newBgColor disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+        >
+          <path
+            d="M13.125 12C13.125 12.2225 13.059 12.44 12.9354 12.625C12.8118 12.81 12.6361 12.9542 12.4305 13.0394C12.225 13.1245 11.9988 13.1468 11.7805 13.1034C11.5623 13.06 11.3618 12.9528 11.2045 12.7955C11.0472 12.6382 10.94 12.4377 10.8966 12.2195C10.8532 12.0012 10.8755 11.775 10.9606 11.5695C11.0458 11.3639 11.19 11.1882 11.375 11.0646C11.56 10.941 11.7775 10.875 12 10.875C12.2984 10.875 12.5845 10.9935 12.7955 11.2045C13.0065 11.4155 13.125 11.7016 13.125 12ZM12 6.75C12.2225 6.75 12.44 6.68402 12.625 6.5604C12.81 6.43679 12.9542 6.26109 13.0394 6.05552C13.1245 5.84995 13.1468 5.62375 13.1034 5.40552C13.06 5.1873 12.9528 4.98684 12.7955 4.82951C12.6382 4.67217 12.4377 4.56503 12.2195 4.52162C12.0012 4.47821 11.775 4.50049 11.5695 4.58564C11.3639 4.67078 11.1882 4.81498 11.0646 4.99998C10.941 5.18499 10.875 5.4025 10.875 5.625C10.875 5.92337 10.9935 6.20952 11.2045 6.4205C11.4155 6.63147 11.7016 6.75 12 6.75ZM12 17.25C11.7775 17.25 11.56 17.316 11.375 17.4396C11.19 17.5632 11.0458 17.7389 10.9606 17.9445C10.8755 18.15 10.8532 18.3762 10.8966 18.5945C10.94 18.8127 11.0472 19.0132 11.2045 19.1705C11.3618 19.3278 11.5623 19.435 11.7805 19.4784C11.9988 19.5218 12.225 19.4995 12.4305 19.4144C12.6361 19.3292 12.8118 19.185 12.9354 19C13.059 18.815 13.125 18.5975 13.125 18.375C13.125 18.0766 13.0065 17.7905 12.7955 17.5795C12.5845 17.3685 12.2984 17.25 12 17.25Z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+      {open && (
+        <div className="z-[300] absolute end-0 bottom-full mb-[6px] min-w-[140px] bg-newBgColorInner p-[8px] menu-shadow flex flex-col rounded-[8px] border border-newBorder">
+          <button
+            type="button"
+            onClick={run(onReplace)}
+            className="px-[10px] py-[8px] text-[13px] rounded-[6px] text-start hover:bg-newBgColor"
+          >
+            {t('context_document_replace', 'Replace')}
+          </button>
+          <button
+            type="button"
+            onClick={run(onDelete)}
+            className="px-[10px] py-[8px] text-[13px] rounded-[6px] text-start hover:bg-newBgColor"
+          >
+            {t('delete', 'Delete')}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ContextDocumentCard: FC<{
+  document: ContextDocumentMetadata;
+  pending: boolean;
+  uploading: boolean;
+  onReplace: () => void;
+  onDelete: () => void;
+}> = ({ document, pending, uploading, onReplace, onDelete }) => {
+  const t = useT();
+  const modal = useModals();
+  const { data, error, isLoading } = useContextDocumentContent(document.id);
+
+  const openReader = useCallback(() => {
+    modal.openModal({
+      title: document.name,
+      size: '840px',
+      maxSize: '90vw',
+      children: <ContextDocumentReader documentId={document.id} />,
+    });
+  }, [document.id, document.name, modal]);
+
+  return (
+    <div
+      className={clsx(
+        'h-full rounded-[8px] border border-newBorder bg-newBgColorInner flex flex-col',
+        pending && 'opacity-70 pointer-events-none'
+      )}
+    >
+      <div className="relative flex-1 overflow-hidden rounded-t-[8px]">
+        <div className="p-[12px] bg-newBgColor min-h-[180px] h-[180px] overflow-hidden select-none">
+          {isLoading && !data ? (
+            <div className="h-full flex items-center justify-center">
+              <Loading width={28} height={28} />
+            </div>
+          ) : error || !data ? (
+            <div className="h-full flex items-center justify-center text-[12px] opacity-50">
+              {t(
+                'context_document_preview_unavailable',
+                'Preview unavailable'
+              )}
+            </div>
+          ) : (
+            <ContextDocumentMarkdown content={data.content} compact />
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={openReader}
+          aria-label={t('context_document_open', 'Open document')}
+          className="absolute inset-0 cursor-pointer"
+        />
+      </div>
+      <div className="relative z-[3] p-[12px] border-t border-newBorder flex flex-col gap-[8px] rounded-b-[8px]">
+        <div className="flex items-start justify-between gap-[8px]">
+          <div className="min-w-0 flex-1 flex items-center gap-[6px]">
+            <span className="font-[600] text-[13px] truncate min-w-0 flex-1">
+              {document.name}
+            </span>
+            {document.isLarge && (
+              <span className="shrink-0 text-[11px] px-[7px] py-[2px] rounded-full border border-amber-500/40 text-amber-500">
+                {t('context_document_large_badge', 'Large')}
+              </span>
+            )}
+          </div>
+          <ContextDocumentMenu
+            disabled={pending || uploading}
+            onReplace={onReplace}
+            onDelete={onDelete}
+          />
+        </div>
+        <div className="text-[12px] opacity-70">
+          {t('size', 'Size')}: {formatContextDocumentSize(document.fileSize)} (
+          {document.fileSize.toLocaleString()} bytes)
+        </div>
+        {document.warning && (
+          <div className="text-[12px] text-amber-500">{document.warning}</div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export const ContextDocumentLibrary: FC = () => {
   const t = useT();
@@ -251,54 +475,16 @@ export const ContextDocumentLibrary: FC = () => {
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col gap-[12px]">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[12px]">
           {data.map((document) => (
-            <div
+            <ContextDocumentCard
               key={document.id}
-              className={clsx(
-                'rounded-[12px] border border-newBorder bg-newBgColor overflow-hidden',
-                pendingId === document.id && 'opacity-70 pointer-events-none'
-              )}
-            >
-              <div className="px-[20px] py-[16px] flex flex-col gap-[12px] lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-col gap-[8px] min-w-0">
-                  <div className="flex items-center gap-[10px] flex-wrap">
-                    <div className="text-[18px] font-[600] truncate">
-                      {document.name}
-                    </div>
-                    {document.isLarge && (
-                      <span className="text-[12px] px-[8px] py-[2px] rounded-full border border-amber-500/40 text-amber-500">
-                        {t('context_document_large_badge', 'Large')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[13px] opacity-70 flex flex-wrap gap-x-[12px] gap-y-[4px]">
-                    <span>
-                      {t('size', 'Size')}:{' '}
-                      {formatContextDocumentSize(document.fileSize)} (
-                      {document.fileSize.toLocaleString()} bytes)
-                    </span>
-                    <span>
-                      {t('updated', 'Updated')}:{' '}
-                      {dayjs(document.updatedAt).format('MMM D, YYYY · h:mm A')}
-                    </span>
-                  </div>
-                  {document.warning && (
-                    <div className="text-[13px] text-amber-500 max-w-[760px]">
-                      {document.warning}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-[10px] flex-wrap">
-                  <Button onClick={handleUploadClick} loading={uploading}>
-                    {t('context_document_replace', 'Replace')}
-                  </Button>
-                  <Button secondary onClick={confirmDelete(document)}>
-                    {t('delete', 'Delete')}
-                  </Button>
-                </div>
-              </div>
-            </div>
+              document={document}
+              pending={pendingId === document.id}
+              uploading={uploading}
+              onReplace={handleUploadClick}
+              onDelete={confirmDelete(document)}
+            />
           ))}
         </div>
       )}
