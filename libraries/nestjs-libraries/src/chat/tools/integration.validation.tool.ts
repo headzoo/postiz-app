@@ -72,7 +72,7 @@ export class IntegrationValidationTool implements AgentToolInterface {
                     })
                   )
                   .describe(
-                    'This will be passed to schedulePostTool [output:settings]'
+                    'This will be passed to schedulePostTool or enqueuePipelinePost [output:settings]'
                   ),
               })
             )

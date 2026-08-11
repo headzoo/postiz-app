@@ -13,7 +13,7 @@ export class PipelinesListTool implements AgentToolInterface {
   run() {
     return createTool({
       id: 'listPipelines',
-      description: `This tool lists the organization's pipelines (content queues with weekly schedules). Use a pipeline id with the listPostsByPipeline tool to inspect queued posts.`,
+      description: `This tool lists the organization's pipelines (content queues with weekly schedules). Use a pipeline id with the listPostsByPipeline tool to inspect queued posts, or with the enqueuePipelinePost tool to compose and enqueue new content for every channel on that pipeline.`,
       inputSchema: z.object({}),
       mcp: {
         annotations: {

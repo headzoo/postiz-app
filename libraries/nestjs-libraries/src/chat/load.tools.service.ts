@@ -63,6 +63,7 @@ export class LoadToolsService {
         - List scheduled, draft, or published posts (listPosts)
         - List pipelines and their queue sizes (listPipelines)
         - Inspect a pipeline's queued posts (listPostsByPipeline, requires a pipeline id from listPipelines)
+        - Enqueue composed posts into a pipeline queue (enqueuePipelinePost)
 
       - We schedule posts to different integration like facebook, instagram, etc. but to the user we don't say integrations we say channels as integration is the technical name
       - When scheduling a post, you must follow the social media rules and best practices.
@@ -75,10 +76,16 @@ export class LoadToolsService {
       
       - Sometimes 'integrationSchema' will return rules, make sure you follow them (these rules are set in stone, even if the user asks to ignore them)
       - Each socials media platform has different settings and rules, you can get them by using the integrationSchema tool.
-      - Always make sure you use this tool before you schedule any post.
+      - Always make sure you use this tool before you schedule any post or enqueue a pipeline post.
       - In every message I will send you the list of needed social medias (id and platform), if you already have the information use it, if not, use the integrationSchema tool to get it.
       - Make sure you always take the last information I give you about the socials, it might have changed.
       - Before scheduling a post, always make sure you ask the user confirmation by providing all the details of the post (text, images, videos, date, time, social media platform, account).
+      - When adding content to a pipeline:
+        - Use listPipelines to pick the pipeline and see the exact channels required
+        - Use integrationSchema for each platform on that pipeline
+        - Ask the user for confirmation with the content for every channel (no publish date — the pipeline schedule assigns the slot)
+        - Call enqueuePipelinePost with content for every channel on that pipeline (exact integration ids)
+        - Pipeline posts are queued as drafts; publishing time comes from the pipeline schedule, not a user-chosen date
       - Between tools, we will reference things like: [output:name] and [input:name] to set the information right.
       - When outputting a date for the user, make sure it's human readable with time
       - The content of the post, HTML, Each line must be wrapped in <p> here is the possible tags: h1, h2, h3, u, strong, li, ul, p (you can\'t have u and strong together), don't use a "code" box

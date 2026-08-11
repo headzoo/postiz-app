@@ -11,6 +11,7 @@ import { UploadFromUrlTool } from '@gitroom/nestjs-libraries/chat/tools/upload.f
 import { PostsListTool } from '@gitroom/nestjs-libraries/chat/tools/posts.list.tool';
 import { PipelinesListTool } from '@gitroom/nestjs-libraries/chat/tools/pipelines.list.tool';
 import { PipelinePostsListTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.posts.list.tool';
+import { PipelineEnqueuePostTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.enqueue.post.tool';
 
 export const toolList = [
   IntegrationListTool,
@@ -18,6 +19,7 @@ export const toolList = [
   PostsListTool,
   PipelinesListTool,
   PipelinePostsListTool,
+  PipelineEnqueuePostTool,
   IntegrationValidationTool,
   IntegrationTriggerTool,
   IntegrationSchedulePostTool,
