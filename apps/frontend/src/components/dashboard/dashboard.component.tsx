@@ -211,12 +211,6 @@ export const Dashboard = () => {
             </div>
           )}
 
-          {successfulChannels.length > 0 && successfulChannels.length < (channels?.length || 0) && (
-            <div className="rounded-[8px] bg-btnSimple px-[14px] py-[10px] text-[14px] text-newTableText">
-              Some channel analytics could not be displayed. See each channel for details.
-            </div>
-          )}
-
           {channels?.map((channel) => (
             <section key={channel.id} className="flex flex-col gap-[14px]">
               <div className="flex items-center gap-[10px]">

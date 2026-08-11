@@ -19,6 +19,7 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import clsx from 'clsx';
 import copy from 'copy-to-clipboard';
 import { capitalize } from 'lodash';
+import { PlusIcon } from '@gitroom/frontend/components/ui/icons';
 const resolver = classValidatorResolver(ApiKeyDto);
 
 export const useAddProvider = (update?: () => void, invite?: boolean) => {
@@ -40,69 +41,18 @@ export const AddProviderButton: FC<{
 }> = (props) => {
   const { update } = props;
   const add = useAddProvider(update);
-  const invite = useAddProvider(update, true);
   const t = useT();
 
   return (
-    <div className="flex group-[.sidebar]:block gap-[8px]">
-      <button
-        className="flex-1 group-[.sidebar]:w-[100%] group-[.sidebar]:flex-none text-btnText bg-btnSimple h-[44px] pt-[12px] pb-[14px] ps-[16px] pe-[20px] justify-center items-center flex rounded-[8px] gap-[8px]"
-        onClick={add}
-      >
-        <div>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 20 20"
-            fill="none"
-          >
-            <path
-              d="M1.66675 10.0417C3.35907 10.2299 4.93698 10.9884 6.14101 12.1924C7.34504 13.3964 8.10353 14.9743 8.29175 16.6667M1.66675 13.4167C2.46749 13.58 3.20253 13.9751 3.7804 14.553C4.35827 15.1309 4.75344 15.8659 4.91675 16.6667M1.66675 16.6667H1.67508M11.6667 17.5H14.3334C15.7335 17.5 16.4336 17.5 16.9684 17.2275C17.4388 16.9878 17.8212 16.6054 18.0609 16.135C18.3334 15.6002 18.3334 14.9001 18.3334 13.5V6.5C18.3334 5.09987 18.3334 4.3998 18.0609 3.86502C17.8212 3.39462 17.4388 3.01217 16.9684 2.77248C16.4336 2.5 15.7335 2.5 14.3334 2.5H5.66675C4.26662 2.5 3.56655 2.5 3.03177 2.77248C2.56137 3.01217 2.17892 3.39462 1.93923 3.86502C1.66675 4.3998 1.66675 5.09987 1.66675 6.5V6.66667"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-        <div className="text-start text-[14px] group-[.sidebar]:hidden">
-          {t('add_channel', 'Add Channel')}
-        </div>
-      </button>
-      <button
-        onClick={invite}
-        data-tooltip-id="tooltip"
-        data-tooltip-content={t(
-          'invite_link',
-          'Send Invite Link to a customer to add channel'
-        )}
-        className="group-[.sidebar]:hidden min-h-[44px] min-w-[44px] bg-btnSimple justify-center items-center flex rounded-[8px] cursor-pointer"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          viewBox="0 0 16 16"
-          fill="none"
-        >
-          <g clipPath="url(#clip0_2452_193804)">
-            <path
-              d="M6.6668 8.66599C6.9531 9.04875 7.31837 9.36545 7.73783 9.59462C8.1573 9.82379 8.62114 9.96007 9.0979 9.99422C9.57466 10.0284 10.0532 9.95957 10.501 9.79251C10.9489 9.62546 11.3555 9.36404 11.6935 9.02599L13.6935 7.02599C14.3007 6.39732 14.6366 5.55531 14.629 4.68132C14.6215 3.80733 14.2709 2.97129 13.6529 2.35326C13.0348 1.73524 12.1988 1.38467 11.3248 1.37708C10.4508 1.36948 9.60881 1.70547 8.98013 2.31266L7.83347 3.45266M9.33347 7.33266C9.04716 6.94991 8.68189 6.6332 8.26243 6.40403C7.84297 6.17486 7.37913 6.03858 6.90237 6.00444C6.4256 5.97029 5.94708 6.03908 5.49924 6.20614C5.0514 6.3732 4.64472 6.63461 4.3068 6.97266L2.3068 8.97266C1.69961 9.60133 1.36363 10.4433 1.37122 11.3173C1.37881 12.1913 1.72938 13.0274 2.3474 13.6454C2.96543 14.2634 3.80147 14.614 4.67546 14.6216C5.54945 14.6292 6.39146 14.2932 7.02013 13.686L8.16013 12.546"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            ></path>
-          </g>
-          <defs>
-            <clipPath id="clip0_2452_193804">
-              <rect width="16" height="16" fill="textColor"></rect>
-            </clipPath>
-          </defs>
-        </svg>
-      </button>
-    </div>
+    <button
+      className="w-full text-btnText bg-btnSimple h-[44px] pt-[12px] pb-[14px] ps-[16px] pe-[20px] justify-center items-center flex rounded-[8px] gap-[8px]"
+      onClick={add}
+    >
+      <PlusIcon size={20} />
+      <div className="text-start text-[14px] group-[.sidebar]:hidden">
+        {t('add_channel', 'Add Channel')}
+      </div>
+    </button>
   );
 };
 
@@ -200,8 +150,8 @@ export const CustomVariables: FC<{
         ...acc,
         ...(item.defaultValue
           ? {
-              [item.key]: item.defaultValue,
-            }
+            [item.key]: item.defaultValue,
+          }
           : {}),
       }),
       {}
@@ -211,8 +161,7 @@ export const CustomVariables: FC<{
     async (data: FieldValues) => {
       const { url } = await (
         await fetch(
-          `/integrations/social/${identifier}${
-            onboarding ? '?onboarding=true' : ''
+          `/integrations/social/${identifier}${onboarding ? '?onboarding=true' : ''
           }`
         )
       ).json();
@@ -413,20 +362,20 @@ export const AddProviderComponent: FC<{
   const modal = useModals();
   const getSocialLink = useCallback(
     (
-        invite: boolean,
-        identifier: string,
-        isExternal: boolean,
-        isWeb3: boolean,
-        isChromeExtension?: boolean,
-        customFields?: Array<{
-          key: string;
-          label: string;
-          validation: string;
-          defaultValue?: string;
-          type: 'text' | 'password';
-          hint?: string;
-        }>
-      ) =>
+      invite: boolean,
+      identifier: string,
+      isExternal: boolean,
+      isWeb3: boolean,
+      isChromeExtension?: boolean,
+      customFields?: Array<{
+        key: string;
+        label: string;
+        validation: string;
+        defaultValue?: string;
+        type: 'text' | 'password';
+        hint?: string;
+      }>
+    ) =>
       async () => {
         const onboardingParam = onboarding ? 'onboarding=true' : '';
         const openWeb3 = async () => {
@@ -435,8 +384,7 @@ export const AddProviderComponent: FC<{
           )!;
           const { url } = await (
             await fetch(
-              `/integrations/social/${identifier}${
-                onboarding ? '?onboarding=true' : ''
+              `/integrations/social/${identifier}${onboarding ? '?onboarding=true' : ''
               }`
             )
           ).json();
@@ -453,9 +401,8 @@ export const AddProviderComponent: FC<{
               >
                 <Web3Providers
                   onComplete={(code, newState) => {
-                    window.location.href = `/integrations/social/${identifier}?code=${code}&state=${newState}${
-                      onboarding ? '&onboarding=true' : ''
-                    }`;
+                    window.location.href = `/integrations/social/${identifier}?code=${code}&state=${newState}${onboarding ? '&onboarding=true' : ''
+                      }`;
                   }}
                   nonce={url}
                 />
@@ -597,18 +544,17 @@ export const AddProviderComponent: FC<{
             if (!cookieResponse.success) {
               toaster.show(
                 cookieResponse.error ||
-                  t(
-                    'extension_cookies_missing',
-                    'Could not get cookies. Please log in to the platform first.'
-                  ),
+                t(
+                  'extension_cookies_missing',
+                  'Could not get cookies. Please log in to the platform first.'
+                ),
                 'warning'
               );
               return;
             }
             const { url } = await (
               await fetch(
-                `/integrations/social/${identifier}${
-                  onboarding ? '?onboarding=true' : ''
+                `/integrations/social/${identifier}${onboarding ? '?onboarding=true' : ''
                 }`
               )
             ).json();
@@ -676,7 +622,7 @@ export const AddProviderComponent: FC<{
           className={clsx(
             isMobile && 'gap-[20px] flex flex-col',
             !isMobile &&
-              'grid grid-cols-5 gap-[10px] justify-items-center justify-center',
+            'grid grid-cols-5 gap-[10px] justify-items-center justify-center',
             isMobile ? {} : onboarding ? 'grid-cols-9' : 'grid-cols-5'
           )}
         >
@@ -706,9 +652,9 @@ export const AddProviderComponent: FC<{
                 )}
                 {...(!!item.toolTip
                   ? {
-                      'data-tooltip-id': 'tooltip',
-                      'data-tooltip-content': item.toolTip,
-                    }
+                    'data-tooltip-id': 'tooltip',
+                    'data-tooltip-content': item.toolTip,
+                  }
                   : {})}
                 className={clsx(
                   isMobile
@@ -725,7 +671,7 @@ export const AddProviderComponent: FC<{
                       className={clsx(
                         'w-[32px] h-[32px]',
                         item.identifier !== 'google_my_business' &&
-                          'rounded-full'
+                        'rounded-full'
                       )}
                       src={`/icons/platforms/${item.identifier}.png`}
                     />
