@@ -103,8 +103,8 @@ export const PlugPop: FC<{
           ...acc,
           [field.name]: field.validation
             ? string().matches(convertBackRegex(field.validation), {
-                message: 'Invalid value',
-              })
+              message: 'Invalid value',
+            })
             : null,
         }),
         {}
@@ -199,32 +199,48 @@ export const PlugItem: FC<{
     },
     [data?.id, disabled, onActivate, toaster]
   );
+  const t = useT();
+
   return (
     <div
       onClick={() => !disabled && onEdit(data)}
       key={plug.title}
       className={clsx(
-        'w-full min-h-[300px] rounded-[8px] bg-newTableHeader hover:bg-newTableBorder',
-        disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
+        'w-full rounded-[8px] border border-newBorder bg-newBgColorInner',
+        'flex flex-col gap-[10px] p-[12px] sm:flex-row sm:items-center sm:gap-[16px]',
+        disabled
+          ? 'opacity-60 cursor-not-allowed'
+          : 'cursor-pointer hover:bg-newTableHeader hover:border-newTableText transition-colors',
+        activated && 'border-newTableText/40'
       )}
     >
-      <div key={plug.title} className="p-[16px] h-full flex flex-col flex-1">
-        <div className="flex">
-          <div className="text-[20px] mb-[8px] flex-1 text-textColor">
-            {plug.title}
-          </div>
-          {!!data && (
-            <div onClick={(e) => e.stopPropagation()}>
-              <Slider
-                value={activated ? 'on' : 'off'}
-                onChange={changeActivated}
-                fill={true}
-              />
-            </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-[8px] flex-wrap">
+          <span className="text-[14px] font-[600] text-textColor">{plug.title}</span>
+          {activated && (
+            <span className="text-[10px] px-[6px] py-[1px] rounded-full border border-green-500/40 text-green-500">
+              {t('active', 'Active')}
+            </span>
           )}
         </div>
-        <div className="flex-1 text-textColor">{plug.description}</div>
-        <Button disabled={disabled}>{!data ? 'Set Plug' : 'Edit Plug'}</Button>
+        <p className="text-[12px] text-newTableText line-clamp-2 mt-[2px]">
+          {plug.description}
+        </p>
+      </div>
+      <div
+        className="flex items-center gap-[10px] shrink-0 self-end sm:self-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {!!data && (
+          <Slider
+            value={activated ? 'on' : 'off'}
+            onChange={changeActivated}
+            fill={true}
+          />
+        )}
+        <Button disabled={disabled} className="!py-[6px] !px-[12px] !text-[12px] whitespace-nowrap">
+          {!data ? t('set_plug', 'Set') : t('edit_plug', 'Edit')}
+        </Button>
       </div>
     </div>
   );
@@ -250,52 +266,52 @@ export const PlugGrid: FC<{
   onRevalidate,
   disabled,
 }) => {
-  const modals = useModals();
-  const plugDefinitions = Array.isArray(plugs) ? plugs : [];
-  const savedPlugRows = normalizeSavedPlugRows(savedPlugs);
+    const modals = useModals();
+    const plugDefinitions = Array.isArray(plugs) ? plugs : [];
+    const savedPlugRows = normalizeSavedPlugRows(savedPlugs);
 
-  const addEditPlug = useCallback(
-    (plugDefinition: PlugsInterface) => (saved?: SavedPlugRow) => {
-      modals.openModal({
-        withCloseButton: false,
-        onClose() {
-          onRevalidate?.();
-        },
-        size: '500px',
-        title: `Auto Plug: ${plugDefinition.title}`,
-        children: (
-          <PlugPop plug={plugDefinition} data={saved} onSave={onSave} />
-        ),
-      });
-    },
-    [modals, onRevalidate, onSave]
-  );
+    const addEditPlug = useCallback(
+      (plugDefinition: PlugsInterface) => (saved?: SavedPlugRow) => {
+        modals.openModal({
+          withCloseButton: false,
+          onClose() {
+            onRevalidate?.();
+          },
+          size: '500px',
+          title: `Auto Plug: ${plugDefinition.title}`,
+          children: (
+            <PlugPop plug={plugDefinition} data={saved} onSave={onSave} />
+          ),
+        });
+      },
+      [modals, onRevalidate, onSave]
+    );
 
-  if (isLoading) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-[24px]">
+          <LoadingComponent />
+        </div>
+      );
+    }
+
     return (
-      <div className="flex items-center justify-center py-[24px]">
-        <LoadingComponent />
+      <div className="flex flex-col gap-[8px]">
+        {plugDefinitions.map((plugDefinition) => (
+          <PlugItem
+            key={plugDefinition.title + '-' + plugDefinition.methodName}
+            onEdit={addEditPlug(plugDefinition)}
+            onActivate={onActivate}
+            plug={plugDefinition}
+            disabled={disabled}
+            data={savedPlugRows.find(
+              (row) => row.plugFunction === plugDefinition.methodName
+            )}
+          />
+        ))}
       </div>
     );
-  }
-
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[20px]">
-      {plugDefinitions.map((plugDefinition) => (
-        <PlugItem
-          key={plugDefinition.title + '-' + plugDefinition.methodName}
-          onEdit={addEditPlug(plugDefinition)}
-          onActivate={onActivate}
-          plug={plugDefinition}
-          disabled={disabled}
-          data={savedPlugRows.find(
-            (row) => row.plugFunction === plugDefinition.methodName
-          )}
-        />
-      ))}
-    </div>
-  );
-};
+  };
 
 export const Plug = () => {
   const plug = usePlugs();

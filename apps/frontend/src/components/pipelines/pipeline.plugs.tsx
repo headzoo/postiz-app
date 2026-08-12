@@ -149,19 +149,21 @@ export const PipelinePlugsPanel: FC<{
 
   return (
     <div className="rounded-[12px] border border-newBorder bg-newBgColor overflow-hidden">
-      <div className="border-b border-newBorder px-[20px] py-[14px]">
-        <div className="text-[16px] font-[600]">
-          {t('pipeline_plugs', 'Pipeline plugs')}
-        </div>
-        <div className="text-[13px] text-newTableText mt-[4px]">
-          {t(
-            'pipeline_plugs_description',
-            'Configure plugs for posts published through this Pipeline. These settings replace channel plugs for Pipeline posts.'
-          )}
+      <div className="flex flex-col gap-[10px] border-b border-newBorder px-[20px] py-[14px] sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-[16px] font-[600]">
+            {t('pipeline_plugs', 'Pipeline plugs')}
+          </div>
+          <div className="text-[12px] text-newTableText mt-[2px]">
+            {t(
+              'pipeline_plugs_description',
+              'Override channel plugs for posts published through this Pipeline.'
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="p-[16px] flex flex-col gap-[16px]">
+      <div className="p-[16px] flex flex-col gap-[12px]">
         <div className="flex flex-wrap gap-[8px]">
           {eligibleChannels.map((channel) => {
             const isSelected = channel.id === selectedIntegrationId;

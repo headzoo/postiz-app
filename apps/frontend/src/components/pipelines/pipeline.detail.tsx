@@ -262,6 +262,8 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
         onEdit={openEdit}
       />
 
+      <PipelinePlugsPanel pipelineId={pipelineId} channels={data.channels} />
+
       <div className="rounded-[12px] border border-newBorder bg-newBgColor overflow-hidden">
         <div className="flex flex-col gap-[10px] border-b border-newBorder px-[20px] py-[14px] sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -307,8 +309,6 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
           />
         </div>
       </div>
-
-      <PipelinePlugsPanel pipelineId={pipelineId} channels={data.channels} />
 
       <PipelineQueue pipeline={data} pipelines={pipelines || []} mutate={mutate} />
     </div>
