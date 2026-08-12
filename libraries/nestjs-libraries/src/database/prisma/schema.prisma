@@ -53,6 +53,8 @@ model Organization {
   channelInteractionRollupStates    ChannelInteractionRollupState[]
   channelInteractionSubscriptions   ChannelInteractionSubscription[]
   channelFollowerSyncStates         ChannelFollowerSyncState[]
+  channelAudienceNotes              ChannelAudienceNote[]
+  channelRelationshipGradeSnapshots ChannelRelationshipGradeSnapshot[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -124,6 +126,7 @@ model User {
   sendStreakEmails       Boolean                 @default(true)
   oauthAuthorizations    OAuthAuthorization[]
   integrationNoticeReads IntegrationNoticeRead[]
+  channelAudienceNotes   ChannelAudienceNote[]
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -363,6 +366,8 @@ model Integration {
   channelInteractionRollupStates    ChannelInteractionRollupState[]
   channelInteractionSubscriptions   ChannelInteractionSubscription[]
   channelFollowerSyncState          ChannelFollowerSyncState?
+  channelAudienceNotes              ChannelAudienceNote[]
+  channelRelationshipGradeSnapshots ChannelRelationshipGradeSnapshot[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -1193,6 +1198,8 @@ model ChannelAudienceMember {
   organization           Organization              @relation(fields: [organizationId], references: [id])
   integration            Integration               @relation(fields: [integrationId], references: [id])
   interactionSummaries   ChannelInteractionWindowSummary[] @relation("AudienceMemberInteractionSummaries")
+  notes                  ChannelAudienceNote[]             @relation("AudienceMemberNotes")
+  gradeSnapshots         ChannelRelationshipGradeSnapshot[] @relation("AudienceMemberGradeSnapshots")
 
   @@unique([integrationId, externalId])
   @@index([organizationId, integrationId, membershipState])
@@ -1371,4 +1378,47 @@ enum ChannelFollowerSyncStatus {
   IN_PROGRESS
   COMPLETE
   FAILED
+}
+
+model ChannelAudienceNote {
+  id                     String                @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  counterpartyExternalId String
+  authorUserId           String
+  content                String
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  organization           Organization          @relation(fields: [organizationId], references: [id])
+  integration            Integration           @relation(fields: [integrationId], references: [id])
+  author                 User                  @relation(fields: [authorUserId], references: [id])
+  audienceMember         ChannelAudienceMember @relation("AudienceMemberNotes", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
+
+  @@index([organizationId, integrationId, counterpartyExternalId, createdAt])
+  @@index([integrationId, counterpartyExternalId, createdAt])
+  @@index([authorUserId])
+  @@index([organizationId])
+}
+
+model ChannelRelationshipGradeSnapshot {
+  id                     String                @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  counterpartyExternalId String
+  windowStartedAt        DateTime
+  snapshotAt             DateTime
+  effortScore            Int
+  reciprocationScore     Int
+  reciprocity            Float?
+  grade                  Float?
+  formulaVersion         Int                   @default(1)
+  createdAt              DateTime              @default(now())
+  organization           Organization          @relation(fields: [organizationId], references: [id])
+  integration            Integration           @relation(fields: [integrationId], references: [id])
+  audienceMember         ChannelAudienceMember @relation("AudienceMemberGradeSnapshots", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
+
+  @@unique([integrationId, counterpartyExternalId, snapshotAt])
+  @@index([integrationId, counterpartyExternalId, snapshotAt])
+  @@index([integrationId, snapshotAt])
+  @@index([organizationId])
 }
