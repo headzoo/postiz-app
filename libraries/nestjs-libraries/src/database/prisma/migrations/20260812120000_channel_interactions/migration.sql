@@ -159,13 +159,13 @@ CREATE TABLE "ProviderWebhookEndpoint" (
 CREATE UNIQUE INDEX "ChannelAudienceMember_integrationId_externalId_key" ON "ChannelAudienceMember"("integrationId", "externalId");
 
 -- CreateIndex
-CREATE INDEX "ChannelAudienceMember_organizationId_integrationId_membershipState_idx" ON "ChannelAudienceMember"("organizationId", "integrationId", "membershipState");
+CREATE INDEX "ChannelAudienceMember_organizationId_integrationId_membersh_idx" ON "ChannelAudienceMember"("organizationId", "integrationId", "membershipState");
 
 -- CreateIndex
 CREATE INDEX "ChannelAudienceMember_integrationId_followerSyncGeneration_idx" ON "ChannelAudienceMember"("integrationId", "followerSyncGeneration");
 
 -- CreateIndex
-CREATE INDEX "ChannelAudienceMember_integrationId_membershipEvidenceGeneration_idx" ON "ChannelAudienceMember"("integrationId", "membershipEvidenceGeneration");
+CREATE INDEX "ChannelAudienceMember_integrationId_membershipEvidenceGener_idx" ON "ChannelAudienceMember"("integrationId", "membershipEvidenceGeneration");
 
 -- CreateIndex
 CREATE INDEX "ChannelAudienceMember_integrationId_idx" ON "ChannelAudienceMember"("integrationId");
@@ -177,16 +177,16 @@ CREATE INDEX "ChannelAudienceMember_organizationId_idx" ON "ChannelAudienceMembe
 CREATE UNIQUE INDEX "ChannelInteractionEvent_integrationId_providerEventKey_key" ON "ChannelInteractionEvent"("integrationId", "providerEventKey");
 
 -- CreateIndex
-CREATE INDEX "ChannelInteractionEvent_integrationId_counterpartyExternalId_eventAt_idx" ON "ChannelInteractionEvent"("integrationId", "counterpartyExternalId", "eventAt");
+CREATE INDEX "ChannelInteractionEvent_integrationId_counterpartyExternalI_idx" ON "ChannelInteractionEvent"("integrationId", "counterpartyExternalId", "eventAt");
 
 -- CreateIndex
-CREATE INDEX "ChannelInteractionEvent_integrationId_kind_direction_eventAt_idx" ON "ChannelInteractionEvent"("integrationId", "kind", "direction", "eventAt");
+CREATE INDEX "ChannelInteractionEvent_integrationId_kind_direction_eventA_idx" ON "ChannelInteractionEvent"("integrationId", "kind", "direction", "eventAt");
 
 -- CreateIndex
 CREATE INDEX "ChannelInteractionEvent_organizationId_idx" ON "ChannelInteractionEvent"("organizationId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ChannelInteractionDailyAggregate_integrationId_counterpartyExternalId_day_key" ON "ChannelInteractionDailyAggregate"("integrationId", "counterpartyExternalId", "day");
+CREATE UNIQUE INDEX "ChannelInteractionDailyAggregate_integrationId_counterparty_key" ON "ChannelInteractionDailyAggregate"("integrationId", "counterpartyExternalId", "day");
 
 -- CreateIndex
 CREATE INDEX "ChannelInteractionDailyAggregate_integrationId_day_idx" ON "ChannelInteractionDailyAggregate"("integrationId", "day");
@@ -195,10 +195,10 @@ CREATE INDEX "ChannelInteractionDailyAggregate_integrationId_day_idx" ON "Channe
 CREATE INDEX "ChannelInteractionDailyAggregate_organizationId_idx" ON "ChannelInteractionDailyAggregate"("organizationId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ChannelInteractionWindowSummary_integrationId_window_generation_counterpartyExternalId_key" ON "ChannelInteractionWindowSummary"("integrationId", "window", "generation", "counterpartyExternalId");
+CREATE UNIQUE INDEX "ChannelInteractionWindowSummary_integrationId_window_genera_key" ON "ChannelInteractionWindowSummary"("integrationId", "window", "generation", "counterpartyExternalId");
 
 -- CreateIndex
-CREATE INDEX "ChannelInteractionWindowSummary_integrationId_window_generation_interactionCount_interactionScore_lastInteractionAt_counterpartyExternalId_idx" ON "ChannelInteractionWindowSummary"("integrationId", "window", "generation", "interactionCount", "interactionScore", "lastInteractionAt", "counterpartyExternalId");
+CREATE INDEX "ChannelInteractionWindowSummary_integrationId_window_genera_idx" ON "ChannelInteractionWindowSummary"("integrationId", "window", "generation", "interactionCount", "interactionScore", "lastInteractionAt", "counterpartyExternalId");
 
 -- CreateIndex
 CREATE INDEX "ChannelInteractionWindowSummary_organizationId_idx" ON "ChannelInteractionWindowSummary"("organizationId");
@@ -216,10 +216,10 @@ CREATE UNIQUE INDEX "ChannelFollowerSyncState_integrationId_key" ON "ChannelFoll
 CREATE INDEX "ChannelFollowerSyncState_organizationId_idx" ON "ChannelFollowerSyncState"("organizationId");
 
 -- CreateIndex
-CREATE INDEX "ChannelFollowerSyncState_integrationId_pendingGeneration_status_idx" ON "ChannelFollowerSyncState"("integrationId", "pendingGeneration", "status");
+CREATE INDEX "ChannelFollowerSyncState_integrationId_pendingGeneration_st_idx" ON "ChannelFollowerSyncState"("integrationId", "pendingGeneration", "status");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "ChannelInteractionSubscription_integrationId_eventKey_direction_key" ON "ChannelInteractionSubscription"("integrationId", "eventKey", "direction");
+CREATE UNIQUE INDEX "ChannelInteractionSubscription_integrationId_eventKey_direc_key" ON "ChannelInteractionSubscription"("integrationId", "eventKey", "direction");
 
 -- CreateIndex
 CREATE INDEX "ChannelInteractionSubscription_integrationId_state_idx" ON "ChannelInteractionSubscription"("integrationId", "state");
@@ -258,7 +258,7 @@ ALTER TABLE "ChannelInteractionWindowSummary" ADD CONSTRAINT "ChannelInteraction
 ALTER TABLE "ChannelInteractionWindowSummary" ADD CONSTRAINT "ChannelInteractionWindowSummary_integrationId_fkey" FOREIGN KEY ("integrationId") REFERENCES "Integration"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ChannelInteractionWindowSummary" ADD CONSTRAINT "ChannelInteractionWindowSummary_integrationId_counterpartyExternalId_fkey" FOREIGN KEY ("integrationId", "counterpartyExternalId") REFERENCES "ChannelAudienceMember"("integrationId", "externalId") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "ChannelInteractionWindowSummary" ADD CONSTRAINT "ChannelInteractionWindowSummary_integrationId_counterparty_fkey" FOREIGN KEY ("integrationId", "counterpartyExternalId") REFERENCES "ChannelAudienceMember"("integrationId", "externalId") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ChannelInteractionRollupState" ADD CONSTRAINT "ChannelInteractionRollupState_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
