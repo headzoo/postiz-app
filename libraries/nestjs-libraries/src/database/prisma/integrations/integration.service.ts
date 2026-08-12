@@ -4,6 +4,7 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { IntegrationRepository } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.repository';
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
@@ -12,10 +13,14 @@ import {
   ChannelNoticeStatus,
   ChannelInteractionKindCoverage,
   ChannelInteractionTrackingFailureCategory,
+  FollowerMemberDetail,
+  FollowerMemberInteraction,
+  FollowerMemberNote,
   FollowerPageTracking,
   Follower,
   FollowerPage,
   FollowerQuery,
+  FollowerRelationshipSnapshot,
   FollowerSort,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
@@ -330,6 +335,310 @@ export class IntegrationService {
     }
   }
 
+  async getFollowerMemberDetails(
+    org: Organization,
+    integrationId: string,
+    externalId: string
+  ): Promise<FollowerMemberDetail> {
+    const provider = await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      const details = await this._channelInteractionService.getFollowerDetails(
+        org.id,
+        integrationId,
+        externalId
+      );
+      return this.mapFollowerMemberDetails(details, provider);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
+  async createFollowerMemberNote(
+    org: Organization,
+    user: User,
+    integrationId: string,
+    externalId: string,
+    content: string
+  ): Promise<FollowerMemberNote> {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      const note = await this._channelInteractionService.createFollowerNote(
+        org.id,
+        integrationId,
+        externalId,
+        user.id,
+        content
+      );
+      return this.mapFollowerMemberNote(note);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
+  async updateFollowerMemberNote(
+    org: Organization,
+    integrationId: string,
+    noteId: string,
+    content: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.updateFollowerNote(
+        org.id,
+        integrationId,
+        noteId,
+        content
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower note was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
+  async deleteFollowerMemberNote(
+    org: Organization,
+    integrationId: string,
+    noteId: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.deleteFollowerNote(
+        org.id,
+        integrationId,
+        noteId
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower note was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
+  private async getFollowerIntegrationProvider(
+    org: Organization,
+    integrationId: string
+  ): Promise<SocialProvider> {
+    const integration = await this._integrationRepository.getIntegrationById(
+      org.id,
+      integrationId
+    );
+
+    if (!integration) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (
+      integration.disabled ||
+      integration.deletedAt ||
+      integration.type !== 'social'
+    ) {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    let provider: SocialProvider;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!provider?.followers) {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    return provider;
+  }
+
+  private mapFollowerMemberDetails(
+    details: {
+      member: {
+        externalId: string;
+        name: string | null;
+        username: string | null;
+        picture: string | null;
+        profileUrl: string | null;
+        bio: string | null;
+        followersCount: number | null;
+        followingCount: number | null;
+        followedAt: Date | null;
+        accountCreatedAt: Date | null;
+      };
+      snapshots: Array<{
+        snapshotAt: Date;
+        windowStartedAt: Date;
+        effortScore: number;
+        reciprocationScore: number;
+        reciprocity: number | null;
+        grade: number | null;
+        formulaVersion: number;
+      }>;
+      notes: Array<{
+        id: string;
+        content: string;
+        createdAt: Date;
+        updatedAt: Date;
+        author: { id: string; name: string | null; lastName: string | null };
+      }>;
+      events: Array<{
+        id: string;
+        kind: string;
+        direction: string;
+        eventAt: Date;
+        relatedObjectId: string | null;
+      }>;
+      tracking: {
+        followerSync: {
+          activeGeneration: string | null;
+          status: ChannelFollowerSyncStatus;
+          completedAt: Date | null;
+        } | null;
+        subscriptions: {
+          state: ChannelInteractionTrackingState;
+          trackingStartedAt?: Date | null;
+          failureCategory?: string | null;
+          failureReason?: string | null;
+        }[];
+      };
+    },
+    provider: SocialProvider
+  ): FollowerMemberDetail {
+    const history = details.snapshots.map((snapshot) =>
+      this.mapFollowerRelationshipSnapshot(snapshot)
+    );
+    const coverage =
+      provider.channelInteractionWebhooks?.getInteractionCoverage() ?? [];
+    const tracking =
+      provider.channelInteractionWebhooks && coverage.length
+        ? this.getInteractionTrackingMetadata(
+          details.tracking.followerSync,
+          details.tracking.subscriptions,
+          coverage,
+          undefined,
+          { rankingAvailability: false }
+        )
+        : this.getUnsupportedTrackingMetadata(coverage);
+
+    return {
+      follower: this.mapAudienceMemberProfile(details.member),
+      notes: details.notes.map((note) => this.mapFollowerMemberNote(note)),
+      interactions: details.events.map((event) =>
+        this.mapFollowerMemberInteraction(event)
+      ),
+      relationship: {
+        windowDays: 30,
+        cadenceDays: 30,
+        formulaVersion: 1,
+        current: history.length ? history[history.length - 1] : null,
+        history,
+      },
+      tracking,
+    };
+  }
+
+  private mapAudienceMemberProfile(member: {
+    externalId: string;
+    name: string | null;
+    username: string | null;
+    picture: string | null;
+    profileUrl: string | null;
+    bio: string | null;
+    followersCount: number | null;
+    followingCount: number | null;
+    followedAt: Date | null;
+    accountCreatedAt: Date | null;
+  }): Follower {
+    return this.sanitizeFollower({
+      id: member.externalId,
+      name: member.name || member.username || member.externalId,
+      ...(member.username ? { username: member.username } : {}),
+      ...(member.picture ? { picture: member.picture } : {}),
+      ...(member.profileUrl ? { profileUrl: member.profileUrl } : {}),
+      ...(member.bio ? { bio: member.bio } : {}),
+      ...(member.followersCount != null
+        ? { followersCount: member.followersCount }
+        : {}),
+      ...(member.followingCount != null
+        ? { followingCount: member.followingCount }
+        : {}),
+      ...(member.followedAt
+        ? { followedAt: member.followedAt.toISOString() }
+        : {}),
+      ...(member.accountCreatedAt
+        ? { accountCreatedAt: member.accountCreatedAt.toISOString() }
+        : {}),
+    });
+  }
+
+  private mapFollowerMemberNote(note: {
+    id: string;
+    content: string;
+    createdAt: Date;
+    updatedAt: Date;
+    author: { id: string; name: string | null; lastName: string | null };
+  }): FollowerMemberNote {
+    const name = [note.author.name, note.author.lastName]
+      .filter((value): value is string => !!value)
+      .join(' ')
+      .trim();
+    return {
+      id: note.id,
+      content: note.content,
+      author: {
+        id: note.author.id,
+        name: name || 'Unknown',
+      },
+      createdAt: note.createdAt.toISOString(),
+      updatedAt: note.updatedAt.toISOString(),
+    };
+  }
+
+  private mapFollowerMemberInteraction(event: {
+    id: string;
+    kind: string;
+    direction: string;
+    eventAt: Date;
+    relatedObjectId: string | null;
+  }): FollowerMemberInteraction {
+    return {
+      id: event.id,
+      kind: event.kind.toLowerCase() as FollowerMemberInteraction['kind'],
+      direction: event.direction.toLowerCase() as FollowerMemberInteraction['direction'],
+      timestamp: event.eventAt.toISOString(),
+      ...(event.relatedObjectId ? { relatedObjectId: event.relatedObjectId } : {}),
+    };
+  }
+
+  private mapFollowerRelationshipSnapshot(snapshot: {
+    snapshotAt: Date;
+    windowStartedAt: Date;
+    effortScore: number;
+    reciprocationScore: number;
+    reciprocity: number | null;
+    grade: number | null;
+    formulaVersion: number;
+  }): FollowerRelationshipSnapshot {
+    return {
+      snapshotAt: snapshot.snapshotAt.toISOString(),
+      windowStartedAt: snapshot.windowStartedAt.toISOString(),
+      effortScore: snapshot.effortScore,
+      reciprocationScore: snapshot.reciprocationScore,
+      reciprocity: snapshot.reciprocity,
+      grade: snapshot.grade,
+      formulaVersion: snapshot.formulaVersion,
+    };
+  }
+
   private validateFollowerQuery(
     provider: SocialProvider,
     query: FollowerQuery
@@ -399,7 +708,8 @@ export class IntegrationService {
       ranked.followerSync,
       ranked.subscriptions,
       provider.channelInteractionWebhooks!.getInteractionCoverage(),
-      ranked.rollup?.computedAt
+      ranked.rollup?.computedAt,
+      { rankingAvailability: true }
     );
     if (
       !ranked.rollup ||
@@ -462,7 +772,9 @@ export class IntegrationService {
     return this.getInteractionTrackingMetadata(
       tracking.followerSync,
       tracking.subscriptions,
-      coverage
+      coverage,
+      undefined,
+      { rankingAvailability: false }
     );
   }
 
@@ -479,7 +791,8 @@ export class IntegrationService {
       failureReason?: string | null;
     }[],
     coverage: ChannelInteractionKindCoverage[],
-    computedAt?: Date
+    computedAt?: Date,
+    options?: { rankingAvailability?: boolean }
   ): FollowerPageTracking {
     const states = subscriptions.map((subscription) => subscription.state);
     const failedSubscription = subscriptions.find(
@@ -492,18 +805,21 @@ export class IntegrationService {
         ? 'provisioning'
         : states.includes(ChannelInteractionTrackingState.UNCONFIGURED)
           ? 'unconfigured'
-        : coverage.some(
-            (item) =>
-              item.inbound === 'partial' || item.outbound === 'partial'
-          )
+        : states.includes(ChannelInteractionTrackingState.PARTIAL) ||
+            this.hasLimitedInteractionCoverage(coverage)
           ? 'partial'
           : 'active';
-    const availability =
-      followerSync?.activeGeneration && followerSync.completedAt && computedAt
+    const availability = options?.rankingAvailability
+      ? followerSync?.activeGeneration && followerSync.completedAt && computedAt
         ? 'ready'
         : state === 'error' || state === 'unconfigured'
           ? 'unavailable'
-          : 'provisioning';
+          : 'provisioning'
+      : state === 'error' || state === 'unconfigured'
+        ? 'unavailable'
+        : state === 'provisioning'
+          ? 'provisioning'
+          : undefined;
     const trackingStartedAt = subscriptions
       .map((subscription) => subscription.trackingStartedAt)
       .filter((startedAt): startedAt is Date => !!startedAt)
@@ -513,7 +829,7 @@ export class IntegrationService {
     );
     return {
       state,
-      availability,
+      ...(availability ? { availability } : {}),
       noBackfill: true,
       ...(trackingStartedAt
         ? { trackingStartedAt: trackingStartedAt.toISOString() }
@@ -528,6 +844,29 @@ export class IntegrationService {
         : {}),
       coverage,
     };
+  }
+
+  private getUnsupportedTrackingMetadata(
+    coverage: ChannelInteractionKindCoverage[] = []
+  ): FollowerPageTracking {
+    return {
+      state: 'unsupported',
+      availability: 'unavailable',
+      noBackfill: true,
+      coverage,
+    };
+  }
+
+  private hasLimitedInteractionCoverage(
+    coverage: ChannelInteractionKindCoverage[]
+  ) {
+    return coverage.some(
+      (item) =>
+        item.inbound === 'partial' ||
+        item.outbound === 'partial' ||
+        item.inbound === 'unsupported' ||
+        item.outbound === 'unsupported'
+    );
   }
 
   private trackingFailureCategory(

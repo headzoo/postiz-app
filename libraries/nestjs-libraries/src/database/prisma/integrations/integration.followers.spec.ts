@@ -48,6 +48,12 @@ describe('IntegrationService followers', () => {
       getInteractionTracking: jest.fn(),
       getRankedFollowers: jest.fn(),
     };
+    (service as any)._channelInteractionService = {
+      getFollowerDetails: jest.fn(),
+      createFollowerNote: jest.fn(),
+      updateFollowerNote: jest.fn(),
+      deleteFollowerNote: jest.fn(),
+    };
     return service;
   };
 
@@ -337,5 +343,531 @@ describe('IntegrationService followers', () => {
         sort: 'interactions',
       })
     ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('returns unsupported tracking metadata when interaction coverage is absent', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+      },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+      },
+      snapshots: [],
+      notes: [],
+      events: [],
+      tracking: {
+        followerSync: null,
+        subscriptions: [],
+      },
+    });
+
+    await expect(
+      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+    ).resolves.toMatchObject({
+      tracking: {
+        state: 'unsupported',
+        availability: 'unavailable',
+        noBackfill: true,
+        coverage: [],
+      },
+    });
+  });
+
+  it('treats unsupported interaction directions as limited coverage', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        channelInteractionWebhooks: {
+          getInteractionCoverage: () => [
+            { kind: 'like', inbound: 'supported', outbound: 'supported' },
+            {
+              kind: 'repost',
+              inbound: 'unsupported',
+              outbound: 'supported',
+              reason: 'Inbound reposts are not tracked',
+            },
+          ],
+        },
+      },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+      },
+      snapshots: [],
+      notes: [],
+      events: [],
+      tracking: {
+        followerSync: null,
+        subscriptions: [{ state: 'ACTIVE' }],
+      },
+    });
+
+    await expect(
+      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+    ).resolves.toMatchObject({
+      tracking: {
+        state: 'partial',
+        noBackfill: true,
+        coverage: [
+          { kind: 'like', inbound: 'supported', outbound: 'supported' },
+          {
+            kind: 'repost',
+            inbound: 'unsupported',
+            outbound: 'supported',
+            reason: 'Inbound reposts are not tracked',
+          },
+        ],
+      },
+    });
+  });
+
+  it('returns a sanitized follower member detail payload for an owned follower', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        channelInteractionWebhooks: {
+          getInteractionCoverage: () => [
+            { kind: 'like', inbound: 'supported', outbound: 'supported' },
+          ],
+        },
+      },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: 'follower',
+        picture: 'https://example.com/follower.png',
+        profileUrl: 'javascript:alert(1)',
+        bio: 'Bio',
+        followersCount: 10,
+        followingCount: 5,
+        followedAt: new Date('2026-01-01T00:00:00.000Z'),
+        accountCreatedAt: new Date('2025-01-01T00:00:00.000Z'),
+      },
+      snapshots: [
+        {
+          snapshotAt: new Date('2026-07-01T00:00:00.000Z'),
+          windowStartedAt: new Date('2026-06-01T00:00:00.000Z'),
+          effortScore: 4,
+          reciprocationScore: 2,
+          reciprocity: 0.5,
+          grade: 3,
+          formulaVersion: 1,
+        },
+        {
+          snapshotAt: new Date('2026-08-01T00:00:00.000Z'),
+          windowStartedAt: new Date('2026-07-02T00:00:00.000Z'),
+          effortScore: 8,
+          reciprocationScore: 8,
+          reciprocity: 1,
+          grade: 5,
+          formulaVersion: 1,
+        },
+      ],
+      notes: [
+        {
+          id: 'note-a',
+          content: 'Team note',
+          createdAt: new Date('2026-08-10T12:00:00.000Z'),
+          updatedAt: new Date('2026-08-10T12:00:00.000Z'),
+          author: { id: 'user-a', name: 'Alex', lastName: 'Author' },
+        },
+      ],
+      events: [
+        {
+          id: 'event-a',
+          kind: 'LIKE',
+          direction: 'INBOUND',
+          eventAt: new Date('2026-08-11T12:00:00.000Z'),
+          relatedObjectId: 'post-a',
+        },
+      ],
+      tracking: {
+        followerSync: {
+          activeGeneration: 'generation-a',
+          status: 'COMPLETED',
+          completedAt: new Date('2026-08-01T00:00:00.000Z'),
+        },
+        subscriptions: [
+          {
+            state: 'ACTIVE',
+            trackingStartedAt: new Date('2026-07-01T00:00:00.000Z'),
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+    ).resolves.toEqual({
+      follower: {
+        id: 'follower-a',
+        name: 'Follower A',
+        username: 'follower',
+        picture: 'https://example.com/follower.png',
+        bio: 'Bio',
+        followersCount: 10,
+        followingCount: 5,
+        followedAt: '2026-01-01T00:00:00.000Z',
+        accountCreatedAt: '2025-01-01T00:00:00.000Z',
+      },
+      notes: [
+        {
+          id: 'note-a',
+          content: 'Team note',
+          author: { id: 'user-a', name: 'Alex Author' },
+          createdAt: '2026-08-10T12:00:00.000Z',
+          updatedAt: '2026-08-10T12:00:00.000Z',
+        },
+      ],
+      interactions: [
+        {
+          id: 'event-a',
+          kind: 'like',
+          direction: 'inbound',
+          timestamp: '2026-08-11T12:00:00.000Z',
+          relatedObjectId: 'post-a',
+        },
+      ],
+      relationship: {
+        windowDays: 30,
+        cadenceDays: 30,
+        formulaVersion: 1,
+        current: {
+          snapshotAt: '2026-08-01T00:00:00.000Z',
+          windowStartedAt: '2026-07-02T00:00:00.000Z',
+          effortScore: 8,
+          reciprocationScore: 8,
+          reciprocity: 1,
+          grade: 5,
+          formulaVersion: 1,
+        },
+        history: [
+          {
+            snapshotAt: '2026-07-01T00:00:00.000Z',
+            windowStartedAt: '2026-06-01T00:00:00.000Z',
+            effortScore: 4,
+            reciprocationScore: 2,
+            reciprocity: 0.5,
+            grade: 3,
+            formulaVersion: 1,
+          },
+          {
+            snapshotAt: '2026-08-01T00:00:00.000Z',
+            windowStartedAt: '2026-07-02T00:00:00.000Z',
+            effortScore: 8,
+            reciprocationScore: 8,
+            reciprocity: 1,
+            grade: 5,
+            formulaVersion: 1,
+          },
+        ],
+      },
+      tracking: {
+        state: 'active',
+        noBackfill: true,
+        trackingStartedAt: '2026-07-01T00:00:00.000Z',
+        followerSnapshotAt: '2026-08-01T00:00:00.000Z',
+        coverage: [
+          { kind: 'like', inbound: 'supported', outbound: 'supported' },
+        ],
+      },
+    });
+    expect(
+      (service as any)._channelInteractionService.getFollowerDetails
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a');
+  });
+
+  it('treats persisted PARTIAL subscriptions as partial even with full static coverage', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        channelInteractionWebhooks: {
+          getInteractionCoverage: () => [
+            { kind: 'like', inbound: 'supported', outbound: 'supported' },
+          ],
+        },
+      },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+      },
+      snapshots: [],
+      notes: [],
+      events: [],
+      tracking: {
+        followerSync: null,
+        subscriptions: [{ state: 'PARTIAL', trackingStartedAt: new Date() }],
+      },
+    });
+
+    const result = await service.getFollowerMemberDetails(
+      org,
+      'channel-a',
+      'follower-a'
+    );
+    expect(result.tracking).toMatchObject({
+      state: 'partial',
+      noBackfill: true,
+    });
+    expect(result.tracking).not.toHaveProperty('availability');
+  });
+
+  it('omits ranking availability for active follower detail tracking', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        channelInteractionWebhooks: {
+          getInteractionCoverage: () => [
+            { kind: 'like', inbound: 'supported', outbound: 'supported' },
+          ],
+        },
+      },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+      },
+      snapshots: [],
+      notes: [],
+      events: [],
+      tracking: {
+        followerSync: {
+          activeGeneration: 'generation-a',
+          status: 'COMPLETED',
+          completedAt: new Date('2026-08-01T00:00:00.000Z'),
+        },
+        subscriptions: [
+          {
+            state: 'ACTIVE',
+            trackingStartedAt: new Date('2026-07-01T00:00:00.000Z'),
+          },
+        ],
+      },
+    });
+
+    const result = await service.getFollowerMemberDetails(
+      org,
+      'channel-a',
+      'follower-a'
+    );
+    expect(result.tracking).toMatchObject({
+      state: 'active',
+      noBackfill: true,
+      trackingStartedAt: '2026-07-01T00:00:00.000Z',
+      followerSnapshotAt: '2026-08-01T00:00:00.000Z',
+    });
+    expect(result.tracking).not.toHaveProperty('availability');
+  });
+
+  it('reports unavailable detail tracking for error and unconfigured subscriptions', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        channelInteractionWebhooks: {
+          getInteractionCoverage: () => [
+            { kind: 'like', inbound: 'supported', outbound: 'supported' },
+          ],
+        },
+      },
+    });
+    const baseDetail = {
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+      },
+      snapshots: [],
+      notes: [],
+      events: [],
+      tracking: {
+        followerSync: null,
+        subscriptions: [],
+      },
+    };
+
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      ...baseDetail,
+      tracking: {
+        followerSync: null,
+        subscriptions: [
+          {
+            state: 'ERROR',
+            failureCategory: 'authentication',
+            failureReason: 'raw provider oauth failure',
+          },
+        ],
+      },
+    });
+    await expect(
+      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+    ).resolves.toMatchObject({
+      tracking: {
+        state: 'error',
+        availability: 'unavailable',
+        failureCategory: 'authentication',
+        reason: 'raw provider oauth failure',
+      },
+    });
+
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      ...baseDetail,
+      tracking: {
+        followerSync: null,
+        subscriptions: [{ state: 'UNCONFIGURED' }],
+      },
+    });
+    await expect(
+      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+    ).resolves.toMatchObject({
+      tracking: {
+        state: 'unconfigured',
+        availability: 'unavailable',
+      },
+    });
+  });
+
+  it('rejects follower member detail reads for missing or unavailable integrations', async () => {
+    const { NotFoundException } = await import('@nestjs/common');
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockRejectedValue(
+      new NotFoundException('Follower was not found')
+    );
+
+    await expect(
+      service.getFollowerMemberDetails(org, 'missing', 'follower-a')
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      service.getFollowerMemberDetails(
+        org,
+        'channel-a',
+        'missing-follower'
+      )
+    ).rejects.toMatchObject({ status: 404, message: 'Follower was not found' });
+  });
+
+  it('creates, updates, and deletes organization-scoped follower notes', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    const user = { id: 'user-a' } as any;
+    (service as any)._channelInteractionService.createFollowerNote.mockResolvedValue({
+      id: 'note-a',
+      content: 'Hello',
+      createdAt: new Date('2026-08-12T12:00:00.000Z'),
+      updatedAt: new Date('2026-08-12T12:00:00.000Z'),
+      author: { id: 'user-a', name: 'Alex', lastName: null },
+    });
+    (service as any)._channelInteractionService.updateFollowerNote.mockResolvedValue(
+      undefined
+    );
+    (service as any)._channelInteractionService.deleteFollowerNote.mockResolvedValue(
+      undefined
+    );
+
+    await expect(
+      service.createFollowerMemberNote(
+        org,
+        user,
+        'channel-a',
+        'follower-a',
+        'Hello'
+      )
+    ).resolves.toEqual({
+      id: 'note-a',
+      content: 'Hello',
+      author: { id: 'user-a', name: 'Alex' },
+      createdAt: '2026-08-12T12:00:00.000Z',
+      updatedAt: '2026-08-12T12:00:00.000Z',
+    });
+    await expect(
+      service.updateFollowerMemberNote(org, 'channel-a', 'note-a', 'Updated')
+    ).resolves.toBeUndefined();
+    await expect(
+      service.deleteFollowerMemberNote(org, 'channel-a', 'note-a')
+    ).resolves.toBeUndefined();
+    expect(
+      (service as any)._channelInteractionService.createFollowerNote
+    ).toHaveBeenCalledWith(
+      'org-a',
+      'channel-a',
+      'follower-a',
+      'user-a',
+      'Hello'
+    );
+    expect(
+      (service as any)._channelInteractionService.updateFollowerNote
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'note-a', 'Updated');
+    expect(
+      (service as any)._channelInteractionService.deleteFollowerNote
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'note-a');
+  });
+
+  it('returns not found for missing follower notes', async () => {
+    const { NotFoundException } = await import('@nestjs/common');
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionService.updateFollowerNote.mockRejectedValue(
+      new NotFoundException('Follower note was not found')
+    );
+
+    await expect(
+      service.updateFollowerMemberNote(org, 'channel-a', 'missing', 'Updated')
+    ).rejects.toMatchObject({
+      status: 404,
+      message: 'Follower note was not found',
+    });
   });
 });

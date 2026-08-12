@@ -1,9 +1,24 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { Organization } from '@prisma/client';
+import { Organization, User } from '@prisma/client';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
+import { FollowerMemberQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-member.query.dto';
+import {
+  CreateFollowerNoteDto,
+  UpdateFollowerNoteDto,
+} from '@gitroom/nestjs-libraries/dtos/integrations/follower-note.dto';
 import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
+import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
 
 @ApiTags('Followers')
 @Controller('/followers')
@@ -13,6 +28,63 @@ export class FollowersController {
   @Get('/channels')
   getChannels(@GetOrgFromRequest() org: Organization) {
     return this._integrationService.getFollowerChannels(org);
+  }
+
+  @Get('/:integrationId/member')
+  getFollowerMember(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Query() query: FollowerMemberQueryDto
+  ) {
+    return this._integrationService.getFollowerMemberDetails(
+      org,
+      integrationId,
+      query.externalId
+    );
+  }
+
+  @Post('/:integrationId/member/notes')
+  createFollowerMemberNote(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
+    @Param('integrationId') integrationId: string,
+    @Body() body: CreateFollowerNoteDto
+  ) {
+    return this._integrationService.createFollowerMemberNote(
+      org,
+      user,
+      integrationId,
+      body.externalId,
+      body.content
+    );
+  }
+
+  @Put('/:integrationId/member/notes/:noteId')
+  updateFollowerMemberNote(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Param('noteId') noteId: string,
+    @Body() body: UpdateFollowerNoteDto
+  ) {
+    return this._integrationService.updateFollowerMemberNote(
+      org,
+      integrationId,
+      noteId,
+      body.content
+    );
+  }
+
+  @Delete('/:integrationId/member/notes/:noteId')
+  deleteFollowerMemberNote(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Param('noteId') noteId: string
+  ) {
+    return this._integrationService.deleteFollowerMemberNote(
+      org,
+      integrationId,
+      noteId
+    );
   }
 
   @Get('/:integrationId')

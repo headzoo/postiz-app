@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import {
+  calculateRelationshipGrade,
   ChannelInteractionService,
   getChannelInteractionScore,
 } from './channel-interaction.service';
@@ -34,6 +35,9 @@ const createRepository = () => ({
   getActiveIntegrationsForAccount: jest.fn().mockResolvedValue([]),
   requestSubscriptionReconciliation: jest.fn().mockResolvedValue(undefined),
   markSubscriptionsForRemoval: jest.fn().mockResolvedValue({ count: 0 }),
+  getDueRelationshipGradeBatch: jest.fn().mockResolvedValue({ members: [] }),
+  createRelationshipGradeSnapshots: jest.fn().mockResolvedValue({ count: 0 }),
+  hasDueRelationshipGradeMembers: jest.fn().mockResolvedValue(false),
 });
 
 describe('ChannelInteractionService', () => {
@@ -54,6 +58,56 @@ describe('ChannelInteractionService', () => {
     expect(getChannelInteractionScore('reply', 'outbound')).toBe(4);
     expect(getChannelInteractionScore('follow', 'inbound')).toBe(10);
     expect(getChannelInteractionScore('follow', 'outbound')).toBe(5);
+  });
+
+  it('calculates the version-one relationship grade at its edge cases', () => {
+    expect(calculateRelationshipGrade(0, 0)).toEqual({
+      reciprocity: null,
+      grade: null,
+      formulaVersion: 1,
+    });
+    expect(calculateRelationshipGrade(10, 0)).toEqual({
+      reciprocity: 0,
+      grade: 1,
+      formulaVersion: 1,
+    });
+    expect(calculateRelationshipGrade(8, 6)).toEqual({
+      reciprocity: 0.75,
+      grade: 4,
+      formulaVersion: 1,
+    });
+    expect(calculateRelationshipGrade(10, 10)).toEqual({
+      reciprocity: 1,
+      grade: 5,
+      formulaVersion: 1,
+    });
+    expect(() => calculateRelationshipGrade(-1, 0)).toThrow(RangeError);
+  });
+
+  it('creates zero-activity snapshots through the repository batch operation', async () => {
+    const repository = createRepository();
+    repository.getDueRelationshipGradeBatch.mockResolvedValue({
+      members: [{ externalId: 'quiet-follower', effortScore: 0, reciprocationScore: 0 }],
+    });
+    const service = new ChannelInteractionService(repository as any);
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await expect(
+      service.buildRelationshipGradeSnapshotBatch('org', 'integration', snapshotAt)
+    ).resolves.toEqual({ snapshotAt, processed: 1, hasMore: false });
+    expect(repository.createRelationshipGradeSnapshots).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      snapshotAt,
+      [{
+        externalId: 'quiet-follower',
+        effortScore: 0,
+        reciprocationScore: 0,
+        reciprocity: null,
+        grade: null,
+        formulaVersion: 1,
+      }]
+    );
   });
 
   it('records normalized events and reports duplicate deliveries', async () => {

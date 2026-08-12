@@ -25,10 +25,12 @@ const createHarness = () => {
       upsert: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
     },
     channelInteractionEvent: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
       groupBy: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     channelInteractionDailyAggregate: {
       upsert: jest.fn().mockResolvedValue({}),
@@ -53,6 +55,15 @@ const createHarness = () => {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    channelRelationshipGradeSnapshot: {
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    channelAudienceNote: {
+      create: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    userOrganization: { findFirst: jest.fn().mockResolvedValue({ id: 'member' }) },
   };
   const transaction = jest.fn((callback: (client: any) => unknown) => callback(tx));
   const integrationFindMany = jest.fn();
@@ -64,6 +75,11 @@ const createHarness = () => {
         channelInteractionRollupState: {},
         channelFollowerSyncState: {},
         channelInteractionWindowSummary: {},
+        channelAudienceMember: {
+          findFirst: tx.channelAudienceMember.findFirst,
+        },
+        channelAudienceNote: tx.channelAudienceNote,
+        channelRelationshipGradeSnapshot: tx.channelRelationshipGradeSnapshot,
       },
     } as any,
     { model: { integration: { findMany: integrationFindMany } } } as any,
@@ -665,5 +681,78 @@ describe('ChannelInteractionRepository', () => {
         }),
       ]),
     }));
+  });
+
+  it('builds a bounded due batch from events with directional E/R scores', async () => {
+    const { repository, tx, groupBy } = createHarness();
+    tx.channelAudienceMember.findMany.mockResolvedValue([
+      { externalId: 'outbound-only' },
+      { externalId: 'zero-activity' },
+    ]);
+    groupBy.mockResolvedValue([{
+      counterpartyExternalId: 'outbound-only',
+      kind: ChannelInteractionKind.REPLY,
+      direction: ChannelInteractionDirection.OUTBOUND,
+      _count: { _all: 2 },
+    }]);
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await expect(
+      repository.getDueRelationshipGradeBatch('org', 'integration', snapshotAt)
+    ).resolves.toEqual({
+      members: [
+        { externalId: 'outbound-only', effortScore: 8, reciprocationScore: 0 },
+        { externalId: 'zero-activity', effortScore: 0, reciprocationScore: 0 },
+      ],
+    });
+    expect(tx.channelAudienceMember.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        orderBy: { id: 'asc' },
+        take: 100,
+        where: expect.objectContaining({
+          gradeSnapshots: {
+            none: { snapshotAt: { gt: new Date('2026-07-13T12:00:00.000Z') } },
+          },
+        }),
+      })
+    );
+    expect(groupBy).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        eventAt: {
+          gte: new Date('2026-07-13T12:00:00.000Z'),
+          lte: snapshotAt,
+        },
+      }),
+    }));
+  });
+
+  it('persists historical grade snapshots idempotently for retry safety', async () => {
+    const { repository, tx } = createHarness();
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await repository.createRelationshipGradeSnapshots('org', 'integration', snapshotAt, [{
+      externalId: 'person-1',
+      effortScore: 0,
+      reciprocationScore: 0,
+      reciprocity: null,
+      grade: null,
+      formulaVersion: 1,
+    }]);
+
+    expect(tx.channelRelationshipGradeSnapshot.createMany).toHaveBeenCalledWith({
+      data: [{
+        organizationId: 'org',
+        integrationId: 'integration',
+        counterpartyExternalId: 'person-1',
+        windowStartedAt: new Date('2026-07-13T12:00:00.000Z'),
+        snapshotAt,
+        effortScore: 0,
+        reciprocationScore: 0,
+        reciprocity: null,
+        grade: null,
+        formulaVersion: 1,
+      }],
+      skipDuplicates: true,
+    });
   });
 });

@@ -28,6 +28,15 @@ import {
   ChannelInteractionRepository,
   DesiredInteractionSubscription,
 } from './channel-interaction.repository';
+import {
+  calculateRelationshipGrade,
+  getChannelInteractionScore,
+} from './channel-interaction.scoring';
+
+export {
+  calculateRelationshipGrade,
+  getChannelInteractionScore,
+} from './channel-interaction.scoring';
 
 const MAX_DELIVERY_EVENTS = 500;
 const MAX_METADATA_ENTRIES = 32;
@@ -35,6 +44,7 @@ const MAX_FUTURE_SKEW_MS = 10 * 60 * 1000;
 const MAX_ID_LENGTH = 512;
 const MAX_PROFILE_TEXT_LENGTH = 4096;
 const MAX_METADATA_VALUE_LENGTH = 2048;
+const MAX_AUDIENCE_NOTE_LENGTH = 4096;
 
 const KIND_MAP: Record<ChannelInteractionKind, PrismaInteractionKind> = {
   like: PrismaInteractionKind.LIKE,
@@ -67,28 +77,6 @@ const WINDOW_MAP: Record<ChannelInteractionWindow, {
   '90_day': { prisma: PrismaInteractionWindow.NINETY_DAY, days: 90 },
   year: { prisma: PrismaInteractionWindow.YEAR, days: 365 },
 };
-
-const SCORES: Record<
-  ChannelInteractionKind,
-  Record<ChannelInteractionDirection, number>
-> = {
-  like: { inbound: 2, outbound: 1 },
-  mention: { inbound: 4, outbound: 2 },
-  repost: { inbound: 6, outbound: 3 },
-  reply: { inbound: 8, outbound: 4 },
-  follow: { inbound: 10, outbound: 5 },
-};
-
-export function getChannelInteractionScore(
-  kind: ChannelInteractionKind,
-  direction: ChannelInteractionDirection
-): number {
-  const score = SCORES[kind]?.[direction];
-  if (score === undefined) {
-    throw new BadRequestException('Unsupported interaction kind or direction');
-  }
-  return score;
-}
 
 @Injectable()
 export class ChannelInteractionService {
@@ -292,6 +280,125 @@ export class ChannelInteractionService {
       cutoffAt,
       computedAt
     );
+  }
+
+  async buildRelationshipGradeSnapshotBatch(
+    organizationId: string,
+    integrationId: string,
+    snapshotAt = new Date()
+  ) {
+    if (Number.isNaN(snapshotAt.getTime())) {
+      throw new BadRequestException('snapshotAt must be a valid timestamp');
+    }
+    const batch = await this._repository.getDueRelationshipGradeBatch(
+      organizationId,
+      integrationId,
+      snapshotAt
+    );
+    const snapshots = batch.members.map((member) => {
+      const grade = calculateRelationshipGrade(
+        member.effortScore,
+        member.reciprocationScore
+      );
+      return {
+        externalId: member.externalId,
+        effortScore: member.effortScore,
+        reciprocationScore: member.reciprocationScore,
+        ...grade,
+      };
+    });
+    await this._repository.createRelationshipGradeSnapshots(
+      organizationId,
+      integrationId,
+      snapshotAt,
+      snapshots
+    );
+    return {
+      snapshotAt,
+      processed: snapshots.length,
+      hasMore: await this._repository.hasDueRelationshipGradeMembers(
+        organizationId,
+        integrationId,
+        snapshotAt
+      ),
+    };
+  }
+
+  async getFollowerDetails(
+    organizationId: string,
+    integrationId: string,
+    externalId: string
+  ) {
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    const details = await this._repository.getFollowerDetails(
+      organizationId,
+      integrationId,
+      externalId
+    );
+    if (!details) {
+      throw new NotFoundException('Follower was not found');
+    }
+    return details;
+  }
+
+  async createFollowerNote(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    authorUserId: string,
+    content: string
+  ) {
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    this.validateBoundedString(
+      authorUserId,
+      'authorUserId',
+      MAX_ID_LENGTH
+    );
+    this.validateBoundedString(content, 'content', MAX_AUDIENCE_NOTE_LENGTH);
+    try {
+      return await this._repository.createAudienceNote(
+        organizationId,
+        integrationId,
+        externalId,
+        authorUserId,
+        content
+      );
+    } catch {
+      throw new NotFoundException('Follower was not found');
+    }
+  }
+
+  async updateFollowerNote(
+    organizationId: string,
+    integrationId: string,
+    noteId: string,
+    content: string
+  ) {
+    this.validateBoundedString(noteId, 'noteId', MAX_ID_LENGTH);
+    this.validateBoundedString(content, 'content', MAX_AUDIENCE_NOTE_LENGTH);
+    if (!await this._repository.updateAudienceNote(
+      organizationId,
+      integrationId,
+      noteId,
+      content
+    )) {
+      throw new NotFoundException('Follower note was not found');
+    }
+  }
+
+  async deleteFollowerNote(
+    organizationId: string,
+    integrationId: string,
+    noteId: string
+  ) {
+    this.validateBoundedString(noteId, 'noteId', MAX_ID_LENGTH);
+    if (!await this._repository.deleteAudienceNote(
+      organizationId,
+      integrationId,
+      noteId
+    )) {
+      throw new NotFoundException('Follower note was not found');
+    }
   }
 
   private validateEvent(event: NormalizedChannelInteractionEvent) {

@@ -8,6 +8,7 @@ import { IntegrationsActivity } from '@gitroom/orchestrator/activities/integrati
 import { HealthController } from '@gitroom/orchestrator/health.controller';
 import { PipelineActivity } from '@gitroom/orchestrator/activities/pipeline.activity';
 import { ChannelInteractionActivity } from '@gitroom/orchestrator/activities/channel-interaction.activity';
+import { ChannelRelationshipGradeActivity } from '@gitroom/orchestrator/activities/channel-relationship-grade.activity';
 
 const activities = [
   PostActivity,
@@ -16,6 +17,7 @@ const activities = [
   IntegrationsActivity,
   PipelineActivity,
   ChannelInteractionActivity,
+  ChannelRelationshipGradeActivity,
 ];
 @Module({
   imports: [

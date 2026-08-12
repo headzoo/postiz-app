@@ -13,6 +13,7 @@ import {
   PrismaRepository,
   PrismaTransaction,
 } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
+import { getChannelInteractionScore } from './channel-interaction.scoring';
 
 export type AudienceProfile = {
   externalId: string;
@@ -62,6 +63,20 @@ export type RankedFollowersQuery = {
 };
 
 const TRANSACTION_ATTEMPTS = 3;
+const RELATIONSHIP_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+const RELATIONSHIP_BATCH_SIZE = 100;
+
+export type RelationshipGradeBatchMember = {
+  externalId: string;
+  effortScore: number;
+  reciprocationScore: number;
+};
+
+export type RelationshipGradeSnapshotInput = RelationshipGradeBatchMember & {
+  reciprocity: number | null;
+  grade: number | null;
+  formulaVersion: number;
+};
 
 @Injectable()
 export class ChannelInteractionRepository {
@@ -72,6 +87,9 @@ export class ChannelInteractionRepository {
       | 'channelInteractionWindowSummary'
       | 'channelInteractionRollupState'
       | 'channelFollowerSyncState'
+      | 'channelAudienceMember'
+      | 'channelAudienceNote'
+      | 'channelRelationshipGradeSnapshot'
     >,
     private _integration: PrismaRepository<'integration'>,
     private _subscription: PrismaRepository<'channelInteractionSubscription'>,
@@ -519,9 +537,13 @@ export class ChannelInteractionRepository {
         const count = aggregate._count._all;
         const lastInteractionAt = aggregate._max.eventAt;
         current.interactionCount += count;
-        current.interactionScore += count * this.interactionScore(
-          aggregate.kind,
-          aggregate.direction
+        current.interactionScore += count * getChannelInteractionScore(
+          aggregate.kind.toLowerCase() as Parameters<
+            typeof getChannelInteractionScore
+          >[0],
+          aggregate.direction.toLowerCase() as Parameters<
+            typeof getChannelInteractionScore
+          >[1]
         );
         if (
           lastInteractionAt &&
@@ -700,6 +722,243 @@ export class ChannelInteractionRepository {
     return { followerSync, subscriptions };
   }
 
+  async listDueRelationshipGradeCandidates(
+    snapshotAt: Date,
+    after?: string,
+    take = 1
+  ) {
+    const dueCutoff = this.relationshipDueCutoff(snapshotAt);
+    const integrations = await this._integration.model.integration.findMany({
+      where: {
+        type: 'social',
+        disabled: false,
+        deletedAt: null,
+        channelFollowerSyncState: {
+          is: {
+            status: ChannelFollowerSyncStatus.COMPLETE,
+            completedAt: { not: null },
+          },
+        },
+        channelInteractionSubscriptions: {
+          some: {
+            state: {
+              in: [
+                ChannelInteractionTrackingState.ACTIVE,
+                ChannelInteractionTrackingState.PARTIAL,
+              ],
+            },
+          },
+        },
+        channelAudienceMembers: {
+          some: {
+            membershipState: ChannelAudienceMembership.FOLLOWER,
+            gradeSnapshots: { none: { snapshotAt: { gt: dueCutoff } } },
+          },
+        },
+        ...(after ? { id: { gt: after } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take: take + 1,
+      select: { id: true, organizationId: true },
+    });
+    return {
+      candidates: integrations.slice(0, take),
+      next: integrations.length > take ? integrations[take - 1]?.id : undefined,
+    };
+  }
+
+  async getDueRelationshipGradeBatch(
+    organizationId: string,
+    integrationId: string,
+    snapshotAt: Date,
+    take = RELATIONSHIP_BATCH_SIZE
+  ): Promise<{ members: RelationshipGradeBatchMember[] }> {
+    const dueCutoff = this.relationshipDueCutoff(snapshotAt);
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const followers = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId,
+          integrationId,
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          gradeSnapshots: { none: { snapshotAt: { gt: dueCutoff } } },
+        },
+        orderBy: { id: 'asc' },
+        take,
+        select: { externalId: true },
+      });
+      if (!followers.length) return { members: [] };
+      const aggregates = await tx.channelInteractionEvent.groupBy({
+        by: ['counterpartyExternalId', 'kind', 'direction'],
+        where: {
+          organizationId,
+          integrationId,
+          counterpartyExternalId: { in: followers.map(({ externalId }) => externalId) },
+          eventAt: {
+            gte: new Date(snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS),
+            lte: snapshotAt,
+          },
+        },
+        _count: { _all: true },
+      });
+      const scores = new Map<string, RelationshipGradeBatchMember>();
+      for (const { externalId } of followers) {
+        scores.set(externalId, {
+          externalId,
+          effortScore: 0,
+          reciprocationScore: 0,
+        });
+      }
+      for (const aggregate of aggregates) {
+        const member = scores.get(aggregate.counterpartyExternalId);
+        if (!member) continue;
+        const score =
+          aggregate._count._all *
+          getChannelInteractionScore(
+            aggregate.kind.toLowerCase() as Parameters<
+              typeof getChannelInteractionScore
+            >[0],
+            aggregate.direction.toLowerCase() as Parameters<
+              typeof getChannelInteractionScore
+            >[1]
+          );
+        if (aggregate.direction === ChannelInteractionDirection.OUTBOUND) {
+          member.effortScore += score;
+        } else {
+          member.reciprocationScore += score;
+        }
+      }
+      return { members: followers.map(({ externalId }) => scores.get(externalId)!) };
+    });
+  }
+
+  async createRelationshipGradeSnapshots(
+    organizationId: string,
+    integrationId: string,
+    snapshotAt: Date,
+    snapshots: RelationshipGradeSnapshotInput[]
+  ) {
+    if (!snapshots.length) return { count: 0 };
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      return tx.channelRelationshipGradeSnapshot.createMany({
+        data: snapshots.map((snapshot) => ({
+          organizationId,
+          integrationId,
+          counterpartyExternalId: snapshot.externalId,
+          windowStartedAt: new Date(snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS),
+          snapshotAt,
+          effortScore: snapshot.effortScore,
+          reciprocationScore: snapshot.reciprocationScore,
+          reciprocity: snapshot.reciprocity,
+          grade: snapshot.grade,
+          formulaVersion: snapshot.formulaVersion,
+        })),
+        skipDuplicates: true,
+      });
+    });
+  }
+
+  async hasDueRelationshipGradeMembers(
+    organizationId: string,
+    integrationId: string,
+    snapshotAt: Date
+  ) {
+    const member = await this._dailyAggregate.model.channelAudienceMember.findFirst({
+      where: {
+        organizationId,
+        integrationId,
+        membershipState: ChannelAudienceMembership.FOLLOWER,
+        gradeSnapshots: {
+          none: { snapshotAt: { gt: this.relationshipDueCutoff(snapshotAt) } },
+        },
+      },
+      select: { id: true },
+    });
+    return !!member;
+  }
+
+  async getFollowerDetails(
+    organizationId: string,
+    integrationId: string,
+    externalId: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const member = await tx.channelAudienceMember.findFirst({
+        where: { organizationId, integrationId, externalId },
+        include: {
+          gradeSnapshots: { orderBy: { snapshotAt: 'asc' } },
+          notes: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              author: { select: { id: true, name: true, lastName: true } },
+            },
+          },
+        },
+      });
+      if (!member) return null;
+      const [events, tracking] = await Promise.all([
+        tx.channelInteractionEvent.findMany({
+          where: { organizationId, integrationId, counterpartyExternalId: externalId },
+          orderBy: { eventAt: 'desc' },
+          take: 20,
+          select: {
+            id: true,
+            kind: true,
+            direction: true,
+            eventAt: true,
+            relatedObjectId: true,
+          },
+        }),
+        this.getInteractionTrackingInTransaction(tx, organizationId, integrationId),
+      ]);
+      return { member, snapshots: member.gradeSnapshots, notes: member.notes, events, tracking };
+    });
+  }
+
+  async createAudienceNote(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    authorUserId: string,
+    content: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertNoteAccess(tx, organizationId, integrationId, externalId, authorUserId);
+      return tx.channelAudienceNote.create({
+        data: {
+          organizationId,
+          integrationId,
+          counterpartyExternalId: externalId,
+          authorUserId,
+          content,
+        },
+        include: { author: { select: { id: true, name: true, lastName: true } } },
+      });
+    });
+  }
+
+  async updateAudienceNote(
+    organizationId: string,
+    integrationId: string,
+    noteId: string,
+    content: string
+  ) {
+    const result = await this._dailyAggregate.model.channelAudienceNote.updateMany({
+      where: { id: noteId, organizationId, integrationId },
+      data: { content },
+    });
+    return result.count === 1;
+  }
+
+  async deleteAudienceNote(organizationId: string, integrationId: string, noteId: string) {
+    const result = await this._dailyAggregate.model.channelAudienceNote.deleteMany({
+      where: { id: noteId, organizationId, integrationId },
+    });
+    return result.count === 1;
+  }
+
   private rankedFollowerKeyset(
     cursor: RankedFollowerCursor | undefined,
     direction: 'asc' | 'desc'
@@ -748,20 +1007,6 @@ export class ChannelInteractionRepository {
     };
   }
 
-  private interactionScore(
-    kind: ChannelInteractionKind,
-    direction: ChannelInteractionDirection
-  ) {
-    const inbound = direction === ChannelInteractionDirection.INBOUND;
-    return {
-      [ChannelInteractionKind.LIKE]: inbound ? 2 : 1,
-      [ChannelInteractionKind.MENTION]: inbound ? 4 : 2,
-      [ChannelInteractionKind.REPOST]: inbound ? 6 : 3,
-      [ChannelInteractionKind.REPLY]: inbound ? 8 : 4,
-      [ChannelInteractionKind.FOLLOW]: inbound ? 10 : 5,
-    }[kind];
-  }
-
   private failureReason(
     category: NonNullable<
       ChannelInteractionSubscriptionReconciliationResult['subscriptions'][number]['failureCategory']
@@ -790,6 +1035,56 @@ export class ChannelInteractionRepository {
     if (!integration) {
       throw new Error('Channel integration does not belong to organization');
     }
+  }
+
+  private relationshipDueCutoff(snapshotAt: Date) {
+    return new Date(snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS);
+  }
+
+  private async assertNoteAccess(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    authorUserId: string
+  ) {
+    await this.assertOwnedIntegration(tx, organizationId, integrationId);
+    const [member, author] = await Promise.all([
+      tx.channelAudienceMember.findFirst({
+        where: { organizationId, integrationId, externalId },
+        select: { id: true },
+      }),
+      tx.userOrganization.findFirst({
+        where: { organizationId, userId: authorUserId, disabled: false },
+        select: { id: true },
+      }),
+    ]);
+    if (!member || !author) {
+      throw new Error('Channel audience member does not belong to organization');
+    }
+  }
+
+  private async getInteractionTrackingInTransaction(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    integrationId: string
+  ) {
+    const [followerSync, subscriptions] = await Promise.all([
+      tx.channelFollowerSyncState.findFirst({
+        where: { organizationId, integrationId },
+        select: { activeGeneration: true, status: true, completedAt: true },
+      }),
+      tx.channelInteractionSubscription.findMany({
+        where: { organizationId, integrationId },
+        select: {
+          state: true,
+          trackingStartedAt: true,
+          failureCategory: true,
+          failureReason: true,
+        },
+      }),
+    ]);
+    return { followerSync, subscriptions };
   }
 
   private async upsertAudienceMember(

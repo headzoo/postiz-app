@@ -12,6 +12,8 @@ import { Select } from '@gitroom/react/form/select';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
 import { FollowerCard } from '@gitroom/frontend/components/followers/follower.card';
+import { FollowerDetailModal } from '@gitroom/frontend/components/followers/follower.detail.modal';
+import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import {
   ChannelInteractionKindCoverage,
   ChannelInteractionWindow,
@@ -20,6 +22,7 @@ import {
   FollowerChannel,
   FollowerPageTracking,
   FollowerSortDirection,
+  Follower,
   useFollowerChannels,
   useFollowers,
 } from '@gitroom/frontend/components/followers/use.followers';
@@ -213,6 +216,7 @@ const TrackingNotice: FC<{
 export const FollowersComponent: FC = () => {
   const t = useT();
   const router = useRouter();
+  const modal = useModals();
   const [collapseMenu, setCollapseMenu] = useCookie('collapseMenu', '0');
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
   const [sort, setSort] = useState<string>();
@@ -354,6 +358,29 @@ export const FollowersComponent: FC = () => {
     setCursorHistory((previous) => previous.slice(0, -1));
     setPageNumber((previous) => Math.max(1, previous - 1));
   }, [cursorHistory.length]);
+
+  const openFollowerDetail = useCallback(
+    (follower: Follower) => {
+      if (!selectedIntegrationId) {
+        return;
+      }
+      modal.openModal({
+        id: `follower-detail-${selectedIntegrationId}-${follower.id}`,
+        title: follower.name,
+        withCloseButton: true,
+        classNames: {
+          modal: 'w-[100%] max-w-[720px] text-textColor',
+        },
+        children: (
+          <FollowerDetailModal
+            integrationId={selectedIntegrationId}
+            externalId={follower.id}
+          />
+        ),
+      });
+    },
+    [modal, selectedIntegrationId]
+  );
 
   if (isLoadingChannels) {
     return (
@@ -712,7 +739,11 @@ export const FollowersComponent: FC = () => {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[16px]">
               {followersPage.items.map((follower) => (
-                <FollowerCard key={follower.id} follower={follower} />
+                <FollowerCard
+                  key={follower.id}
+                  follower={follower}
+                  onOpen={() => openFollowerDetail(follower)}
+                />
               ))}
             </div>
 

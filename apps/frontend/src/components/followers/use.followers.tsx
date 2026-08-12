@@ -94,6 +94,55 @@ export type Follower = {
   lastInteractionAt?: string;
 };
 
+export type ChannelInteractionDirection = 'inbound' | 'outbound';
+
+export type FollowerMemberNoteAuthor = {
+  id: string;
+  name: string;
+};
+
+export type FollowerMemberNote = {
+  id: string;
+  content: string;
+  author: FollowerMemberNoteAuthor;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FollowerMemberInteraction = {
+  id: string;
+  kind: ChannelInteractionKind;
+  direction: ChannelInteractionDirection;
+  timestamp: string;
+  relatedObjectId?: string;
+};
+
+export type FollowerRelationshipSnapshot = {
+  snapshotAt: string;
+  windowStartedAt: string;
+  effortScore: number;
+  reciprocationScore: number;
+  reciprocity: number | null;
+  grade: number | null;
+  formulaVersion: number;
+};
+
+export type FollowerRelationship = {
+  windowDays: 30;
+  cadenceDays: 30;
+  formulaVersion: 1;
+  current: FollowerRelationshipSnapshot | null;
+  history: FollowerRelationshipSnapshot[];
+};
+
+export type FollowerMemberDetail = {
+  follower: Follower;
+  notes: FollowerMemberNote[];
+  interactions: FollowerMemberInteraction[];
+  relationship: FollowerRelationship;
+  tracking?: FollowerPageTracking;
+};
+
 export type FollowerPage = {
   items: Follower[];
   total?: number;
@@ -219,4 +268,112 @@ export const useFollowers = ({
     refreshWhenHidden: false,
     refreshWhenOffline: false,
   });
+};
+
+const buildFollowerDetailUrl = (
+  integrationId: string,
+  externalId: string
+) =>
+  `/followers/${integrationId}/member?externalId=${encodeURIComponent(externalId)}`;
+
+export const useFollowerDetail = (
+  integrationId?: string,
+  externalId?: string
+) => {
+  const fetch = useFetch();
+
+  const url = useMemo(() => {
+    if (!integrationId || !externalId) {
+      return null;
+    }
+    return buildFollowerDetailUrl(integrationId, externalId);
+  }, [integrationId, externalId]);
+
+  const load = useCallback(
+    async (path: string) => {
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error('Failed to load follower details');
+      }
+      return (await response.json()) as FollowerMemberDetail;
+    },
+    [fetch]
+  );
+
+  return useSWR<FollowerMemberDetail>(url, load, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    revalidateIfStale: false,
+    refreshWhenHidden: false,
+    refreshWhenOffline: false,
+  });
+};
+
+export const useFollowerNoteMutations = (
+  integrationId: string,
+  externalId: string,
+  revalidateDetail: () => Promise<FollowerMemberDetail | undefined>
+) => {
+  const fetch = useFetch();
+
+  const createNote = useCallback(
+    async (content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) {
+        throw new Error('Note content is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/member/notes`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ externalId, content: trimmed }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to create note');
+      }
+      await revalidateDetail();
+      return (await response.json()) as FollowerMemberNote;
+    },
+    [externalId, fetch, integrationId, revalidateDetail]
+  );
+
+  const updateNote = useCallback(
+    async (noteId: string, content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) {
+        throw new Error('Note content is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/member/notes/${noteId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ content: trimmed }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to update note');
+      }
+      await revalidateDetail();
+    },
+    [fetch, integrationId, revalidateDetail]
+  );
+
+  const deleteNote = useCallback(
+    async (noteId: string) => {
+      const response = await fetch(
+        `/followers/${integrationId}/member/notes/${noteId}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to delete note');
+      }
+      await revalidateDetail();
+    },
+    [fetch, integrationId, revalidateDetail]
+  );
+
+  return { createNote, updateNote, deleteNote };
 };

@@ -1,6 +1,6 @@
 'use client';
 
-import { FC } from 'react';
+import { FC, KeyboardEvent, MouseEvent } from 'react';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
@@ -32,7 +32,8 @@ const formatCompactCount = (value: number) => {
 
 export const FollowerCard: FC<{
   follower: Follower;
-}> = ({ follower }) => {
+  onOpen?: () => void;
+}> = ({ follower, onOpen }) => {
   const t = useT();
   const followedAt = follower.followedAt
     ? formatDate(follower.followedAt)
@@ -49,12 +50,47 @@ export const FollowerCard: FC<{
     Number.isFinite(follower.interactionScore) ||
     !!lastInteractionAt;
 
+  const handleCardClick = () => {
+    onOpen?.();
+  };
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (!onOpen) {
+      return;
+    }
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest('a[href]')
+    ) {
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      onOpen();
+    }
+  };
+
+  const stopProfileNavigation = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.stopPropagation();
+  };
+
+  const stopProfileKeyboard = (event: KeyboardEvent<HTMLAnchorElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.stopPropagation();
+    }
+  };
+
   return (
     <article
+      role={onOpen ? 'button' : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={onOpen ? handleCardClick : undefined}
+      onKeyDown={onOpen ? handleCardKeyDown : undefined}
       className={clsx(
         'flex flex-col gap-[12px] h-full',
         'bg-newTableHeader border border-newTableBorder rounded-[12px]',
-        'p-[16px] transition-all duration-200 hover:border-newTextColor/20'
+        'p-[16px] transition-all duration-200 hover:border-newTextColor/20',
+        onOpen && 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-newTextColor/30'
       )}
     >
       <div className="flex flex-1 items-start gap-[12px]">
@@ -63,6 +99,8 @@ export const FollowerCard: FC<{
             href={follower.profileUrl}
             target="_blank"
             rel="noreferrer noopener"
+            onClick={stopProfileNavigation}
+            onKeyDown={stopProfileKeyboard}
             className="shrink-0 rounded-full hover:opacity-80"
             aria-label={t(
               'followers_view_profile_for',
@@ -101,6 +139,8 @@ export const FollowerCard: FC<{
                     href={follower.profileUrl}
                     target="_blank"
                     rel="noreferrer noopener"
+                    onClick={stopProfileNavigation}
+                    onKeyDown={stopProfileKeyboard}
                     className="text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80 block"
                   >
                     {handle}
@@ -127,7 +167,7 @@ export const FollowerCard: FC<{
                 <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[4px] text-[12px] text-textItemBlur">
                   {Number.isFinite(follower.interactionScore) && (
                     <span>
-                      {t('followers_quality_score', 'Quality score {{score}}', {
+                      {t('followers_activity_score', 'Activity score {{score}}', {
                         score: follower.interactionScore!,
                       })}
                     </span>

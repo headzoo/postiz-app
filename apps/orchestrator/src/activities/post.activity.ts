@@ -25,6 +25,10 @@ import {
 } from '@gitroom/nestjs-libraries/temporal/temporal.search.attribute';
 import { SubscriptionService } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service';
 import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service';
+import {
+  getPublishFileSinkDirectory,
+  sinkOutboundPublish,
+} from '@gitroom/nestjs-libraries/integrations/publish.file.sink';
 
 // Drops fields the workflow and downstream activities never read — biggest wins are `error` (grows per retry) and `childrenPost` (Prisma side-loads it on every recursive row).
 function slimPost(post: any) {
@@ -179,30 +183,53 @@ export class PostActivity {
       posts
     );
 
+    const mappedPosts = await Promise.all(
+      (newPosts || []).map(async (p) => ({
+        id: p.id,
+        message: stripHtmlValidation(
+          getIntegration.editor,
+          p.content,
+          true,
+          false,
+          !/<\/?[a-z][\s\S]*>/i.test(p.content),
+          getIntegration.mentionFormat
+        ),
+        settings: JSON.parse(p.settings || '{}'),
+        media: await this._postService.updateMedia(
+          p.id,
+          JSON.parse(p.image || '[]'),
+          getIntegration?.convertToJPEG || false
+        ),
+      }))
+    );
+
+    if (getPublishFileSinkDirectory()) {
+      const filename = await sinkOutboundPublish({
+        action: 'comment',
+        provider: integration.providerIdentifier,
+        integrationId: integration.id,
+        internalId: integration.internalId,
+        name: integration.name,
+        posts: mappedPosts,
+        extra: { postId, lastPostId },
+      });
+      console.log(
+        `Publish file sink: wrote ${filename} for ${integration.providerIdentifier} comment`
+      );
+      return mappedPosts.map((p) => ({
+        id: p.id,
+        postId: filename,
+        releaseURL: filename,
+        status: 'completed',
+      }));
+    }
+
     return getIntegration.comment(
       integration.internalId,
       postId,
       lastPostId,
       integration.token,
-      await Promise.all(
-        (newPosts || []).map(async (p) => ({
-          id: p.id,
-          message: stripHtmlValidation(
-            getIntegration.editor,
-            p.content,
-            true,
-            false,
-            !/<\/?[a-z][\s\S]*>/i.test(p.content),
-            getIntegration.mentionFormat
-          ),
-          settings: JSON.parse(p.settings || '{}'),
-          media: await this._postService.updateMedia(
-            p.id,
-            JSON.parse(p.image || '[]'),
-            getIntegration?.convertToJPEG || false
-          ),
-        }))
-      ),
+      mappedPosts,
       integration
     );
   }
@@ -265,20 +292,40 @@ export class PostActivity {
       }))
     );
 
-    const postNow =
-      allowPending && getIntegration.postPending
-        ? await getIntegration.postPending(
-            integration.internalId,
-            integration.token,
-            mappedPosts,
-            integration
-          )
-        : await getIntegration.post(
-            integration.internalId,
-            integration.token,
-            mappedPosts,
-            integration
-          );
+    let postNow;
+    if (getPublishFileSinkDirectory()) {
+      const filename = await sinkOutboundPublish({
+        action: 'post',
+        provider: integration.providerIdentifier,
+        integrationId: integration.id,
+        internalId: integration.internalId,
+        name: integration.name,
+        posts: mappedPosts,
+      });
+      console.log(
+        `Publish file sink: wrote ${filename} for ${integration.providerIdentifier} post`
+      );
+      postNow = mappedPosts.map((p) => ({
+        id: p.id,
+        postId: filename,
+        releaseURL: filename,
+        status: 'completed',
+      }));
+    } else if (allowPending && getIntegration.postPending) {
+      postNow = await getIntegration.postPending(
+        integration.internalId,
+        integration.token,
+        mappedPosts,
+        integration
+      );
+    } else {
+      postNow = await getIntegration.post(
+        integration.internalId,
+        integration.token,
+        mappedPosts,
+        integration
+      );
+    }
 
     // The post is already published at this point: the streak is best-effort,
     // failing the activity here would retry it and publish again.
@@ -306,6 +353,25 @@ export class PostActivity {
 
   @ActivityMethod()
   async checkPostStatus(integration: Integration, pendingData: any) {
+    if (getPublishFileSinkDirectory()) {
+      const filename = await sinkOutboundPublish({
+        action: 'checkPostStatus',
+        provider: integration.providerIdentifier,
+        integrationId: integration.id,
+        internalId: integration.internalId,
+        name: integration.name,
+        extra: { pendingData },
+      });
+      console.log(
+        `Publish file sink: wrote ${filename} for ${integration.providerIdentifier} checkPostStatus`
+      );
+      return {
+        status: 'completed' as const,
+        postId: filename,
+        releaseURL: filename,
+      };
+    }
+
     const getIntegration = this._integrationManager.getSocialIntegration(
       integration.providerIdentifier
     );
@@ -319,6 +385,25 @@ export class PostActivity {
 
   @ActivityMethod()
   async finalizePost(integration: Integration, pendingData: any) {
+    if (getPublishFileSinkDirectory()) {
+      const filename = await sinkOutboundPublish({
+        action: 'finalizePost',
+        provider: integration.providerIdentifier,
+        integrationId: integration.id,
+        internalId: integration.internalId,
+        name: integration.name,
+        extra: { pendingData },
+      });
+      console.log(
+        `Publish file sink: wrote ${filename} for ${integration.providerIdentifier} finalizePost`
+      );
+      return {
+        status: 'completed' as const,
+        postId: filename,
+        releaseURL: filename,
+      };
+    }
+
     const getIntegration = this._integrationManager.getSocialIntegration(
       integration.providerIdentifier
     );

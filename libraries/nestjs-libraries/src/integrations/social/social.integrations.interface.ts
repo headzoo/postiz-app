@@ -274,6 +274,53 @@ export type FollowerPage = {
   tracking?: FollowerPageTracking;
 };
 
+export type FollowerMemberNoteAuthor = {
+  id: string;
+  name: string;
+};
+
+export type FollowerMemberNote = {
+  id: string;
+  content: string;
+  author: FollowerMemberNoteAuthor;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FollowerMemberInteraction = {
+  id: string;
+  kind: ChannelInteractionKind;
+  direction: ChannelInteractionDirection;
+  timestamp: string;
+  relatedObjectId?: string;
+};
+
+export type FollowerRelationshipSnapshot = {
+  snapshotAt: string;
+  windowStartedAt: string;
+  effortScore: number;
+  reciprocationScore: number;
+  reciprocity: number | null;
+  grade: number | null;
+  formulaVersion: number;
+};
+
+export type FollowerRelationship = {
+  windowDays: 30;
+  cadenceDays: 30;
+  formulaVersion: 1;
+  current: FollowerRelationshipSnapshot | null;
+  history: FollowerRelationshipSnapshot[];
+};
+
+export type FollowerMemberDetail = {
+  follower: Follower;
+  notes: FollowerMemberNote[];
+  interactions: FollowerMemberInteraction[];
+  relationship: FollowerRelationship;
+  tracking?: FollowerPageTracking;
+};
+
 export type ChannelInteractionDirection = 'inbound' | 'outbound';
 
 export type ChannelInteractionKind =
