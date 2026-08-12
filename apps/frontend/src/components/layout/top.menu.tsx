@@ -198,27 +198,6 @@ export const useMenuItem = () => {
       ),
       path: '/plugs',
     },
-    {
-      name: t('integrations', 'Integrations'),
-      icon: (
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="19"
-          viewBox="0 0 20 19"
-          fill="none"
-        >
-          <path
-            d="M6.175 3.125C6.175 1.9514 7.1264 1 8.3 1C9.47361 1 10.425 1.9514 10.425 3.125V4.4H11.275C12.4632 4.4 13.0572 4.4 13.5258 4.59411C14.1507 4.85292 14.6471 5.34934 14.9059 5.97416C15.1 6.44277 15.1 7.03685 15.1 8.225H16.375C17.5486 8.225 18.5 9.1764 18.5 10.35C18.5 11.5236 17.5486 12.475 16.375 12.475H15.1V13.92C15.1 15.3481 15.1 16.0622 14.8221 16.6077C14.5776 17.0875 14.1875 17.4776 13.7077 17.7221C13.1622 18 12.4481 18 11.02 18H10.425V16.5125C10.425 15.4563 9.56874 14.6 8.5125 14.6C7.45626 14.6 6.6 15.4563 6.6 16.5125V18H5.58C4.15187 18 3.4378 18 2.89232 17.7221C2.41251 17.4776 2.02241 17.0875 1.77793 16.6077C1.5 16.0622 1.5 15.3481 1.5 13.92V12.475H2.775C3.94861 12.475 4.9 11.5236 4.9 10.35C4.9 9.1764 3.94861 8.225 2.775 8.225H1.5C1.5 7.03685 1.5 6.44277 1.69411 5.97416C1.95292 5.34934 2.44934 4.85292 3.07416 4.59411C3.54277 4.4 4.13685 4.4 5.325 4.4H6.175V3.125Z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
-      path: '/third-party',
-    },
   ] satisfies MenuItemInterface[] as MenuItemInterface[];
 
   const secondMenu = [
@@ -384,33 +363,33 @@ export const TopMenu: FC = () => {
         {
           // @ts-ignore
           user?.orgId &&
-            // @ts-ignore
-            (user.tier !== 'FREE' || !isGeneral || !billingEnabled) &&
-            firstMenu
-              .filter((f) => {
-                if (f.hide) {
-                  return false;
-                }
-                if (f.requireBilling && !billingEnabled) {
-                  return false;
-                }
-                if (f.name === 'Billing' && user?.isLifetime) {
-                  return false;
-                }
-                if (f.role) {
-                  return f.role.includes(user?.role!);
-                }
-                return true;
-              })
-              .map((item, index) => (
-                <MenuItem
-                  path={item.path}
-                  label={item.name}
-                  icon={item.icon}
-                  key={item.name}
-                  onClick={item.onClick}
-                />
-              ))
+          // @ts-ignore
+          (user.tier !== 'FREE' || !isGeneral || !billingEnabled) &&
+          firstMenu
+            .filter((f) => {
+              if (f.hide) {
+                return false;
+              }
+              if (f.requireBilling && !billingEnabled) {
+                return false;
+              }
+              if (f.name === 'Billing' && user?.isLifetime) {
+                return false;
+              }
+              if (f.role) {
+                return f.role.includes(user?.role!);
+              }
+              return true;
+            })
+            .map((item, index) => (
+              <MenuItem
+                path={item.path}
+                label={item.name}
+                icon={item.icon}
+                key={item.name}
+                onClick={item.onClick}
+              />
+            ))
         }
       </div>
       <div className="flex flex-col minCustom:gap-[20px] custom:gap-[8px] blurMe">

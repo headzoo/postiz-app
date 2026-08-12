@@ -107,6 +107,7 @@ type CellEntry =
 
 /** Visible height of each tucked channel card above the front card. */
 const STACK_PEEK_PX = 32;
+const STACK_EXPAND_MAX_PX = 140;
 const STACK_SHADOW = 'shadow-[0_2px_6px_rgba(0,0,0,0.35)]';
 
 function pickPrimaryPost(posts: CalendarItemPost[]): CalendarItemPost {
@@ -1233,43 +1234,6 @@ const ChannelAvatar: FC<{
   );
 };
 
-/** Colored strip peek for a channel tucked behind the front card. */
-const StackPeekCard: FC<{
-  post: CalendarItemPost;
-  onClick: () => void;
-}> = ({ post, onClick }) => {
-  const headerColor = resolveCalendarPostHeaderColor(
-    post.pipelineColor,
-    post?.tags?.[0]?.tag?.color
-  );
-  const headerForeground = headerColor
-    ? getReadableForegroundColor(headerColor)
-    : undefined;
-
-  return (
-    <div
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      className={clsx(
-        'w-full h-full rounded-[10px] flex items-center gap-[6px] px-[8px] cursor-pointer relative',
-        STACK_SHADOW,
-        !headerColor && 'text-white bg-btnPrimary'
-      )}
-      style={{
-        backgroundColor: headerColor,
-        color: headerForeground,
-      }}
-    >
-      <ChannelAvatar post={post} size={18} />
-      <div className="min-w-0 flex-1 text-[11px] font-[600] truncate text-start">
-        {post.integration?.name || post.integration?.providerIdentifier}
-      </div>
-    </div>
-  );
-};
-
 const StackedCalendarItem: FC<{
   date: dayjs.Dayjs;
   isBeforeNow: boolean;
@@ -1306,12 +1270,21 @@ const StackedCalendarItem: FC<{
     openMissingRelease,
   } = usePostActions();
   const [expanded, setExpanded] = useState(false);
+  const [revealOverflow, setRevealOverflow] = useState(false);
   const stackRef = useClickOutside<HTMLDivElement>(() => {
     setExpanded(false);
   });
   const expandStack = useCallback(() => {
     setExpanded(true);
   }, []);
+  useEffect(() => {
+    if (!expanded) {
+      setRevealOverflow(false);
+      return;
+    }
+    const timeout = window.setTimeout(() => setRevealOverflow(true), 200);
+    return () => window.clearTimeout(timeout);
+  }, [expanded]);
   const primary = pickPrimaryPost(posts);
   // Wallet order: peeks on top (behind), full card at the bottom (front).
   const ordered = [
@@ -1361,7 +1334,6 @@ const StackedCalendarItem: FC<{
       <div
         // @ts-ignore
         ref={expanded ? undefined : dragRef}
-        className={clsx(expanded && 'flex flex-col gap-[5px]')}
         style={{ opacity: expanded ? 1 : opacity }}
       >
         {hasError && !expanded && (
@@ -1375,68 +1347,61 @@ const StackedCalendarItem: FC<{
             !
           </div>
         )}
-        {expanded
-          ? ordered.map((post) => (
-            <CalendarItem
+        {ordered.map((post, index) => {
+          const isFront = index === ordered.length - 1;
+          const isPeek = !expanded && !isFront;
+          return (
+            <div
               key={post.id}
-              date={date}
-              isBeforeNow={isBeforeNow}
-              display={display}
-              integrations={integrations}
-              showTime={showTime}
-              editPost={openEdit(post, false)}
-              duplicatePost={openEdit(post, true)}
-              deletePost={deletePost(post)}
-              statistics={openStatistics(post.id)}
-              missingRelease={openMissingRelease(post.id)}
-              copyDebugJson={
-                user?.isSuperAdmin ? copyDebugJson(post) : undefined
-              }
-              post={post}
-            />
-          ))
-          : ordered.map((post, index) => {
-            const isFront = index === ordered.length - 1;
-            return (
-              <div
-                key={post.id}
-                className="relative w-full"
-                style={{
-                  zIndex: index + 1,
-                  ...(isFront
-                    ? {}
-                    : {
-                      height: STACK_PEEK_PX,
-                      minHeight: STACK_PEEK_PX,
-                      marginBottom: -10,
-                    }),
-                }}
-              >
-                {isFront ? (
-                  <CalendarItem
-                    date={date}
-                    isBeforeNow={isBeforeNow}
-                    display={display}
-                    integrations={integrations}
-                    showTime={showTime}
-                    editPost={expandStack}
-                    duplicatePost={duplicatePost}
-                    deletePost={_deletePost}
-                    statistics={statistics}
-                    missingRelease={missingRelease}
-                    copyDebugJson={_copyDebugJson}
-                    post={post}
-                    stackPosts={posts}
-                    disableDrag
-                    stackShadow
-                    hideActions
-                  />
-                ) : (
-                  <StackPeekCard post={post} onClick={expandStack} />
-                )}
-              </div>
-            );
-          })}
+              className={clsx(
+                'relative w-full transition-[max-height,margin-bottom] duration-200 ease-out',
+                (isPeek || (expanded && !revealOverflow)) && 'overflow-hidden'
+              )}
+              style={{
+                zIndex: index + 1,
+                maxHeight: isPeek ? STACK_PEEK_PX : STACK_EXPAND_MAX_PX,
+                marginBottom: isPeek
+                  ? -10
+                  : isFront
+                    ? 0
+                    : 5,
+              }}
+            >
+              <CalendarItem
+                date={date}
+                isBeforeNow={isBeforeNow}
+                display={display}
+                integrations={integrations}
+                showTime={showTime}
+                editPost={expanded ? openEdit(post, false) : expandStack}
+                duplicatePost={
+                  expanded ? openEdit(post, true) : duplicatePost
+                }
+                deletePost={expanded ? deletePost(post) : _deletePost}
+                statistics={
+                  expanded ? openStatistics(post.id) : statistics
+                }
+                missingRelease={
+                  expanded
+                    ? openMissingRelease(post.id)
+                    : missingRelease
+                }
+                copyDebugJson={
+                  expanded
+                    ? user?.isSuperAdmin
+                      ? copyDebugJson(post)
+                      : undefined
+                    : _copyDebugJson
+                }
+                post={post}
+                stackPosts={expanded ? undefined : posts}
+                disableDrag={!expanded}
+                stackShadow
+                hideActions={!expanded}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
