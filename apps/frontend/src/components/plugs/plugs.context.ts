@@ -9,6 +9,22 @@ export interface PlugSettings {
 export interface PlugInterface extends PlugSettings {
   plugs: PlugsInterface[];
 }
+export interface ProviderPlugEntry {
+  identifier: string;
+  name: string;
+  plugs: PlugsInterface[];
+}
+export interface ProviderPlugListResponse {
+  plugs: ProviderPlugEntry[];
+}
+export interface SavedPlugRow {
+  id: string;
+  plugFunction: string;
+  data: string;
+  activated: boolean;
+  integrationId?: string;
+  organizationId?: string;
+}
 export interface FieldsInterface {
   name: string;
   type: string;

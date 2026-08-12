@@ -10,6 +10,9 @@ import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integ
 import {
   AnalyticsData,
   ChannelNoticeStatus,
+  Follower,
+  FollowerPage,
+  FollowerQuery,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { Integration, Organization, User } from '@prisma/client';
@@ -27,6 +30,7 @@ import { AutopostRepository } from '@gitroom/nestjs-libraries/database/prisma/au
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
 import { TemporalService } from 'nestjs-temporal-core';
 import pLimit from 'p-limit';
+import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service';
 
 dayjs.extend(utc);
 
@@ -40,7 +44,8 @@ export class IntegrationService {
     private _notificationService: NotificationService,
     @Inject(forwardRef(() => RefreshIntegrationService))
     private _refreshIntegrationService: RefreshIntegrationService,
-    private _temporalService: TemporalService
+    private _temporalService: TemporalService,
+    private _pipelinePlugService: PipelinePlugService
   ) {}
 
   async changeActiveCron(orgId: string) {
@@ -151,6 +156,263 @@ export class IntegrationService {
 
   getIntegrationsList(org: string) {
     return this._integrationRepository.getIntegrationsList(org);
+  }
+
+  async getFollowerChannels(org: Organization) {
+    const integrations = await this._integrationRepository.getIntegrationsList(
+      org.id
+    );
+    const limit = pLimit(5);
+
+    const channels = await Promise.all(
+      integrations.map((integration) =>
+        limit(async () => {
+          if (
+            integration.disabled ||
+            integration.deletedAt ||
+            integration.type !== 'social'
+          ) {
+            return;
+          }
+
+          let provider: SocialProvider;
+          try {
+            provider = this._integrationManager.getSocialIntegration(
+              integration.providerIdentifier
+            );
+          } catch {
+            return;
+          }
+
+          if (!provider?.followers) {
+            return;
+          }
+
+          const cacheKey = `integration:followers:probe:${org.id}:${integration.id}`;
+          let eligible: boolean | undefined;
+          try {
+            const cached = await ioRedis.get(cacheKey);
+            if (cached === '1') {
+              eligible = true;
+            } else if (cached === '0') {
+              eligible = false;
+            }
+          } catch {}
+
+          if (eligible === undefined) {
+            try {
+              const page = await this.getFollowerPage(
+                integration,
+                provider,
+                { limit: 1 }
+              );
+              eligible = page.items.length > 0;
+              try {
+                await ioRedis.set(
+                  cacheKey,
+                  eligible ? '1' : '0',
+                  'EX',
+                  !process.env.NODE_ENV || process.env.NODE_ENV === 'development'
+                    ? 1
+                    : 300
+                );
+              } catch {}
+            } catch {
+              return;
+            }
+          }
+
+          if (!eligible) {
+            return;
+          }
+
+          return {
+            id: integration.id,
+            name: integration.name,
+            picture: this.sanitizeHttpUrl(integration.picture),
+            display: integration.profile || undefined,
+            identifier: integration.providerIdentifier,
+            sorts: provider.followerSorts || [],
+          };
+        })
+      )
+    );
+
+    return channels.filter(
+      (channel): channel is NonNullable<typeof channel> => !!channel
+    );
+  }
+
+  async getFollowers(
+    org: Organization,
+    integrationId: string,
+    query: FollowerQuery
+  ) {
+    const integration = await this._integrationRepository.getIntegrationById(
+      org.id,
+      integrationId
+    );
+
+    if (!integration) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (
+      integration.disabled ||
+      integration.deletedAt ||
+      integration.type !== 'social'
+    ) {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    let provider: SocialProvider;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!provider?.followers) {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    this.validateFollowerQuery(provider, query);
+
+    try {
+      return await this.getFollowerPage(integration, provider, query);
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Followers are temporarily unavailable',
+        HttpStatus.SERVICE_UNAVAILABLE
+      );
+    }
+  }
+
+  private validateFollowerQuery(provider: SocialProvider, query: FollowerQuery) {
+    if (query.cursor && this.isHttpUrl(query.cursor)) {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!query.sort && !query.direction) {
+      return;
+    }
+
+    const sort = provider.followerSorts?.find(
+      (candidate) => candidate.key === query.sort
+    );
+    if (!sort || (query.direction && !sort.directions.includes(query.direction))) {
+      throw new HttpException('Unsupported follower sort', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  private async getFollowerPage(
+    integration: Integration,
+    provider: SocialProvider,
+    query: FollowerQuery,
+    forceRefresh = false
+  ): Promise<FollowerPage> {
+    const liveIntegration = { ...integration };
+    if (
+      forceRefresh ||
+      (!!liveIntegration.tokenExpiration &&
+        dayjs(liveIntegration.tokenExpiration).isBefore(dayjs()))
+    ) {
+      const data = await this._refreshIntegrationService.refresh(liveIntegration);
+      if (!data || !data.accessToken) {
+        throw new HttpException(
+          'Followers are temporarily unavailable',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+      liveIntegration.token = data.accessToken;
+      if (provider.refreshWait) {
+        await timer(10000);
+      }
+    }
+
+    try {
+      const page = await provider.followers!(
+        liveIntegration,
+        liveIntegration.token,
+        query
+      );
+      return this.sanitizeFollowerPage(page);
+    } catch (error) {
+      if (error instanceof RefreshToken && !forceRefresh) {
+        return this.getFollowerPage(integration, provider, query, true);
+      }
+      throw error;
+    }
+  }
+
+  private sanitizeFollowerPage(page: FollowerPage): FollowerPage {
+    return {
+      items: Array.isArray(page?.items)
+        ? page.items.map((follower) => this.sanitizeFollower(follower))
+        : [],
+      ...(Number.isSafeInteger(page?.total) && page.total >= 0
+        ? { total: page.total }
+        : {}),
+      ...(typeof page?.nextCursor === 'string' &&
+      !this.isHttpUrl(page.nextCursor)
+        ? { nextCursor: page.nextCursor }
+        : {}),
+      ...(typeof page?.previousCursor === 'string' &&
+      !this.isHttpUrl(page.previousCursor)
+        ? { previousCursor: page.previousCursor }
+        : {}),
+      hasMore: page?.hasMore === true,
+    };
+  }
+
+  private sanitizeFollower(follower: Follower): Follower {
+    return {
+      id: String(follower.id),
+      name: String(follower.name),
+      ...(typeof follower.username === 'string'
+        ? { username: follower.username }
+        : {}),
+      ...(this.sanitizeHttpUrl(follower.picture)
+        ? { picture: this.sanitizeHttpUrl(follower.picture) }
+        : {}),
+      ...(this.sanitizeHttpUrl(follower.profileUrl)
+        ? { profileUrl: this.sanitizeHttpUrl(follower.profileUrl) }
+        : {}),
+      ...(typeof follower.bio === 'string' ? { bio: follower.bio } : {}),
+      ...(Number.isFinite(follower.followersCount)
+        ? { followersCount: follower.followersCount }
+        : {}),
+      ...(Number.isFinite(follower.followingCount)
+        ? { followingCount: follower.followingCount }
+        : {}),
+      ...(Number.isFinite(follower.influenceScore)
+        ? { influenceScore: follower.influenceScore }
+        : {}),
+      ...(typeof follower.followedAt === 'string'
+        ? { followedAt: follower.followedAt }
+        : {}),
+      ...(typeof follower.accountCreatedAt === 'string'
+        ? { accountCreatedAt: follower.accountCreatedAt }
+        : {}),
+    };
+  }
+
+  private sanitizeHttpUrl(url: string | null | undefined) {
+    return typeof url === 'string' && this.isHttpUrl(url) ? url : undefined;
+  }
+
+  private isHttpUrl(value: string) {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      return false;
+    }
   }
 
   getIntegrationForOrder(id: string, order: string, user: string, org: string) {
@@ -724,9 +986,13 @@ export class IntegrationService {
     delay: number;
     totalRuns: number;
     currentRun: number;
+    source?: 'channel' | 'pipeline';
   }) {
-    const getPlugById = await this._integrationRepository.getPlug(data.plugId);
-    if (!getPlugById) {
+    const getPlugById = await this._pipelinePlugService.getForExecution(
+      data.source || 'channel',
+      data.plugId
+    );
+    if (!getPlugById || !getPlugById.activated) {
       return true;
     }
 

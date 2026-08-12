@@ -45,6 +45,7 @@ import { WalletProvider } from '@gitroom/backend/services/auth/providers/wallet.
 import { OauthProvider } from '@gitroom/backend/services/auth/providers/oauth.provider';
 import { PipelinesController } from '@gitroom/backend/api/routes/pipelines.controller';
 import { ContextDocumentsController } from '@gitroom/backend/api/routes/context-documents.controller';
+import { FollowersController } from '@gitroom/backend/api/routes/followers.controller';
 
 const authenticatedController = [
   UsersController,
@@ -68,6 +69,7 @@ const authenticatedController = [
   AdminController,
   PipelinesController,
   ContextDocumentsController,
+  FollowersController,
 ];
 @Module({
   imports: [UploadModule],

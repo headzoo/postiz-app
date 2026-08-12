@@ -4,6 +4,8 @@ import { parseFragment } from 'parse5';
 import {
   AnalyticsData,
   AuthTokenDetails,
+  FollowerPage,
+  FollowerQuery,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -106,6 +108,60 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return integration.profile
       ? `https://x.com/${encodeURIComponent(integration.profile)}`
       : undefined;
+  }
+
+  async followers(
+    integration: Integration,
+    accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const client = await this.getClient(accessToken);
+    const response = await client.v2.followers(integration.internalId, {
+      max_results: query.limit,
+      ...(query.cursor ? { pagination_token: query.cursor } : {}),
+      'user.fields': [
+        'created_at',
+        'description',
+        'profile_image_url',
+        'public_metrics',
+        'url',
+        'username',
+        'verified',
+      ],
+    });
+
+    const isHttpUrl = (value?: string) => {
+      try {
+        return value && /^https?:$/.test(new URL(value).protocol)
+          ? value
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const nextCursor = response.meta.next_token;
+
+    return {
+      items: (response.data || []).map((user) => ({
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        ...(isHttpUrl(user.profile_image_url)
+          ? { picture: user.profile_image_url }
+          : {}),
+        profileUrl: `https://x.com/${encodeURIComponent(user.username)}`,
+        ...(user.description ? { bio: user.description } : {}),
+        ...(user.public_metrics?.followers_count !== undefined
+          ? { followersCount: user.public_metrics.followers_count }
+          : {}),
+        ...(user.public_metrics?.following_count !== undefined
+          ? { followingCount: user.public_metrics.following_count }
+          : {}),
+        ...(user.created_at ? { accountCreatedAt: user.created_at } : {}),
+      })),
+      ...(nextCursor ? { nextCursor } : {}),
+      hasMore: !!nextCursor,
+    };
   }
 
   // With `editor = 'html'` the activity hands the provider HTML (needed for

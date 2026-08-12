@@ -1,5 +1,8 @@
 import {
   AuthTokenDetails,
+  FollowerPage,
+  FollowerQuery,
+  FollowerSort,
   PostDetails,
   PostResponse,
   SocialProvider,
@@ -29,6 +32,103 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
   ];
 
   editor = 'normal' as const;
+  followerSorts: FollowerSort[] = [
+    {
+      key: 'recent',
+      label: 'Most recent',
+      directions: ['desc'],
+      defaultDirection: 'desc',
+    },
+  ];
+
+  private decodeFollowerCursor(cursor?: string) {
+    if (!cursor) {
+      return 0;
+    }
+
+    try {
+      const { offset } = JSON.parse(
+        Buffer.from(cursor, 'base64url').toString('utf8')
+      ) as { offset?: unknown };
+      return typeof offset === 'number' &&
+        Number.isSafeInteger(offset) &&
+        offset >= 0
+        ? offset
+        : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private encodeFollowerCursor(offset: number) {
+    return Buffer.from(JSON.stringify({ offset })).toString('base64url');
+  }
+
+  private httpUrl(value: unknown) {
+    try {
+      const url = new URL(String(value));
+      return url.protocol === 'http:' || url.protocol === 'https:'
+        ? url.toString()
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async followers(
+    integration: Integration,
+    accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const limit = Math.min(Math.max(query.limit, 1), 100);
+    const offset = this.decodeFollowerCursor(query.cursor);
+    const url = new URL('https://api.vk.com/method/users.getFollowers');
+    url.search = new URLSearchParams({
+      user_id: integration.internalId,
+      offset: String(offset),
+      count: String(limit),
+      fields: 'screen_name,photo_200,status,counters',
+      access_token: accessToken,
+      v: '5.251',
+    }).toString();
+
+    const { response } = await (await this.fetch(url.toString())).json();
+    const items = Array.isArray(response?.items) ? response.items : [];
+    const nextOffset = offset + items.length;
+
+    return {
+      items: items.map((account: any) => ({
+        id: String(account.id),
+        name:
+          [account.first_name, account.last_name].filter(Boolean).join(' ') ||
+          account.screen_name ||
+          String(account.id),
+        ...(account.screen_name ? { username: account.screen_name } : {}),
+        ...(this.httpUrl(account.photo_200)
+          ? { picture: this.httpUrl(account.photo_200) }
+          : {}),
+        ...(account.screen_name
+          ? {
+              profileUrl: `https://vk.com/${encodeURIComponent(
+                account.screen_name
+              )}`,
+            }
+          : {}),
+        ...(account.status ? { bio: account.status } : {}),
+        ...(Number.isFinite(Number(account.counters?.followers))
+          ? { followersCount: Number(account.counters.followers) }
+          : {}),
+      })),
+      ...(Number.isSafeInteger(response?.count) && response.count >= 0
+        ? { total: response.count }
+        : {}),
+      ...(nextOffset < response?.count
+        ? { nextCursor: this.encodeFollowerCursor(nextOffset) }
+        : {}),
+      hasMore: nextOffset < response?.count,
+    };
+  }
+
   maxLength() {
     return 2048;
   }

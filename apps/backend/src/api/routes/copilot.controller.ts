@@ -23,9 +23,11 @@ import { Request, Response } from 'express';
 import { RequestContext } from '@mastra/core/di';
 import { CheckPolicies } from '@gitroom/backend/services/auth/permissions/permissions.ability';
 import { AuthorizationActions, Sections } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
+import type { SelectedPipelineContext } from '@gitroom/nestjs-libraries/chat/load.tools.service';
 
 export type ChannelsContext = {
-  integrations: string;
+  integrations: unknown[];
+  pipeline: SelectedPipelineContext | null;
   organization: string;
   ui: string;
 };
@@ -76,6 +78,10 @@ export class CopilotController {
     requestContext.set(
       'integrations',
       req?.body?.variables?.properties?.integrations || []
+    );
+    requestContext.set(
+      'pipeline',
+      req?.body?.variables?.properties?.pipeline || null
     );
 
     requestContext.set('organization', JSON.stringify(organization));

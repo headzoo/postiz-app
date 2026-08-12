@@ -22,8 +22,11 @@ import {
   useCopilotMessagesContext,
 } from '@copilotkit/react-core';
 import {
+  buildAgentTransportMetadata,
   MediaPortal,
+  mapSelectedPipelineContext,
   PropertiesContext,
+  stripAgentTransportMetadata,
 } from '@gitroom/frontend/components/agents/agent';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useParams } from 'next/navigation';
@@ -42,7 +45,7 @@ import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 export const AgentChat: FC = () => {
   const { backendUrl } = useVariables();
   const params = useParams<{ id: string }>();
-  const { properties } = useContext(PropertiesContext);
+  const { properties, selectedPipeline } = useContext(PropertiesContext);
   const t = useT();
 
   return (
@@ -54,6 +57,7 @@ export const AgentChat: FC = () => {
       agent="postiz"
       properties={{
         integrations: properties,
+        pipeline: mapSelectedPipelineContext(selectedPipeline),
       }}
     >
       <Hooks />
@@ -160,12 +164,7 @@ const Message: FC<UserMessageProps> = (props) => {
       .replace(/\[\-\-Media\-\-\](.*)\[\-\-Media\-\-\]/g, (match, p1) => {
         return `<div class="flex justify-center mt-[20px]">${p1}</div>`;
       })
-      .replace(
-        /(\[--integrations--\][\s\S]*?\[--integrations--\])/g,
-        (match, p1) => {
-          return ``;
-        }
-      );
+      .replace(/[\s\S]*/, (content) => stripAgentTransportMetadata(content));
   }, [props.message?.content]);
   return (
     <div
@@ -177,7 +176,7 @@ const Message: FC<UserMessageProps> = (props) => {
 const NewInput: FC<InputProps> = (props) => {
   const [media, setMedia] = useState([] as { path: string; id: string }[]);
   const [value, setValue] = useState('');
-  const { properties } = useContext(PropertiesContext);
+  const { properties, selectedPipeline } = useContext(PropertiesContext);
   return (
     <>
       <MediaPortal
@@ -202,21 +201,7 @@ const NewInput: FC<InputProps> = (props) => {
                     .join('\n') +
                   '\n[--Media--]'
                 : '') +
-              `
-${
-  properties.length
-    ? `[--integrations--]
-Use the following social media platforms: ${JSON.stringify(
-        properties.map((p) => ({
-          id: p.id,
-          platform: p.identifier,
-          profilePicture: p.picture,
-          additionalSettings: p.additionalSettings,
-        }))
-      )}
-[--integrations--]`
-    : ``
-}`
+              buildAgentTransportMetadata(properties, selectedPipeline)
           );
           setValue('');
           setMedia([]);

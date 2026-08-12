@@ -5,14 +5,18 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/pipelines/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/context-documents/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/chat/tools/pipeline.context-document.tools.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/chat/load.tools.service.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/posts/posts.repository.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/file.provider.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/imgflip/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/media/media.service.spec.ts',
     '<rootDir>/apps/orchestrator/src/workflows/pipeline-workflows/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/pipelines/**/*.spec.ts',
+    '<rootDir>/apps/frontend/src/components/plugs/plug.utils.spec.ts',
     '<rootDir>/apps/frontend/src/components/new-launch/open-graph/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/media/**/*.spec.tsx',
+    '<rootDir>/apps/frontend/src/components/agents/**/*.spec.tsx',
+    '<rootDir>/apps/frontend/src/components/agents/**/*.spec.ts',
   ],
   transform: {
     '^.+\\.tsx?$': [

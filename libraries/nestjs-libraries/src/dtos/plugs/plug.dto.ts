@@ -1,4 +1,4 @@
-import { IsDefined, IsString, ValidateNested } from 'class-validator';
+import { IsBoolean, IsDefined, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class FieldsDto {
@@ -20,4 +20,10 @@ export class PlugDto {
   @ValidateNested({ each: true })
   @IsDefined()
   fields: FieldsDto[];
+}
+
+export class PlugActivationDto {
+  @IsBoolean()
+  @IsDefined()
+  activated: boolean;
 }

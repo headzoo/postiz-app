@@ -1308,7 +1308,6 @@ describe('Pipeline API boundaries', () => {
         deletedAt: null,
       },
       data: {
-        pipelineQueueItemId: null,
         publishDate: scheduledFor,
         state: 'QUEUE',
         releaseId: null,
@@ -1320,21 +1319,21 @@ describe('Pipeline API boundaries', () => {
         id: 'x-root',
         parentPostId: null,
         state: 'QUEUE',
-        pipelineQueueItemId: null,
+        pipelineQueueItemId: 'item',
         publishDate: scheduledFor,
       }),
       expect.objectContaining({
         id: 'x-thread-child',
         parentPostId: 'x-root',
         state: 'QUEUE',
-        pipelineQueueItemId: null,
+        pipelineQueueItemId: 'item',
         publishDate: scheduledFor,
       }),
       expect.objectContaining({
         id: 'linkedin-root',
         parentPostId: null,
         state: 'QUEUE',
-        pipelineQueueItemId: null,
+        pipelineQueueItemId: 'item',
         publishDate: scheduledFor,
       }),
     ]);

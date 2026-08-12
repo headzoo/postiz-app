@@ -1,5 +1,6 @@
 import {
   AuthTokenDetails,
+  FollowerQuery,
   PostDetails,
   PostResponse,
   SocialProvider,
@@ -54,6 +55,18 @@ interface TumblrCreatePostResponse {
   };
 }
 
+interface TumblrFollowersResponse {
+  response?: {
+    users?: Array<{
+      name?: string;
+      url?: string;
+      following?: boolean;
+      updated?: number | string;
+    }>;
+    total_users?: number;
+  };
+}
+
 type TumblrUploadMedia = {
   type: string;
   identifier: string;
@@ -87,7 +100,7 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
   identifier = 'tumblr';
   name = 'Tumblr';
   isBetweenSteps = true;
-  scopes = ['write', 'offline_access'];
+  scopes = ['basic', 'write', 'offline_access'];
   editor = 'normal' as const;
   dto = TumblrDto;
 
@@ -103,6 +116,57 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
     return integration.profile.startsWith('http')
       ? integration.profile
       : `https://${encodeURIComponent(integration.profile)}.tumblr.com/`;
+  }
+
+  async followers(
+    integration: Integration,
+    accessToken: string,
+    query: FollowerQuery
+  ) {
+    const offset = this.parseFollowerOffset(query.cursor);
+    const params = new URLSearchParams({
+      limit: String(Math.min(Math.max(query.limit, 1), 20)),
+      offset: String(offset),
+    });
+    const response = await this.fetch(
+      `${TUMBLR_API_URL}/blog/${encodeURIComponent(
+        integration.internalId
+      )}/followers?${params.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'User-Agent': TUMBLR_USER_AGENT,
+        },
+      },
+      this.identifier
+    );
+    const body = (await response.json()) as TumblrFollowersResponse;
+    const users = body.response?.users;
+    const total = body.response?.total_users;
+
+    if (!Array.isArray(users)) {
+      throw new Error('Tumblr did not return follower identities');
+    }
+
+    const nextOffset = offset + users.length;
+    return {
+      items: users.map((user) => {
+        const name = user.name || '';
+        return {
+          id: name,
+          name,
+          ...(user.url ? { profileUrl: user.url } : {}),
+          ...(name ? { picture: this.getAvatarUrl(name) } : {}),
+        };
+      }),
+      ...(Number.isSafeInteger(total) && (total as number) >= 0
+        ? { total }
+        : {}),
+      ...(Number.isSafeInteger(total) && nextOffset < (total as number)
+        ? { nextCursor: String(nextOffset) }
+        : {}),
+      hasMore: Number.isSafeInteger(total) && nextOffset < (total as number),
+    };
   }
 
   override async checkValidity(
@@ -467,6 +531,23 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
 
   private getPrimaryBlog(blogs: TumblrBlog[]) {
     return blogs.find((blog) => blog.primary) || blogs[0];
+  }
+
+  private parseFollowerOffset(cursor?: string) {
+    if (!cursor) {
+      return 0;
+    }
+
+    if (!/^(0|[1-9]\d*)$/.test(cursor)) {
+      throw new Error('Invalid Tumblr follower cursor');
+    }
+
+    const offset = Number(cursor);
+    if (!Number.isSafeInteger(offset)) {
+      throw new Error('Invalid Tumblr follower cursor');
+    }
+
+    return offset;
   }
 
   private async requestToken(body: URLSearchParams) {

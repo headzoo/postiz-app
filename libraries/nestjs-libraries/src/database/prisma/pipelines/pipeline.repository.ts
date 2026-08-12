@@ -227,6 +227,9 @@ export class PipelineRepository {
         const oldIds = existing.integrations.map((item: any) => item.integrationId).sort();
         const newIds = body.integrations.map((item) => item.id).sort();
         const integrationsChanged = oldIds.join(',') !== newIds.join(',');
+        const removedIntegrationIds = oldIds.filter(
+          (integrationId) => !newIds.includes(integrationId)
+        );
         if (queued && integrationsChanged) {
           return false;
         }
@@ -243,6 +246,15 @@ export class PipelineRepository {
           if (ownedDocuments.length !== body.contextDocumentIds.length) {
             throw new PipelineContextDocumentsChangedError();
           }
+        }
+
+        if (removedIntegrationIds.length) {
+          await tx.pipelinePlug.deleteMany({
+            where: {
+              pipelineId: id,
+              integrationId: { in: removedIntegrationIds },
+            },
+          });
         }
 
         return tx.pipeline.update({
@@ -810,7 +822,6 @@ export class PipelineRepository {
           deletedAt: null,
         },
         data: {
-          pipelineQueueItemId: null,
           publishDate,
           state: 'QUEUE',
           releaseId: null,

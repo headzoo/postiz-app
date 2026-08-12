@@ -1,4 +1,11 @@
+jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
+  IntegrationManager: class IntegrationManager {},
+}));
+
 import { PipelineExecutionRepository } from './pipeline.execution.repository';
+import { PipelinePlugRepository } from './pipeline.plug.repository';
+import { PipelinePlugService } from './pipeline.plug.service';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 const scheduledFor = '2026-08-10T10:00:00.000Z';
 const request = {
@@ -44,6 +51,288 @@ const queueItem = () => ({
 });
 
 describe('Pipeline execution', () => {
+  const plugMetadata = {
+    getAllPlugs: () => [
+      {
+        identifier: 'x',
+        plugs: [
+          {
+            methodName: 'autoRepostPost',
+            runEveryMilliseconds: 1000,
+            totalRuns: 3,
+            fields: [{ name: 'likesAmount' }],
+          },
+        ],
+      },
+    ],
+  };
+
+  it('uses Pipeline plugs exclusively when a post retains Pipeline provenance', async () => {
+    const pipelinePlugs = {
+      getPostPipelineScope: jest.fn().mockResolvedValue({
+        organizationId: 'org',
+        pipelineQueueItem: { pipelineId: 'pipeline' },
+      }),
+      getActiveForExecution: jest.fn().mockResolvedValue([
+        { id: 'pipeline-plug', plugFunction: 'autoRepostPost' },
+      ]),
+    };
+    const channelPlugs = { getPlugs: jest.fn() };
+    const service = new PipelinePlugService(
+      pipelinePlugs as any,
+      channelPlugs as any,
+      plugMetadata as any
+    );
+
+    await expect(
+      service.resolveGlobalPlugs('post', 'integration', 'x')
+    ).resolves.toEqual([
+      {
+        type: 'global',
+        source: 'pipeline',
+        plugId: 'pipeline-plug',
+        delay: 1000,
+        totalRuns: 3,
+      },
+    ]);
+    expect(channelPlugs.getPlugs).not.toHaveBeenCalled();
+
+    pipelinePlugs.getActiveForExecution.mockResolvedValueOnce([]);
+    await expect(
+      service.resolveGlobalPlugs('post', 'integration', 'x')
+    ).resolves.toEqual([]);
+    expect(channelPlugs.getPlugs).not.toHaveBeenCalled();
+  });
+
+  it('falls back to channel plugs only for posts without Pipeline provenance', async () => {
+    const pipelinePlugs = {
+      getPostPipelineScope: jest.fn().mockResolvedValue({
+        organizationId: 'org',
+        pipelineQueueItem: null,
+      }),
+    };
+    const channelPlugs = {
+      getPlugs: jest.fn().mockResolvedValue([
+        { id: 'channel-plug', plugFunction: 'autoRepostPost' },
+      ]),
+    };
+    const service = new PipelinePlugService(
+      pipelinePlugs as any,
+      channelPlugs as any,
+      plugMetadata as any
+    );
+
+    await expect(
+      service.resolveGlobalPlugs('post', 'integration', 'x')
+    ).resolves.toEqual([
+      expect.objectContaining({ source: 'channel', plugId: 'channel-plug' }),
+    ]);
+    expect(channelPlugs.getPlugs).toHaveBeenCalledWith('org', 'integration');
+  });
+
+  it('requires configured integrations and exact provider field definitions', async () => {
+    const pipelinePlugs = {
+      getPipelineIntegration: jest
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({
+          integrations: [{ integration: { providerIdentifier: 'x' } }],
+        }),
+      upsert: jest.fn(),
+    };
+    const service = new PipelinePlugService(
+      pipelinePlugs as any,
+      {} as any,
+      plugMetadata as any
+    );
+
+    await expect(
+      service.upsert('org', 'pipeline', 'integration', {
+        func: 'autoRepostPost',
+        fields: [{ name: 'likesAmount', value: '10' }],
+      })
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.upsert('org', 'pipeline', 'integration', {
+        func: 'unknown',
+        fields: [],
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.upsert('org', 'pipeline', 'integration', {
+        func: 'autoRepostPost',
+        fields: [{ name: 'unknown', value: '10' }],
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(pipelinePlugs.upsert).not.toHaveBeenCalled();
+  });
+
+  it('does not retain a Pipeline plug when membership is removed during an upsert', async () => {
+    const findFirst = jest
+      .fn()
+      .mockResolvedValueOnce({ id: 'pipeline' })
+      .mockResolvedValueOnce(null);
+    const upsert = jest.fn().mockResolvedValue({
+      id: 'plug',
+      activated: true,
+    });
+    let attempt = 0;
+    const repository = new PipelinePlugRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      {
+        model: {
+          $transaction: jest.fn(async (callback: any, options: any) => {
+            expect(options.isolationLevel).toBe('Serializable');
+            const result = await callback({
+              pipeline: { findFirst },
+              pipelinePlug: { upsert },
+            });
+            attempt++;
+            if (attempt === 1) {
+              throw { code: 'P2034' };
+            }
+            return result;
+          }),
+        },
+      } as any
+    );
+
+    await expect(
+      repository.upsert('org', 'pipeline', 'integration', {
+        func: 'autoRepostPost',
+        fields: [{ name: 'likesAmount', value: '10' }],
+      })
+    ).resolves.toBeNull();
+
+    expect(findFirst).toHaveBeenNthCalledWith(1, {
+      where: {
+        id: 'pipeline',
+        organizationId: 'org',
+        deletedAt: null,
+        integrations: { some: { integrationId: 'integration' } },
+      },
+      select: { id: true },
+    });
+    expect(findFirst).toHaveBeenCalledTimes(2);
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns not found when Pipeline membership is lost during an upsert', async () => {
+    const pipelinePlugs = {
+      getPipelineIntegration: jest.fn().mockResolvedValue({
+        integrations: [{ integration: { providerIdentifier: 'x' } }],
+      }),
+      upsert: jest.fn().mockResolvedValue(null),
+    };
+    const service = new PipelinePlugService(
+      pipelinePlugs as any,
+      {} as any,
+      plugMetadata as any
+    );
+
+    await expect(
+      service.upsert('org', 'pipeline', 'integration', {
+        func: 'autoRepostPost',
+        fields: [{ name: 'likesAmount', value: '10' }],
+      })
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('activates plugs only through a current non-deleted Pipeline assignment', async () => {
+    const findFirst = jest.fn().mockResolvedValue({
+      integrationId: 'integration',
+    });
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const repository = new PipelinePlugRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      {
+        model: {
+          $transaction: jest.fn(async (callback: any, options: any) => {
+            expect(options.isolationLevel).toBe('Serializable');
+            return callback({
+              pipelinePlug: { findFirst, updateMany },
+            });
+          }),
+        },
+      } as any
+    );
+
+    await expect(repository.activate('org', 'pipeline', 'plug', false)).resolves.toEqual({
+      count: 1,
+    });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'plug',
+        pipelineId: 'pipeline',
+        organizationId: 'org',
+        pipeline: {
+          is: {
+            id: 'pipeline',
+            organizationId: 'org',
+            deletedAt: null,
+          },
+        },
+      },
+      select: { integrationId: true },
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'plug',
+        pipelineId: 'pipeline',
+        integrationId: 'integration',
+        organizationId: 'org',
+        pipeline: {
+          is: {
+            id: 'pipeline',
+            organizationId: 'org',
+            deletedAt: null,
+            integrations: { some: { integrationId: 'integration' } },
+          },
+        },
+      },
+      data: { activated: false },
+    });
+  });
+
+  it.each([
+    'cross-organization plug',
+    'soft-deleted Pipeline',
+    'removed Pipeline integration',
+  ])('reports %s activation attempts as not found', async () => {
+    const updateMany = jest.fn();
+    const repository = new PipelinePlugRepository(
+      { model: {} } as any,
+      { model: {} } as any,
+      { model: {} } as any,
+      {
+        model: {
+          $transaction: jest.fn((callback: any) =>
+            callback({
+              pipelinePlug: {
+                findFirst: jest.fn().mockResolvedValue(null),
+                updateMany,
+              },
+            })
+          ),
+        },
+      } as any
+    );
+    const service = new PipelinePlugService(
+      repository,
+      {} as any,
+      plugMetadata as any
+    );
+
+    await expect(
+      service.activate('org', 'pipeline', 'plug', false)
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
   it('claims one logical item once when two claims race', async () => {
     let execution: any;
     const item = queueItem();

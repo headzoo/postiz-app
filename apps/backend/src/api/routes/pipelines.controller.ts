@@ -14,6 +14,11 @@ import { ApiTags } from '@nestjs/swagger';
 import { Organization } from '@prisma/client';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
 import { PipelineService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.service';
+import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service';
+import {
+  PlugActivationDto,
+  PlugDto,
+} from '@gitroom/nestjs-libraries/dtos/plugs/plug.dto';
 import {
   CreatePipelineDto,
   DeletePipelineDto,
@@ -33,7 +38,10 @@ import {
 @ApiTags('Pipelines')
 @Controller('/pipelines')
 export class PipelinesController {
-  constructor(private _pipelineService: PipelineService) { }
+  constructor(
+    private _pipelineService: PipelineService,
+    private _pipelinePlugService: PipelinePlugService
+  ) { }
 
   @Get('/')
   getPipelines(@GetOrgFromRequest() org: Organization) {
@@ -112,6 +120,45 @@ export class PipelinesController {
     @Body() body: ManualSchedulePipelineItemDto
   ) {
     return this._pipelineService.scheduleItem(org.id, itemId, body.date);
+  }
+
+  @Get('/:pipelineId/plugs/:integrationId')
+  getPlugs(
+    @GetOrgFromRequest() org: Organization,
+    @Param('pipelineId') pipelineId: string,
+    @Param('integrationId') integrationId: string
+  ) {
+    return this._pipelinePlugService.list(org.id, pipelineId, integrationId);
+  }
+
+  @Post('/:pipelineId/plugs/:integrationId')
+  upsertPlug(
+    @GetOrgFromRequest() org: Organization,
+    @Param('pipelineId') pipelineId: string,
+    @Param('integrationId') integrationId: string,
+    @Body() body: PlugDto
+  ) {
+    return this._pipelinePlugService.upsert(
+      org.id,
+      pipelineId,
+      integrationId,
+      body
+    );
+  }
+
+  @Put('/:pipelineId/plugs/:plugId/activate')
+  activatePlug(
+    @GetOrgFromRequest() org: Organization,
+    @Param('pipelineId') pipelineId: string,
+    @Param('plugId') plugId: string,
+    @Body() body: PlugActivationDto
+  ) {
+    return this._pipelinePlugService.activate(
+      org.id,
+      pipelineId,
+      plugId,
+      body.activated
+    );
   }
 
   @Get('/:id')

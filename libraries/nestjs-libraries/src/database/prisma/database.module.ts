@@ -50,6 +50,8 @@ import { PipelineRepository } from '@gitroom/nestjs-libraries/database/prisma/pi
 import { PipelineService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.service';
 import { PipelineManager } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.manager';
 import { PipelineExecutionRepository } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.execution.repository';
+import { PipelinePlugRepository } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.repository';
+import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service';
 import { OpenGraphRepository } from '@gitroom/nestjs-libraries/database/prisma/media/open.graph.repository';
 import { ContextDocumentRepository } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.repository';
 import { ContextDocumentService } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.service';
@@ -111,6 +113,8 @@ import { ContextDocumentService } from '@gitroom/nestjs-libraries/database/prism
     AdminStatsService,
     PipelineRepository,
     PipelineExecutionRepository,
+    PipelinePlugRepository,
+    PipelinePlugService,
     PipelineService,
     PipelineManager,
     ContextDocumentRepository,

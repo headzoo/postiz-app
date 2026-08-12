@@ -175,6 +175,49 @@ export type ChannelNoticeStatus =
   | { state: 'unsupported' }
   | { state: 'unavailable' };
 
+/**
+ * Provider-normalized follower data. Omitted fields are unknown. URLs must be
+ * absolute HTTP(S) URLs. Cursors are opaque provider data, not pagination URLs.
+ * Providers must never include credentials or raw provider payloads.
+ */
+export type Follower = {
+  id: string;
+  name: string;
+  username?: string;
+  picture?: string;
+  profileUrl?: string;
+  bio?: string;
+  followersCount?: number;
+  followingCount?: number;
+  influenceScore?: number;
+  followedAt?: string;
+  accountCreatedAt?: string;
+};
+
+export type FollowerSortDirection = 'asc' | 'desc';
+
+export type FollowerSort = {
+  key: string;
+  label: string;
+  directions: FollowerSortDirection[];
+  defaultDirection: FollowerSortDirection;
+};
+
+export type FollowerQuery = {
+  limit: number;
+  cursor?: string;
+  sort?: string;
+  direction?: FollowerSortDirection;
+};
+
+export type FollowerPage = {
+  items: Follower[];
+  total?: number;
+  nextCursor?: string;
+  previousCursor?: string;
+  hasMore: boolean;
+};
+
 export interface SocialProvider
   extends IAuthenticator,
     ISocialMediaIntegration {
@@ -243,4 +286,10 @@ export interface SocialProvider
     accessToken: string,
     since: Date
   ): Promise<ChannelNoticeStatus>;
+  followerSorts?: FollowerSort[];
+  followers?(
+    integration: Integration,
+    accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage>;
 }

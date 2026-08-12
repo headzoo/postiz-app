@@ -31,6 +31,7 @@ model Organization {
   buyerOrganization   MessagesGroup[]
   notifications       Notifications[]
   plugs               Plugs[]
+  pipelinePlugs       PipelinePlug[]
   post                Post[]               @relation("organization")
   submittedPost       Post[]               @relation("submittedForOrg")
   sets                Sets[]
@@ -344,6 +345,7 @@ model Integration {
   webhooks              IntegrationsWebhooks[]
   orderItems            OrderItems[]
   plugs                 Plugs[]
+  pipelinePlugs         PipelinePlug[]
   posts                 Post[]
   pipelineIntegrations  PipelineIntegration[]
   noticeReads           IntegrationNoticeRead[]
@@ -585,6 +587,25 @@ model Plugs {
   @@index([organizationId])
 }
 
+model PipelinePlug {
+  id             String       @id @default(uuid())
+  organizationId String
+  pipelineId     String
+  integrationId  String
+  plugFunction   String
+  data           String
+  activated      Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  pipeline       Pipeline     @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  integration    Integration  @relation(fields: [integrationId], references: [id])
+
+  @@unique([pipelineId, integrationId, plugFunction])
+  @@index([organizationId, pipelineId])
+  @@index([integrationId])
+}
+
 model ExisingPlugData {
   id            String      @id @default(uuid())
   integrationId String
@@ -670,6 +691,7 @@ model Pipeline {
   queueItems       PipelineQueueItem[]
   slotExecutions   PipelineSlotExecution[]
   contextDocuments PipelineContextDocument[]
+  plugs            PipelinePlug[]
 
   @@index([organizationId, deletedAt])
   @@index([organizationId, active])

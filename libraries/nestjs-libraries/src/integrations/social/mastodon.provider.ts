@@ -1,5 +1,7 @@
 import {
   AuthTokenDetails,
+  FollowerPage,
+  FollowerQuery,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -38,10 +40,164 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
   scopes = ['write:statuses', 'profile', 'write:media'];
   editor = 'normal' as const;
 
+  private mastodonInstanceUrl() {
+    return new URL(process.env.MASTODON_URL || 'https://mastodon.social');
+  }
+
+  private httpUrl(value: unknown) {
+    try {
+      const url = new URL(String(value));
+      return url.protocol === 'http:' || url.protocol === 'https:'
+        ? url.toString()
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private decodeFollowerCursor(cursor?: string) {
+    if (!cursor) {
+      return {};
+    }
+
+    try {
+      const value = JSON.parse(
+        Buffer.from(cursor, 'base64url').toString('utf8')
+      ) as Record<string, unknown>;
+      const allowed = ['max_id', 'min_id', 'since_id'];
+
+      return allowed.reduce<Record<string, string>>((params, key) => {
+        if (
+          typeof value[key] === 'string' &&
+          value[key].length > 0 &&
+          value[key].length <= 128
+        ) {
+          params[key] = value[key];
+        }
+        return params;
+      }, {});
+    } catch {
+      return {};
+    }
+  }
+
+  private encodeFollowerCursor(url: string | undefined) {
+    if (!url) {
+      return undefined;
+    }
+
+    try {
+      const link = new URL(url);
+      const cursor = ['max_id', 'min_id', 'since_id'].reduce<
+        Record<string, string>
+      >((params, key) => {
+        const value = link.searchParams.get(key);
+        if (value) {
+          params[key] = value;
+        }
+        return params;
+      }, {});
+
+      return Object.keys(cursor).length
+        ? Buffer.from(JSON.stringify(cursor)).toString('base64url')
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private followerLink(header: string | null, relation: 'next' | 'prev') {
+    if (!header) {
+      return undefined;
+    }
+
+    const link = header
+      .split(',')
+      .map((part) => part.trim())
+      .find((part) => new RegExp(`rel="?${relation}"?`).test(part));
+    return link?.match(/<([^>]+)>/)?.[1];
+  }
+
+  async followers(
+    integration: Integration,
+    accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const url = new URL(
+      `/api/v1/accounts/${encodeURIComponent(
+        integration.internalId
+      )}/followers`,
+      this.mastodonInstanceUrl()
+    );
+    const limit = Math.min(Math.max(query.limit, 1), 80);
+    url.searchParams.set('limit', String(limit));
+    for (const [key, value] of Object.entries(
+      this.decodeFollowerCursor(query.cursor)
+    )) {
+      url.searchParams.set(key, value);
+    }
+
+    const response = await this.fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const accounts = (await response.json()) as any[];
+
+    return {
+      items: (Array.isArray(accounts) ? accounts : []).map((account) => ({
+        id: String(account.id),
+        name: account.display_name || account.acct || String(account.id),
+        ...(account.acct ? { username: account.acct } : {}),
+        ...(this.httpUrl(account.avatar)
+          ? { picture: this.httpUrl(account.avatar) }
+          : {}),
+        ...(this.httpUrl(account.url)
+          ? { profileUrl: this.httpUrl(account.url) }
+          : {}),
+        ...(account.note
+          ? {
+              bio: String(account.note)
+                .replace(/<[^>]*>/g, '')
+                .trim(),
+            }
+          : {}),
+        ...(Number.isFinite(Number(account.followers_count))
+          ? { followersCount: Number(account.followers_count) }
+          : {}),
+        ...(Number.isFinite(Number(account.following_count))
+          ? { followingCount: Number(account.following_count) }
+          : {}),
+        ...(account.created_at ? { accountCreatedAt: account.created_at } : {}),
+      })),
+      ...(this.encodeFollowerCursor(
+        this.followerLink(response.headers.get('link'), 'next')
+      )
+        ? {
+            nextCursor: this.encodeFollowerCursor(
+              this.followerLink(response.headers.get('link'), 'next')
+            ),
+          }
+        : {}),
+      ...(this.encodeFollowerCursor(
+        this.followerLink(response.headers.get('link'), 'prev')
+      )
+        ? {
+            previousCursor: this.encodeFollowerCursor(
+              this.followerLink(response.headers.get('link'), 'prev')
+            ),
+          }
+        : {}),
+      hasMore: !!this.encodeFollowerCursor(
+        this.followerLink(response.headers.get('link'), 'next')
+      ),
+    };
+  }
+
   profileUrl(integration: Integration) {
     const instance = process.env.MASTODON_URL || 'https://mastodon.social';
     return integration.profile
-      ? `${instance.replace(/\/$/, '')}/@${encodeURIComponent(integration.profile)}`
+      ? `${instance.replace(/\/$/, '')}/@${encodeURIComponent(
+          integration.profile
+        )}`
       : undefined;
   }
 

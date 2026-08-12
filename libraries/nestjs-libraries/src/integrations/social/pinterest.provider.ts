@@ -1,6 +1,8 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  FollowerPage,
+  FollowerQuery,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -156,6 +158,47 @@ export class PinterestProvider
     }
 
     return undefined;
+  }
+
+  async followers(
+    integration: Integration,
+    accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const url = new URL('https://api.pinterest.com/v5/user_account/followers');
+    url.searchParams.set(
+      'page_size',
+      String(Math.min(Math.max(query.limit, 1), 100))
+    );
+    if (query.cursor) {
+      url.searchParams.set('bookmark', query.cursor);
+    }
+
+    const page = await (
+      await this.fetch(url.toString(), {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+    ).json();
+    const items = Array.isArray(page.items) ? page.items : [];
+
+    return {
+      items: items
+        .filter(
+          (account: any) =>
+            typeof account?.username === 'string' && account.username
+        )
+        .map((account: any) => ({
+          id: account.username,
+          name: account.username,
+          username: account.username,
+          profileUrl: `https://www.pinterest.com/${encodeURIComponent(
+            account.username
+          )}`,
+        })),
+      ...(page.bookmark ? { nextCursor: String(page.bookmark) } : {}),
+      hasMore: !!page.bookmark,
+    };
   }
 
   async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {

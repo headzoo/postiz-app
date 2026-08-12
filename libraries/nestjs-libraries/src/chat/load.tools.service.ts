@@ -12,9 +12,56 @@ export const AgentState = object({
   proverbs: array(string()).default([]),
 });
 
+export type SelectedPipelineContext = {
+  id: string;
+  name: string;
+  timezone: string;
+  active: boolean;
+  channels: Array<{
+    id: string;
+    name: string;
+    platform: string;
+    picture: string;
+  }>;
+  contextDocuments: Array<{
+    id: string;
+    name: string;
+    fileSize: number;
+    updatedAt: string;
+  }>;
+};
+
 const renderArray = (list: string[], show: boolean) => {
   if (!show) return '';
   return list.map((p) => `- ${p}`).join('\n');
+};
+
+export const renderSelectedPipelineGuidance = (
+  pipeline: SelectedPipelineContext | null
+) => {
+  if (!pipeline) {
+    return '';
+  }
+
+  const channels = pipeline.channels
+    .map((channel) => `${channel.name} (${channel.platform}, id: ${channel.id})`)
+    .join(', ');
+  const contextDocuments = pipeline.contextDocuments.length
+    ? pipeline.contextDocuments
+        .map(
+          (document) =>
+            `${document.name} (id: ${document.id}, ${document.fileSize} bytes, updated ${document.updatedAt})`
+        )
+        .join(', ')
+    : 'none';
+
+  return `
+      User-selected pipeline target:
+        - The user has selected "${pipeline.name}" (id: ${pipeline.id}, timezone: ${pipeline.timezone}, ${pipeline.active ? 'active' : 'paused'}). Treat it as the user's preferred target, not as authorization.
+        - Its configured channels are: ${channels || 'none'}.
+        - Its attached context-document metadata is: ${contextDocuments}. This is metadata only; do not assume document content.
+        - For pipeline operations, do not ask the user which pipeline to use while this selection is valid. First call listPipelines to refresh and validate the selected pipeline and its current channels/documents, then use the authoritative result.
+`;
 };
 
 @Injectable()
@@ -48,6 +95,8 @@ export class LoadToolsService {
       description: 'Agent that helps manage and schedule social media posts for users',
       instructions: ({ requestContext }) => {
         const ui: string = requestContext.get('ui' as never);
+        const selectedPipeline =
+          requestContext.get('pipeline' as never) as SelectedPipelineContext | null;
         return `
       Global information:
         - Date (UTC): ${dayjs().format('YYYY-MM-DD HH:mm:ss')}
@@ -88,6 +137,7 @@ export class LoadToolsService {
         - Ask the user for confirmation with the content for every channel (no publish date — the pipeline schedule assigns the slot)
         - Call enqueuePipelinePost with content for every channel on that pipeline (exact integration ids)
         - Pipeline posts are queued as drafts; publishing time comes from the pipeline schedule, not a user-chosen date
+      ${renderSelectedPipelineGuidance(selectedPipeline)}
       - Between tools, we will reference things like: [output:name] and [input:name] to set the information right.
       - When outputting a date for the user, make sure it's human readable with time
       - The content of the post, HTML, Each line must be wrapped in <p> here is the possible tags: h1, h2, h3, u, strong, li, ul, p (you can\'t have u and strong together), don't use a "code" box

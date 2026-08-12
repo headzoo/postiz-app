@@ -1,5 +1,8 @@
 import {
   AuthTokenDetails,
+  FollowerPage,
+  FollowerQuery,
+  FollowerSort,
   PostDetails,
   PostResponse,
   SocialProvider,
@@ -29,6 +32,20 @@ export class FarcasterProvider
 {
   identifier = 'wrapcast';
   name = 'Farcaster';
+  followerSorts: FollowerSort[] = [
+    {
+      key: 'recent',
+      label: 'Recent',
+      directions: ['desc'],
+      defaultDirection: 'desc',
+    },
+    {
+      key: 'recommended',
+      label: 'Recommended',
+      directions: ['desc'],
+      defaultDirection: 'desc',
+    },
+  ];
   isBetweenSteps = false;
   isWeb3 = true;
   scopes = [] as string[];
@@ -38,6 +55,57 @@ export class FarcasterProvider
     return 800;
   }
   dto = FarcasterDto;
+
+  async followers(
+    integration: Integration,
+    _accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const fid = Number(integration.internalId);
+    if (!Number.isSafeInteger(fid) || fid < 1) {
+      throw new Error('Farcaster integration has an invalid FID');
+    }
+
+    const response = await client.fetchUserFollowers({
+      fid,
+      limit: query.limit,
+      ...(query.cursor ? { cursor: query.cursor } : {}),
+      sortType: query.sort === 'recommended' ? 'algorithmic' : 'desc_chron',
+    });
+    const nextCursor = response.next?.cursor;
+    const isHttpUrl = (value?: string) => {
+      try {
+        return value && /^https?:$/.test(new URL(value).protocol)
+          ? value
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+
+    return {
+      items: response.users.map(({ user }) => ({
+        id: String(user.fid),
+        name: user.display_name || user.username,
+        username: user.username,
+        ...(isHttpUrl(user.pfp_url) ? { picture: user.pfp_url } : {}),
+        profileUrl: `https://warpcast.com/${encodeURIComponent(user.username)}`,
+        ...(user.profile?.bio?.text ? { bio: user.profile.bio.text } : {}),
+        ...(user.follower_count !== undefined
+          ? { followersCount: user.follower_count }
+          : {}),
+        ...(user.following_count !== undefined
+          ? { followingCount: user.following_count }
+          : {}),
+        ...(user.score !== undefined ? { influenceScore: user.score } : {}),
+        ...(user.registered_at
+          ? { accountCreatedAt: user.registered_at }
+          : {}),
+      })),
+      ...(nextCursor ? { nextCursor } : {}),
+      hasMore: !!nextCursor,
+    };
+  }
 
   override async checkValidity(
     list: Array<ValidityMedia[]>

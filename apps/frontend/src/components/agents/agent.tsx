@@ -7,6 +7,7 @@ import React, {
   useMemo,
   useState,
   ReactNode,
+  KeyboardEvent,
 } from 'react';
 import clsx from 'clsx';
 import useCookie from 'react-use-cookie';
@@ -18,10 +19,138 @@ import SafeImage from '@gitroom/react/helpers/safe.image';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useWaitForClass } from '@gitroom/helpers/utils/use.wait.for.class';
 import { MultiMediaComponent } from '@gitroom/frontend/components/media/media.component';
-import { Integration } from '@prisma/client';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { Integrations } from '@gitroom/frontend/components/launches/calendar.context';
+import { PipelineSummary } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import { usePipelineList } from '@gitroom/frontend/components/pipelines/use.pipeline.list';
+import { PipelineChannels } from '@gitroom/frontend/components/pipelines/pipeline.channels';
+
+export interface AgentSelectionState {
+  properties: Integrations[];
+  selectedPipeline: PipelineSummary | null;
+}
+
+export interface SelectedPipelineContext {
+  id: string;
+  name: string;
+  timezone: string;
+  active: boolean;
+  channels: Array<{
+    id: string;
+    name: string;
+    platform: string;
+    picture: string;
+  }>;
+  contextDocuments: Array<{
+    id: string;
+    name: string;
+    fileSize: number;
+    updatedAt: string;
+  }>;
+}
+
+export const defaultAgentSelectionState: AgentSelectionState = {
+  properties: [],
+  selectedPipeline: null,
+};
+
+export function mapSelectedPipelineContext(
+  pipeline: PipelineSummary | null
+): SelectedPipelineContext | null {
+  if (!pipeline) {
+    return null;
+  }
+
+  return {
+    id: pipeline.id,
+    name: pipeline.name,
+    timezone: pipeline.timezone,
+    active: pipeline.active,
+    channels: pipeline.channels.map((channel) => ({
+      id: channel.id,
+      name: channel.name,
+      platform: channel.identifier,
+      picture: channel.picture,
+    })),
+    contextDocuments: (pipeline.contextDocuments || []).map((document) => ({
+      id: document.id,
+      name: document.name,
+      fileSize: document.fileSize,
+      updatedAt: document.updatedAt,
+    })),
+  };
+}
+
+export function buildAgentTransportMetadata(
+  properties: Integrations[],
+  selectedPipeline: PipelineSummary | null
+): string {
+  const pipeline = mapSelectedPipelineContext(selectedPipeline);
+  const integrations = properties.length
+    ? `\n[--integrations--]
+Use the following social media platforms: ${JSON.stringify(
+        properties.map((p) => ({
+          id: p.id,
+          platform: p.identifier,
+          profilePicture: p.picture,
+          additionalSettings: p.additionalSettings,
+        }))
+      )}
+[--integrations--]`
+    : '';
+
+  return (
+    integrations +
+    (pipeline
+      ? `\n[--pipeline--]
+${JSON.stringify(pipeline)}
+[--pipeline--]`
+      : '')
+  );
+}
+
+export function stripAgentTransportMetadata(content: string): string {
+  return content
+    .replace(/\n?\[--integrations--\][\s\S]*?\[--integrations--\]/g, '')
+    .replace(/\n?\[--pipeline--\][\s\S]*?\[--pipeline--\]/g, '');
+}
+
+export function applyChannelToggle(
+  properties: Integrations[],
+  selectedPipeline: PipelineSummary | null,
+  integration: Integrations
+): AgentSelectionState {
+  const currentProperties = properties;
+  const isSelected = currentProperties.some((p) => p.id === integration.id);
+
+  if (isSelected) {
+    return {
+      properties: currentProperties.filter((p) => p.id !== integration.id),
+      selectedPipeline: null,
+    };
+  }
+
+  return {
+    properties: [...currentProperties, integration],
+    selectedPipeline: null,
+  };
+}
+
+export function applyPipelineSelection(
+  selectedPipeline: PipelineSummary | null,
+  pipeline: PipelineSummary
+): AgentSelectionState {
+  if (selectedPipeline?.id === pipeline.id) {
+    return { properties: [], selectedPipeline: null };
+  }
+
+  return {
+    properties: [...pipeline.channels],
+    selectedPipeline: pipeline,
+  };
+}
 
 export const MediaPortal: FC<{
   media: { path: string; id: string }[];
@@ -60,16 +189,23 @@ export const MediaPortal: FC<{
   );
 };
 
-export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
-  onChange,
+export const AgentList: FC<{
+  selectedIntegrations: Integrations[];
+  selectedPipeline: PipelineSummary | null;
+  onToggleIntegration: (integration: Integrations) => void;
+  onSelectPipeline: (pipeline: PipelineSummary) => void;
+}> = ({
+  selectedIntegrations,
+  selectedPipeline,
+  onToggleIntegration,
+  onSelectPipeline,
 }) => {
   const fetch = useFetch();
   const t = useT();
-  const [selected, setSelected] = useState([]);
 
   const load = useCallback(async () => {
     return (await (await fetch('/integrations/list')).json()).integrations;
-  }, []);
+  }, [fetch]);
 
   const [collapseMenu, setCollapseMenu] = useCookie('collapseMenu', '0');
 
@@ -83,18 +219,11 @@ export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
     fallbackData: [],
   });
 
-  const setIntegration = useCallback(
-    (integration: Integration) => () => {
-      if (selected.some((p) => p.id === integration.id)) {
-        onChange(selected.filter((p) => p.id !== integration.id));
-        setSelected(selected.filter((p) => p.id !== integration.id));
-      } else {
-        onChange([...selected, integration]);
-        setSelected([...selected, integration]);
-      }
-    },
-    [selected]
-  );
+  const {
+    data: pipelines,
+    error: pipelinesError,
+    isLoading: pipelinesLoading,
+  } = usePipelineList();
 
   const sortedIntegrations = useMemo(() => {
     return orderBy(
@@ -103,6 +232,18 @@ export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
       ['desc', 'asc', 'asc']
     );
   }, [data]);
+
+  const pipelinesLabel = t('pipelines', 'Pipelines');
+
+  const handlePipelineKeyDown = useCallback(
+    (pipeline: PipelineSummary) => (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        onSelectPipeline(pipeline);
+      }
+    },
+    [onSelectPipeline]
+  );
 
   return (
     <div
@@ -138,13 +279,14 @@ export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
           </div>
         </div>
         <div className={clsx('flex flex-col gap-[15px]')}>
-          {sortedIntegrations.map((integration, index) => (
+          {sortedIntegrations.map((integration) => (
             <div
-              onClick={setIntegration(integration)}
+              onClick={() => onToggleIntegration(integration)}
               key={integration.id}
               className={clsx(
                 'flex gap-[12px] items-center group/profile justify-center hover:bg-boxHover rounded-e-[8px] hover:opacity-100 cursor-pointer',
-                !selected.some((p) => p.id === integration.id) && 'opacity-20'
+                !selectedIntegrations.some((p) => p.id === integration.id) &&
+                  'opacity-20'
               )}
             >
               <div
@@ -153,7 +295,9 @@ export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
                   integration.disabled && 'opacity-50'
                 )}
               >
-                {(integration.inBetweenSteps || integration.refreshNeeded) && (
+                {(integration.inBetweenSteps ||
+                  (integration as Integrations & { refreshNeeded?: boolean })
+                    .refreshNeeded) && (
                   <div className="absolute start-0 top-0 w-[39px] h-[46px] cursor-pointer">
                     <div className="bg-red-500 w-[15px] h-[15px] rounded-full start-0 -top-[5px] absolute z-[200] text-[10px] flex justify-center items-center">
                       !
@@ -191,18 +335,133 @@ export const AgentList: FC<{ onChange: (arr: any[]) => void }> = ({
             </div>
           ))}
         </div>
+
+        <div
+          className="mt-[20px] pt-[20px] border-t border-newBorder flex flex-col gap-[15px]"
+          role="radiogroup"
+          aria-label={pipelinesLabel}
+        >
+          <h2 className="group-[.sidebar]:hidden text-[20px] font-[500]">
+            {pipelinesLabel}
+          </h2>
+
+          {pipelinesLoading && (
+            <div className="text-[13px] opacity-60 group-[.sidebar]:hidden">
+              {t('loading', 'Loading...')}
+            </div>
+          )}
+
+          {pipelinesError && !pipelinesLoading && (
+            <div className="text-[13px] text-red-500 group-[.sidebar]:hidden">
+              {t(
+                'pipelines_load_error',
+                'Failed to load Pipelines. Please refresh and try again.'
+              )}
+            </div>
+          )}
+
+          {!pipelinesLoading &&
+            !pipelinesError &&
+            !pipelines?.length && (
+              <div className="text-[13px] opacity-60 group-[.sidebar]:hidden">
+                {t('no_pipelines_yet', 'No Pipelines yet')}
+              </div>
+            )}
+
+          {(pipelines || []).map((pipeline) => {
+            const isSelected = selectedPipeline?.id === pipeline.id;
+            const statusLabel = pipeline.active
+              ? t('active', 'Active')
+              : t('paused', 'Paused');
+
+            return (
+              <div
+                key={pipeline.id}
+                role="radio"
+                aria-checked={isSelected}
+                tabIndex={0}
+                title={pipeline.name}
+                onClick={() => onSelectPipeline(pipeline)}
+                onKeyDown={handlePipelineKeyDown(pipeline)}
+                className={clsx(
+                  'flex gap-[12px] items-center group/pipeline justify-center hover:bg-boxHover rounded-e-[8px] hover:opacity-100 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-btnPrimary',
+                  !isSelected && 'opacity-20'
+                )}
+              >
+                <div className="relative flex justify-center items-center gap-[6px] min-w-[36px]">
+                  <div className="h-full w-[4px] -ms-[12px] rounded-s-[3px] opacity-0 group-hover/pipeline:opacity-100 transition-opacity">
+                    <SVGLine />
+                  </div>
+                  <div
+                    className="w-[12px] h-[12px] rounded-full shrink-0 border border-newBorder"
+                    style={{ backgroundColor: pipeline.color }}
+                    aria-hidden="true"
+                  />
+                  <div className="group-[.sidebar]:flex hidden">
+                    <PipelineChannels channels={pipeline.channels} compact />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0 flex flex-col gap-[4px] group-[.sidebar]:hidden">
+                  <div className="flex items-center gap-[8px] min-w-0">
+                    <span className="flex-1 whitespace-nowrap text-ellipsis overflow-hidden">
+                      {pipeline.name}
+                    </span>
+                    <span
+                      className={clsx(
+                        'text-[10px] px-[6px] py-[1px] rounded-full border shrink-0',
+                        pipeline.active
+                          ? 'border-green-500/40 text-green-500'
+                          : 'border-newBorder opacity-70'
+                      )}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <PipelineChannels channels={pipeline.channels} compact />
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 };
 
-export const PropertiesContext = createContext({ properties: [] });
+export const PropertiesContext =
+  createContext<AgentSelectionState>(defaultAgentSelectionState);
+
 export const Agent: FC<{ children: ReactNode }> = ({ children }) => {
-  const [properties, setProperties] = useState([]);
+  const [selection, setSelection] = useState<AgentSelectionState>(
+    defaultAgentSelectionState
+  );
+
+  const handleToggleIntegration = useCallback((integration: Integrations) => {
+    setSelection((current) =>
+      applyChannelToggle(
+        current.properties,
+        current.selectedPipeline,
+        integration
+      )
+    );
+  }, []);
+
+  const handleSelectPipeline = useCallback((pipeline: PipelineSummary) => {
+    setSelection((current) =>
+      applyPipelineSelection(current.selectedPipeline, pipeline)
+    );
+  }, []);
+
+  const contextValue = useMemo(() => selection, [selection]);
 
   return (
-    <PropertiesContext.Provider value={{ properties }}>
-      <AgentList onChange={setProperties} />
+    <PropertiesContext.Provider value={contextValue}>
+      <AgentList
+        selectedIntegrations={selection.properties}
+        selectedPipeline={selection.selectedPipeline}
+        onToggleIntegration={handleToggleIntegration}
+        onSelectPipeline={handleSelectPipeline}
+      />
       <div className="bg-newBgColorInner flex flex-1">{children}</div>
       <Threads />
     </PropertiesContext.Provider>
@@ -216,7 +475,7 @@ const Threads: FC = () => {
   const t = useT();
   const threads = useCallback(async () => {
     return (await fetch('/copilot/list')).json();
-  }, []);
+  }, [fetch]);
   const { id } = useParams<{ id: string }>();
 
   const { data } = useSWR('threads', threads);

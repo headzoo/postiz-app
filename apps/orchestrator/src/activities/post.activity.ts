@@ -24,6 +24,7 @@ import {
   postId as postIdSearchParam,
 } from '@gitroom/nestjs-libraries/temporal/temporal.search.attribute';
 import { SubscriptionService } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service';
+import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service';
 
 // Drops fields the workflow and downstream activities never read — biggest wins are `error` (grows per retry) and `childrenPost` (Prisma side-loads it on every recursive row).
 function slimPost(post: any) {
@@ -63,7 +64,8 @@ export class PostActivity {
     private _refreshIntegrationService: RefreshIntegrationService,
     private _webhookService: WebhooksService,
     private _temporalService: TemporalService,
-    private _subscriptionService: SubscriptionService
+    private _subscriptionService: SubscriptionService,
+    private _pipelinePlugService: PipelinePlugService
   ) {}
 
   @ActivityMethod()
@@ -77,7 +79,7 @@ export class PostActivity {
     for (const post of list) {
       await this._temporalService.client
         .getRawClient()
-        .workflow.signalWithStart('postWorkflowV106', {
+        .workflow.signalWithStart('postWorkflowV107', {
           workflowId: `post_${post.id}`,
           taskQueue: 'main',
           signal: 'poke',
@@ -357,6 +359,15 @@ export class PostActivity {
   }
 
   @ActivityMethod()
+  async globalPlugsV107(postId: string, integration: Integration) {
+    return this._pipelinePlugService.resolveGlobalPlugs(
+      postId,
+      integration.id,
+      integration.providerIdentifier
+    );
+  }
+
+  @ActivityMethod()
   async changeState(id: string, state: State, err?: any, body?: any) {
     await this._postService.changeState(id, state, err, body);
   }
@@ -421,6 +432,18 @@ export class PostActivity {
     delay: number;
     totalRuns: number;
     currentRun: number;
+  }) {
+    return this._integrationService.processPlugs(data);
+  }
+
+  @ActivityMethod()
+  async processPlugV107(data: {
+    plugId: string;
+    postId: string;
+    delay: number;
+    totalRuns: number;
+    currentRun: number;
+    source: 'channel' | 'pipeline';
   }) {
     return this._integrationService.processPlugs(data);
   }

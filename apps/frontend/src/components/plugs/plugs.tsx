@@ -2,13 +2,10 @@
 
 import useSWR from 'swr';
 import { useCallback, useMemo, useState } from 'react';
-import { capitalize, orderBy } from 'lodash';
+import { orderBy } from 'lodash';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import SafeImage from '@gitroom/react/helpers/safe.image';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import { Select } from '@gitroom/react/form/select';
-import { Button } from '@gitroom/react/form/button';
 import { useRouter } from 'next/navigation';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { PlugsContext } from '@gitroom/frontend/components/plugs/plugs.context';
@@ -17,6 +14,12 @@ import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import useCookie from 'react-use-cookie';
 import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { Button } from '@gitroom/react/form/button';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { filterPlugCapableChannels } from '@gitroom/frontend/components/plugs/plug.utils';
+import { useProviderPlugList } from '@gitroom/frontend/components/plugs/use.provider.plug.list';
+import { Integrations } from '@gitroom/frontend/components/launches/calendar.context';
+
 export const Plugs = () => {
   const fetch = useFetch();
   const router = useRouter();
@@ -25,23 +28,8 @@ export const Plugs = () => {
   const toaster = useToaster();
   const load = useCallback(async () => {
     return (await (await fetch('/integrations/list')).json()).integrations;
-  }, []);
-  const load2 = useCallback(async (path: string) => {
-    return await (await fetch(path)).json();
-  }, []);
-  const { data: plugList, isLoading: plugLoading } = useSWR(
-    '/integrations/plug/list',
-    load2,
-    {
-      fallbackData: [],
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      revalidateIfStale: false,
-      revalidateOnMount: true,
-      refreshWhenHidden: false,
-      refreshWhenOffline: false,
-    }
-  );
+  }, [fetch]);
+  const { data: plugList, isLoading: plugLoading } = useProviderPlugList();
   const { data, isLoading } = useSWR('analytics-list', load, {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
@@ -58,29 +46,29 @@ export const Plugs = () => {
 
   const sortedIntegrations = useMemo(() => {
     return orderBy(
-      data.filter((integration: any) =>
-        plugList?.plugs?.some(
-          (f: any) => f.identifier === integration.identifier
-        )
-      ),
-      // data.filter((integration) => !integration.disabled),
+      filterPlugCapableChannels(data, plugList?.plugs || []),
       ['type', 'disabled', 'identifier'],
       ['desc', 'asc', 'asc']
     );
-  }, [data, plugList]);
+  }, [data, plugList?.plugs]);
   const currentIntegration = useMemo(() => {
     return sortedIntegrations[current];
   }, [current, sortedIntegrations]);
   const currentIntegrationPlug = useMemo(() => {
+    if (!currentIntegration) {
+      return null;
+    }
     const plug = plugList?.plugs?.find(
-      (f: any) => f?.identifier === currentIntegration?.identifier
+      (entry) => entry?.identifier === currentIntegration?.identifier
     );
     if (!plug) {
       return null;
     }
     return {
       providerId: currentIntegration.id,
-      ...plug,
+      name: currentIntegration.name,
+      identifier: currentIntegration.identifier,
+      plugs: plug.plugs,
     };
   }, [currentIntegration, plugList]);
 
@@ -152,11 +140,15 @@ export const Plugs = () => {
               </svg>
             </div>
           </div>
-          {sortedIntegrations.map((integration, index) => (
+          {sortedIntegrations.map((integration, index) => {
+            const integrationWithStatus = integration as Integrations & {
+              refreshNeeded?: boolean;
+            };
+            return (
             <div
               key={integration.id}
               onClick={() => {
-                if (integration.refreshNeeded) {
+                if (integrationWithStatus.refreshNeeded) {
                   toaster.show(
                     'Please refresh the integration from the calendar',
                     'warning'
@@ -171,7 +163,7 @@ export const Plugs = () => {
               }}
               className={clsx(
                 'flex gap-[8px] items-center justify-center group/profile hover:bg-boxHover rounded-e-[8px]',
-                currentIntegration.id !== integration.id &&
+                currentIntegration?.id !== integration.id &&
                   'opacity-20 hover:opacity-100 cursor-pointer'
               )}
             >
@@ -181,7 +173,7 @@ export const Plugs = () => {
                   integration.disabled && 'opacity-50'
                 )}
               >
-                {(integration.inBetweenSteps || integration.refreshNeeded) && (
+                {(integration.inBetweenSteps || integrationWithStatus.refreshNeeded) && (
                   <div className="absolute start-0 top-0 w-[39px] h-[46px] cursor-pointer">
                     <div className="bg-red-500 w-[15px] h-[15px] rounded-full start-0 -top-[5px] absolute z-[200] text-[10px] flex justify-center items-center">
                       !
@@ -217,13 +209,16 @@ export const Plugs = () => {
                 {integration.name}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       <div className="bg-newBgColorInner flex-1 flex-col flex p-[20px] gap-[12px]">
-        <PlugsContext.Provider value={currentIntegrationPlug}>
-          <Plug />
-        </PlugsContext.Provider>
+        {currentIntegrationPlug && (
+          <PlugsContext.Provider value={currentIntegrationPlug}>
+            <Plug />
+          </PlugsContext.Provider>
+        )}
       </div>
     </>
   );

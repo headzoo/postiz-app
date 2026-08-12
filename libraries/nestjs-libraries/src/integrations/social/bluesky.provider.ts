@@ -2,6 +2,8 @@ import {
   AuthTokenDetails,
   ChannelNoticeCategory,
   ChannelNoticeStatus,
+  FollowerPage,
+  FollowerQuery,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -269,6 +271,44 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
     return integration.profile
       ? `https://bsky.app/profile/${encodeURIComponent(integration.profile)}`
       : undefined;
+  }
+
+  async followers(
+    integration: Integration,
+    _accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const agent = await this.getAgent(integration);
+    const { data } = await agent.app.bsky.graph.getFollowers({
+      actor: integration.internalId,
+      limit: query.limit,
+      ...(query.cursor ? { cursor: query.cursor } : {}),
+    });
+    const isHttpUrl = (value?: string) => {
+      try {
+        return value && /^https?:$/.test(new URL(value).protocol)
+          ? value
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+
+    return {
+      items: data.followers.map((profile) => ({
+        id: profile.did,
+        name: profile.displayName || profile.handle,
+        username: profile.handle,
+        ...(isHttpUrl(profile.avatar) ? { picture: profile.avatar } : {}),
+        profileUrl: `https://bsky.app/profile/${encodeURIComponent(
+          profile.handle
+        )}`,
+        ...(profile.description ? { bio: profile.description } : {}),
+        ...(profile.createdAt ? { accountCreatedAt: profile.createdAt } : {}),
+      })),
+      ...(data.cursor ? { nextCursor: data.cursor } : {}),
+      hasMore: !!data.cursor,
+    };
   }
 
   async channelNotices(

@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  FollowerPage,
+  FollowerQuery,
+  FollowerSort,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -70,15 +73,80 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
   ];
 
   editor = 'normal' as const;
+  followerSorts: FollowerSort[] = [
+    {
+      key: 'alphabetical',
+      label: 'Alphabetical',
+      directions: ['asc'],
+      defaultDirection: 'asc',
+    },
+    {
+      key: 'relevance',
+      label: 'Relevance',
+      directions: ['desc'],
+      defaultDirection: 'desc',
+    },
+  ];
+
+  async followers(
+    integration: Integration,
+    accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const { client, youtube } = clientAndYoutube();
+    client.setCredentials({ access_token: accessToken });
+
+    const response = await youtube(client).subscriptions.list({
+      part: ['subscriberSnippet'],
+      mySubscribers: true,
+      maxResults: Math.min(Math.max(query.limit, 1), 50),
+      ...(query.cursor ? { pageToken: query.cursor } : {}),
+      ...(query.sort ? { order: query.sort } : {}),
+    });
+    const items = response.data.items || [];
+    const total = response.data.pageInfo?.totalResults;
+
+    return {
+      items: items
+        .map((subscription) => subscription.subscriberSnippet)
+        .filter((subscriber) => !!subscriber?.channelId)
+        .map((subscriber) => ({
+          id: subscriber!.channelId!,
+          name: subscriber!.title || subscriber!.channelId!,
+          ...(subscriber!.description ? { bio: subscriber!.description } : {}),
+          ...(subscriber!.thumbnails?.high?.url ||
+          subscriber!.thumbnails?.medium?.url ||
+          subscriber!.thumbnails?.default?.url
+            ? {
+                picture:
+                  subscriber!.thumbnails?.high?.url ||
+                  subscriber!.thumbnails?.medium?.url ||
+                  subscriber!.thumbnails?.default?.url,
+              }
+            : {}),
+          profileUrl: `https://www.youtube.com/channel/${encodeURIComponent(
+            subscriber!.channelId!
+          )}`,
+        })),
+      ...(Number.isFinite(total) ? { total } : {}),
+      ...(response.data.nextPageToken
+        ? { nextCursor: response.data.nextPageToken }
+        : {}),
+      ...(response.data.prevPageToken
+        ? { previousCursor: response.data.prevPageToken }
+        : {}),
+      hasMore: !!response.data.nextPageToken,
+    };
+  }
 
   profileUrl(integration: Integration) {
     return integration.profile
       ? `https://www.youtube.com/${encodeURIComponent(integration.profile)}`
       : integration.internalId
-        ? `https://www.youtube.com/channel/${encodeURIComponent(
-            integration.internalId
-          )}`
-        : undefined;
+      ? `https://www.youtube.com/channel/${encodeURIComponent(
+          integration.internalId
+        )}`
+      : undefined;
   }
 
   maxLength() {
