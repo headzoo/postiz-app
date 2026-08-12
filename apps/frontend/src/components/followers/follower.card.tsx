@@ -90,7 +90,8 @@ export const FollowerCard: FC<{
             </div>
             {(Number.isFinite(follower.followingCount) ||
               Number.isFinite(follower.followersCount) ||
-              Number.isFinite(follower.influenceScore)) && (
+              Number.isFinite(follower.influenceScore) ||
+              accountCreatedAt) && (
                 <div className="mt-[6px] flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
                   {Number.isFinite(follower.followingCount) && (
                     <span>
@@ -112,6 +113,14 @@ export const FollowerCard: FC<{
                       </span>
                     </span>
                   )}
+                  {accountCreatedAt && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {t('followers_joined_label', 'Joined')}
+                      </span>{' '}
+                      <span className="text-textItemBlur">{accountCreatedAt}</span>
+                    </span>
+                  )}
                   {Number.isFinite(follower.influenceScore) && (
                     <span className="text-textItemBlur">
                       {t('followers_recommendation_score', 'Score {{score}}', {
@@ -122,28 +131,19 @@ export const FollowerCard: FC<{
                 </div>
               )}
             {follower.bio && (
-              <p className="mt-[8px] text-[13px] text-textItemBlur line-clamp-3">
+              <p className="mt-[8px] text-[13px] text-newTextColor line-clamp-3">
                 {follower.bio}
               </p>
             )}
           </div>
 
-          {(followedAt || accountCreatedAt) && (
+          {followedAt && (
             <div className="mt-auto flex flex-col gap-[4px] text-[12px] text-textItemBlur">
-              {followedAt && (
-                <span>
-                  {t('followers_followed_at', 'Followed {{date}}', {
-                    date: followedAt,
-                  })}
-                </span>
-              )}
-              {accountCreatedAt && (
-                <span>
-                  {t('followers_account_created_at', 'Joined {{date}}', {
-                    date: accountCreatedAt,
-                  })}
-                </span>
-              )}
+              <span>
+                {t('followers_followed_at', 'Followed {{date}}', {
+                  date: followedAt,
+                })}
+              </span>
             </div>
           )}
         </div>
