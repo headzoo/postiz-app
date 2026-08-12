@@ -59,6 +59,18 @@ const formatShortDate = (value: string) => {
   });
 };
 
+const formatCompactCount = (value: number) => {
+  const count = Math.abs(Math.round(value));
+  if (count < 10000) {
+    return count.toLocaleString('en-US');
+  }
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    compactDisplay: 'short',
+    maximumFractionDigits: 1,
+  }).format(count);
+};
+
 const formatReciprocity = (value: number | null) => {
   if (value == null) {
     return '—';
@@ -531,72 +543,100 @@ const FollowerDetailContent: FC<{
 
   const follower = detail.follower;
   const handle = follower.username ? `@${follower.username}` : undefined;
-  const followedAt = follower.followedAt
-    ? formatShortDate(follower.followedAt)
-    : null;
   const accountCreatedAt = follower.accountCreatedAt
     ? formatShortDate(follower.accountCreatedAt)
     : null;
 
   return (
     <div className="flex max-h-[75vh] flex-col gap-[20px] overflow-y-auto pe-[4px]">
-      <div className="flex flex-col gap-[12px] sm:flex-row sm:items-start">
-        <ImageWithFallback
-          fallbackSrc="/no-picture.jpg"
-          src={follower.picture || '/no-picture.jpg'}
-          className="rounded-full shrink-0 object-cover"
-          alt={follower.name}
-          width={72}
-          height={72}
-        />
+      <div className="flex items-start gap-[12px]">
+        {follower.profileUrl ? (
+          <a
+            href={follower.profileUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="shrink-0 rounded-full hover:opacity-80"
+            aria-label={t(
+              'followers_view_profile_for',
+              'View profile for {{name}}',
+              { name: follower.name }
+            )}
+          >
+            <ImageWithFallback
+              fallbackSrc="/no-picture.jpg"
+              src={follower.picture || '/no-picture.jpg'}
+              className="rounded-full shrink-0 object-cover"
+              alt={follower.name}
+              width={48}
+              height={48}
+            />
+          </a>
+        ) : (
+          <ImageWithFallback
+            fallbackSrc="/no-picture.jpg"
+            src={follower.picture || '/no-picture.jpg'}
+            className="rounded-full shrink-0 object-cover"
+            alt={follower.name}
+            width={48}
+            height={48}
+          />
+        )}
         <div className="min-w-0 flex-1">
-          <h3 className="text-[18px] font-[600] text-newTextColor truncate">
+          <h3 className="text-[15px] font-[600] text-newTextColor truncate">
             {follower.name}
           </h3>
-          {handle && (
-            <p className="text-[14px] text-textItemBlur truncate">{handle}</p>
-          )}
-          {follower.profileUrl && (
-            <a
-              href={follower.profileUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="mt-[4px] inline-block text-[13px] text-newTextColor hover:underline"
-            >
-              {t('followers_view_profile', 'View profile')}
-            </a>
+          {handle &&
+            (follower.profileUrl ? (
+              <a
+                href={follower.profileUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80 block"
+              >
+                {handle}
+              </a>
+            ) : (
+              <p className="text-[13px] text-textItemBlur truncate">{handle}</p>
+            ))}
+          {(Number.isFinite(follower.followingCount) ||
+            Number.isFinite(follower.followersCount) ||
+            accountCreatedAt) && (
+            <div className="mt-[6px] flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
+              {Number.isFinite(follower.followingCount) && (
+                <span>
+                  <span className="font-[700] text-newTextColor">
+                    {formatCompactCount(follower.followingCount!)}
+                  </span>{' '}
+                  <span className="text-textItemBlur">
+                    {t('followers_following_label', 'Following')}
+                  </span>
+                </span>
+              )}
+              {Number.isFinite(follower.followersCount) && (
+                <span>
+                  <span className="font-[700] text-newTextColor">
+                    {formatCompactCount(follower.followersCount!)}
+                  </span>{' '}
+                  <span className="text-textItemBlur">
+                    {t('followers_followers_label', 'Followers')}
+                  </span>
+                </span>
+              )}
+              {accountCreatedAt && (
+                <span>
+                  <span className="font-[700] text-newTextColor">
+                    {t('followers_joined_label', 'Joined')}
+                  </span>{' '}
+                  <span className="text-textItemBlur">{accountCreatedAt}</span>
+                </span>
+              )}
+            </div>
           )}
           {follower.bio && (
-            <p className="mt-[8px] text-[14px] text-newTextColor whitespace-pre-wrap">
+            <p className="mt-[8px] text-[13px] text-newTextColor whitespace-pre-wrap">
               {follower.bio}
             </p>
           )}
-          <div className="mt-[8px] flex flex-wrap gap-x-[16px] gap-y-[4px] text-[13px] text-textItemBlur">
-            {Number.isFinite(follower.followersCount) && (
-              <span>
-                {follower.followersCount!.toLocaleString('en-US')}{' '}
-                {t('followers_followers_label', 'Followers')}
-              </span>
-            )}
-            {Number.isFinite(follower.followingCount) && (
-              <span>
-                {follower.followingCount!.toLocaleString('en-US')}{' '}
-                {t('followers_following_label', 'Following')}
-              </span>
-            )}
-            {followedAt && (
-              <span>
-                {t('followers_followed_at', 'Followed {{date}}', {
-                  date: followedAt,
-                })}
-              </span>
-            )}
-            {accountCreatedAt && (
-              <span>
-                {t('followers_joined_label', 'Joined')} {accountCreatedAt}
-              </span>
-            )}
-          </div>
         </div>
       </div>
 
