@@ -2,7 +2,6 @@
 
 import { EventEmitter } from 'events';
 import React, { FC, useCallback, useEffect, useRef, useState } from 'react';
-import clsx from 'clsx';
 import { TopTitle } from '@gitroom/frontend/components/launches/helpers/top.title.component';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
@@ -12,7 +11,7 @@ import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { MagicWandIcon } from '@gitroom/frontend/components/ui/icons';
-import Loading from '@gitroom/frontend/components/layout/loading';
+import { Button } from '@gitroom/react/form/button';
 const postUrlEmitter = new EventEmitter();
 
 export const MediaSettingsLayout = () => {
@@ -428,40 +427,26 @@ export const MediaComponentInner: FC<{
         <label className="text-sm text-textColor font-medium">
           Alt Text (for accessibility)
         </label>
-        <div className="relative">
-          <input
-            type="text"
-            value={altText}
-            onChange={(e) => setAltText(e.target.value)}
-            placeholder="Describe the image/video content..."
-            className={clsx(
-              'w-full px-3 py-2 bg-fifth border border-tableBorder rounded-lg text-textColor placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-forth focus:border-transparent',
-              canGenerateAlt && 'pe-[44px]'
-            )}
-          />
-          {canGenerateAlt && (
-            <button
-              type="button"
-              onClick={generateAlt}
-              disabled={generating || loading}
-              title={t(
-                'generate_alt_text_with_ai',
-                'Generate alt text with AI'
-              )}
-              aria-label={t(
-                'generate_alt_text_with_ai',
-                'Generate alt text with AI'
-              )}
-              className="absolute end-[6px] top-1/2 -translate-y-1/2 w-[28px] h-[28px] flex items-center justify-center rounded-[6px] text-textColor hover:bg-tableBorder disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {generating ? (
-                <Loading width={16} height={16} />
-              ) : (
-                <MagicWandIcon />
-              )}
-            </button>
-          )}
-        </div>
+        <textarea
+          value={altText}
+          onChange={(e) => setAltText(e.target.value)}
+          placeholder="Describe the image/video content..."
+          rows={3}
+          className="w-full px-3 py-2 min-h-[80px] bg-fifth border border-tableBorder rounded-lg text-textColor placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-forth focus:border-transparent resize-y"
+        />
+        {canGenerateAlt && (
+          <Button
+            type="button"
+            secondary
+            onClick={generateAlt}
+            disabled={loading}
+            loading={generating}
+            innerClassName="gap-[8px]"
+          >
+            <MagicWandIcon />
+            {t('generate_alt_text_with_ai', 'Generate alt text with AI')}
+          </Button>
+        )}
       </div>
       {hasExtension(media?.path, 'mp4') && (
         <>
