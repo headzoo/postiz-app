@@ -45,7 +45,7 @@ import { groupBy, random, sortBy } from 'lodash';
 import SafeImage from '@gitroom/react/helpers/safe.image';
 import { extend } from 'dayjs';
 import { isUSCitizen } from './helpers/isuscitizen.utils';
-import { useInterval } from '@mantine/hooks';
+import { useClickOutside, useInterval } from '@mantine/hooks';
 import { StatisticsModal } from '@gitroom/frontend/components/launches/statistics';
 import { MissingReleaseModal } from '@gitroom/frontend/components/launches/missing-release.modal';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
@@ -1284,8 +1284,34 @@ const StackedCalendarItem: FC<{
   showTime?: boolean;
   posts: CalendarItemPost[];
 }> = memo((props) => {
-  const { posts, date, isBeforeNow, editPost: _editPost, ...itemProps } = props;
-  const { editPost: openEdit } = usePostActions();
+  const {
+    posts,
+    date,
+    isBeforeNow,
+    duplicatePost,
+    copyDebugJson: _copyDebugJson,
+    deletePost: _deletePost,
+    statistics,
+    missingRelease,
+    integrations,
+    display,
+    showTime,
+  } = props;
+  const user = useUser();
+  const {
+    editPost: openEdit,
+    deletePost,
+    copyDebugJson,
+    openStatistics,
+    openMissingRelease,
+  } = usePostActions();
+  const [expanded, setExpanded] = useState(false);
+  const stackRef = useClickOutside<HTMLDivElement>(() => {
+    setExpanded(false);
+  });
+  const expandStack = useCallback(() => {
+    setExpanded(true);
+  }, []);
   const primary = pickPrimaryPost(posts);
   // Wallet order: peeks on top (behind), full card at the bottom (front).
   const ordered = [
@@ -1309,69 +1335,109 @@ const StackedCalendarItem: FC<{
         date,
         pipelineItemId: primary.pipelineItemId,
       },
+      canDrag: !expanded,
       collect: (monitor) => ({
         opacity: monitor.isDragging() ? 0 : isBeforeNow ? 0.6 : 1,
       }),
     }),
-    [isBeforeNow, posts, primary, date]
+    [isBeforeNow, posts, primary, date, expanded]
   );
 
   return (
     <div
-      // @ts-ignore
-      ref={dragRef}
+      ref={stackRef}
       className={clsx(
         'relative w-full',
-        hasError && 'rounded-[10px] ring-2 ring-red-500'
+        hasError && !expanded && 'rounded-[10px] ring-2 ring-red-500'
       )}
-      style={{ opacity }}
+      onClick={(event) => {
+        if (expanded) {
+          return;
+        }
+        event.stopPropagation();
+        setExpanded(true);
+      }}
     >
-      {hasError && (
-        <div
-          className="absolute -top-[6px] -left-[6px] z-30 w-[18px] h-[18px] rounded-full bg-red-500 flex items-center justify-center text-white text-[11px] font-bold cursor-pointer"
-          data-tooltip-id="tooltip"
-          data-tooltip-content={
-            errorMessage || 'An error occurred while publishing this post'
-          }
-        >
-          !
-        </div>
-      )}
-      {ordered.map((post, index) => {
-        const isFront = index === ordered.length - 1;
-        const openThisPost = openEdit(post, false);
-        return (
+      <div
+        // @ts-ignore
+        ref={expanded ? undefined : dragRef}
+        className={clsx(expanded && 'flex flex-col gap-[5px]')}
+        style={{ opacity: expanded ? 1 : opacity }}
+      >
+        {hasError && !expanded && (
           <div
-            key={post.id}
-            className="relative w-full"
-            style={{
-              zIndex: index + 1,
-              ...(isFront
-                ? {}
-                : {
-                  height: STACK_PEEK_PX,
-                  minHeight: STACK_PEEK_PX,
-                  marginBottom: -10,
-                }),
-            }}
+            className="absolute -top-[6px] -left-[6px] z-30 w-[18px] h-[18px] rounded-full bg-red-500 flex items-center justify-center text-white text-[11px] font-bold cursor-pointer"
+            data-tooltip-id="tooltip"
+            data-tooltip-content={
+              errorMessage || 'An error occurred while publishing this post'
+            }
           >
-            {isFront ? (
-              <CalendarItem
-                {...itemProps}
-                date={date}
-                isBeforeNow={isBeforeNow}
-                editPost={openThisPost}
-                post={post}
-                stackPosts={posts}
-                disableDrag
-                stackShadow
-              />
-            ) : (
-              <StackPeekCard post={post} onClick={openThisPost} />
-            )}
+            !
           </div>
-        );
-      })}
+        )}
+        {expanded
+          ? ordered.map((post) => (
+            <CalendarItem
+              key={post.id}
+              date={date}
+              isBeforeNow={isBeforeNow}
+              display={display}
+              integrations={integrations}
+              showTime={showTime}
+              editPost={openEdit(post, false)}
+              duplicatePost={openEdit(post, true)}
+              deletePost={deletePost(post)}
+              statistics={openStatistics(post.id)}
+              missingRelease={openMissingRelease(post.id)}
+              copyDebugJson={
+                user?.isSuperAdmin ? copyDebugJson(post) : undefined
+              }
+              post={post}
+            />
+          ))
+          : ordered.map((post, index) => {
+            const isFront = index === ordered.length - 1;
+            return (
+              <div
+                key={post.id}
+                className="relative w-full"
+                style={{
+                  zIndex: index + 1,
+                  ...(isFront
+                    ? {}
+                    : {
+                      height: STACK_PEEK_PX,
+                      minHeight: STACK_PEEK_PX,
+                      marginBottom: -10,
+                    }),
+                }}
+              >
+                {isFront ? (
+                  <CalendarItem
+                    date={date}
+                    isBeforeNow={isBeforeNow}
+                    display={display}
+                    integrations={integrations}
+                    showTime={showTime}
+                    editPost={expandStack}
+                    duplicatePost={duplicatePost}
+                    deletePost={_deletePost}
+                    statistics={statistics}
+                    missingRelease={missingRelease}
+                    copyDebugJson={_copyDebugJson}
+                    post={post}
+                    stackPosts={posts}
+                    disableDrag
+                    stackShadow
+                    hideActions
+                  />
+                ) : (
+                  <StackPeekCard post={post} onClick={expandStack} />
+                )}
+              </div>
+            );
+          })}
+      </div>
     </div>
   );
 });
@@ -1391,6 +1457,7 @@ const CalendarItem: FC<{
   disableDrag?: boolean;
   stackShadow?: boolean;
   stackPosts?: CalendarItemPost[];
+  hideActions?: boolean;
   post: CalendarItemPost;
 }> = memo((props) => {
   const t = useT();
@@ -1408,6 +1475,7 @@ const CalendarItem: FC<{
     disableDrag,
     stackShadow,
     stackPosts,
+    hideActions,
   } = props;
   const stackedPosts = stackPosts?.length ? stackPosts : [post];
   const hasError = stackedPosts.some((item) => item.state === 'ERROR');
@@ -1532,7 +1600,11 @@ const CalendarItem: FC<{
           )}
         </div>
         <div
-          className="flex items-center gap-[8px] h-[15px] invisible opacity-0 pointer-events-none group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto"
+          className={clsx(
+            'flex items-center gap-[8px] h-[15px] invisible opacity-0 pointer-events-none',
+            !hideActions &&
+            'group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto'
+          )}
           onClick={(event) => event.stopPropagation()}
         >
           {copyDebugJson && (

@@ -18,6 +18,18 @@ const formatDate = (value: string) => {
   });
 };
 
+const formatCompactCount = (value: number) => {
+  const count = Math.abs(Math.round(value));
+  if (count < 10000) {
+    return count.toLocaleString('en-US');
+  }
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    compactDisplay: 'short',
+    maximumFractionDigits: 1,
+  }).format(count);
+};
+
 export const FollowerCard: FC<{
   follower: Follower;
 }> = ({ follower }) => {
@@ -76,34 +88,43 @@ export const FollowerCard: FC<{
                 </a>
               )}
             </div>
+            {(Number.isFinite(follower.followingCount) ||
+              Number.isFinite(follower.followersCount) ||
+              Number.isFinite(follower.influenceScore)) && (
+                <div className="mt-[6px] flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
+                  {Number.isFinite(follower.followingCount) && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.followingCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_following_label', 'Following')}
+                      </span>
+                    </span>
+                  )}
+                  {Number.isFinite(follower.followersCount) && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.followersCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_followers_label', 'Followers')}
+                      </span>
+                    </span>
+                  )}
+                  {Number.isFinite(follower.influenceScore) && (
+                    <span className="text-textItemBlur">
+                      {t('followers_recommendation_score', 'Score {{score}}', {
+                        score: follower.influenceScore!,
+                      })}
+                    </span>
+                  )}
+                </div>
+              )}
             {follower.bio && (
               <p className="mt-[8px] text-[13px] text-textItemBlur line-clamp-3">
                 {follower.bio}
               </p>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-[8px] text-[12px] text-textItemBlur">
-            {Number.isFinite(follower.followersCount) && (
-              <span className="rounded-[6px] bg-newBgColorInner px-[8px] py-[4px]">
-                {t('followers_followers_count', '{{count}} followers', {
-                  count: follower.followersCount!,
-                })}
-              </span>
-            )}
-            {Number.isFinite(follower.followingCount) && (
-              <span className="rounded-[6px] bg-newBgColorInner px-[8px] py-[4px]">
-                {t('followers_following_count', '{{count}} following', {
-                  count: follower.followingCount!,
-                })}
-              </span>
-            )}
-            {Number.isFinite(follower.influenceScore) && (
-              <span className="rounded-[6px] bg-newBgColorInner px-[8px] py-[4px]">
-                {t('followers_recommendation_score', 'Score {{score}}', {
-                  score: follower.influenceScore!,
-                })}
-              </span>
             )}
           </div>
 
