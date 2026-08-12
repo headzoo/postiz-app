@@ -40,7 +40,14 @@ export const FollowerCard: FC<{
   const accountCreatedAt = follower.accountCreatedAt
     ? formatDate(follower.accountCreatedAt)
     : null;
+  const lastInteractionAt = follower.lastInteractionAt
+    ? formatDate(follower.lastInteractionAt)
+    : null;
   const handle = follower.username ? `@${follower.username}` : undefined;
+  const hasInteractionMetrics =
+    Number.isFinite(follower.interactionCount) ||
+    Number.isFinite(follower.interactionScore) ||
+    !!lastInteractionAt;
 
   return (
     <article
@@ -104,6 +111,40 @@ export const FollowerCard: FC<{
                   </p>
                 ))}
             </div>
+
+            {hasInteractionMetrics && (
+              <div className="mt-[10px] flex flex-col gap-[4px]">
+                {Number.isFinite(follower.interactionCount) && (
+                  <div className="flex items-baseline gap-[8px]">
+                    <span className="text-[22px] font-[700] leading-none text-newTextColor">
+                      {formatCompactCount(follower.interactionCount!)}
+                    </span>
+                    <span className="text-[13px] text-textItemBlur">
+                      {t('followers_interaction_count', 'Interactions')}
+                    </span>
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[4px] text-[12px] text-textItemBlur">
+                  {Number.isFinite(follower.interactionScore) && (
+                    <span>
+                      {t('followers_quality_score', 'Quality score {{score}}', {
+                        score: follower.interactionScore!,
+                      })}
+                    </span>
+                  )}
+                  {lastInteractionAt && (
+                    <span>
+                      {t(
+                        'followers_last_interaction',
+                        'Last interaction {{date}}',
+                        { date: lastInteractionAt }
+                      )}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
             {(Number.isFinite(follower.followingCount) ||
               Number.isFinite(follower.followersCount) ||
               Number.isFinite(follower.influenceScore) ||

@@ -10,16 +10,28 @@ import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integ
 import {
   AnalyticsData,
   ChannelNoticeStatus,
+  ChannelInteractionKindCoverage,
+  ChannelInteractionTrackingFailureCategory,
+  FollowerPageTracking,
   Follower,
   FollowerPage,
   FollowerQuery,
+  FollowerSort,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import {
+  FOLLOWER_DATABASE_INTERACTIONS_SORT,
   isPageScopedFollowerSort,
   sortFollowers,
 } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
-import { Integration, Organization, User } from '@prisma/client';
+import {
+  ChannelFollowerSyncStatus,
+  ChannelInteractionTrackingState,
+  ChannelInteractionWindow,
+  Integration,
+  Organization,
+  User,
+} from '@prisma/client';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import dayjs from 'dayjs';
 import { timer } from '@gitroom/helpers/utils/timer';
@@ -35,6 +47,11 @@ import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integration
 import { TemporalService } from 'nestjs-temporal-core';
 import pLimit from 'p-limit';
 import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service';
+import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
+import {
+  ChannelInteractionRepository,
+  RankedFollowerCursor,
+} from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
 
 dayjs.extend(utc);
 
@@ -49,7 +66,9 @@ export class IntegrationService {
     @Inject(forwardRef(() => RefreshIntegrationService))
     private _refreshIntegrationService: RefreshIntegrationService,
     private _temporalService: TemporalService,
-    private _pipelinePlugService: PipelinePlugService
+    private _pipelinePlugService: PipelinePlugService,
+    private _channelInteractionService: ChannelInteractionService,
+    private _channelInteractionRepository: ChannelInteractionRepository
   ) { }
 
   async changeActiveCron(orgId: string) {
@@ -130,7 +149,7 @@ export class IntegrationService {
         })
       : undefined;
 
-    return this._integrationRepository.createOrUpdateIntegration(
+    const integration = await this._integrationRepository.createOrUpdateIntegration(
       additionalSettings,
       oneTimeToken,
       org,
@@ -148,6 +167,8 @@ export class IntegrationService {
       timezone,
       customInstanceDetails
     );
+    await this.requestInteractionReconciliation(integration);
+    return integration;
   }
 
   updateIntegrationGroup(org: string, id: string, group: string) {
@@ -192,8 +213,9 @@ export class IntegrationService {
             return;
           }
 
+          const interactionCapability = provider.channelInteractionWebhooks;
           const cacheKey = `integration:followers:probe:${org.id}:${integration.id}`;
-          let eligible: boolean | undefined;
+          let eligible: boolean | undefined = interactionCapability ? true : undefined;
           try {
             const cached = await ioRedis.get(cacheKey);
             if (cached === '1') {
@@ -230,13 +252,21 @@ export class IntegrationService {
             return;
           }
 
+          const tracking = interactionCapability
+            ? await this.getInteractionTracking(
+              org.id,
+              integration.id,
+              interactionCapability.getInteractionCoverage()
+            )
+            : undefined;
           return {
             id: integration.id,
             name: integration.name,
             picture: this.sanitizeHttpUrl(integration.picture),
             display: integration.profile || undefined,
             identifier: integration.providerIdentifier,
-            sorts: provider.followerSorts || [],
+            sorts: this.getFollowerSorts(provider),
+            ...(tracking ? { tracking } : {}),
           };
         })
       )
@@ -282,7 +312,10 @@ export class IntegrationService {
       throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
     }
 
-    this.validateFollowerQuery(provider, query);
+    const sort = this.validateFollowerQuery(provider, query);
+    if (sort?.scope === 'database') {
+      return this.getDatabaseFollowerPage(org.id, integration, provider, query, sort);
+    }
 
     try {
       return await this.getFollowerPage(integration, provider, query);
@@ -297,20 +330,276 @@ export class IntegrationService {
     }
   }
 
-  private validateFollowerQuery(provider: SocialProvider, query: FollowerQuery) {
+  private validateFollowerQuery(
+    provider: SocialProvider,
+    query: FollowerQuery
+  ): FollowerSort | undefined {
     if (query.cursor && this.isHttpUrl(query.cursor)) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
 
     if (!query.sort && !query.direction) {
-      return;
+      if (query.cursor?.startsWith('follower-rank:v1:')) {
+        throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+      }
+      return undefined;
     }
 
-    const sort = provider.followerSorts?.find(
+    const sort = this.getFollowerSorts(provider).find(
       (candidate) => candidate.key === query.sort
     );
     if (!sort || (query.direction && !sort.directions.includes(query.direction))) {
       throw new HttpException('Unsupported follower sort', HttpStatus.BAD_REQUEST);
+    }
+    if (sort.scope === 'database') {
+      if (!sort.requiresWindow || !query.window) {
+        throw new HttpException(
+          'A time window is required for this follower sort',
+          HttpStatus.BAD_REQUEST
+        );
+      }
+      return sort;
+    }
+    if (query.cursor?.startsWith('follower-rank:v1:')) {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+    return sort;
+  }
+
+  private async getDatabaseFollowerPage(
+    organizationId: string,
+    integration: Integration,
+    provider: SocialProvider,
+    query: FollowerQuery,
+    sort: FollowerSort
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? sort.defaultDirection;
+    const window = query.window!;
+    const cursor = query.cursor
+      ? this.decodeRankedFollowerCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        window,
+        direction
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getRankedFollowers({
+      organizationId,
+      integrationId: integration.id,
+      window: this.toPrismaInteractionWindow(window),
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+    });
+    if (cursor && ranked.rollup?.activeGeneration !== cursor.generation) {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+    const tracking = this.getInteractionTrackingMetadata(
+      ranked.followerSync,
+      ranked.subscriptions,
+      provider.channelInteractionWebhooks!.getInteractionCoverage(),
+      ranked.rollup?.computedAt
+    );
+    if (
+      !ranked.rollup ||
+      !ranked.followerSync?.activeGeneration ||
+      !ranked.followerSync.completedAt
+    ) {
+      return { items: [], hasMore: false, window, tracking };
+    }
+
+    const items = ranked.items.map((row) =>
+      this.sanitizeFollower({
+        id: row.counterpartyExternalId,
+        name: row.audienceMember.name || row.audienceMember.username || row.counterpartyExternalId,
+        ...(row.audienceMember.username ? { username: row.audienceMember.username } : {}),
+        ...(row.audienceMember.picture ? { picture: row.audienceMember.picture } : {}),
+        ...(row.audienceMember.profileUrl ? { profileUrl: row.audienceMember.profileUrl } : {}),
+        ...(row.audienceMember.bio ? { bio: row.audienceMember.bio } : {}),
+        ...(row.audienceMember.followersCount !== null ? { followersCount: row.audienceMember.followersCount } : {}),
+        ...(row.audienceMember.followingCount !== null ? { followingCount: row.audienceMember.followingCount } : {}),
+        ...(row.audienceMember.followedAt ? { followedAt: row.audienceMember.followedAt.toISOString() } : {}),
+        ...(row.audienceMember.accountCreatedAt ? { accountCreatedAt: row.audienceMember.accountCreatedAt.toISOString() } : {}),
+        interactionCount: row.interactionCount,
+        interactionScore: row.interactionScore,
+        ...(row.lastInteractionAt ? { lastInteractionAt: row.lastInteractionAt.toISOString() } : {}),
+      })
+    );
+    const last = items.at(-1);
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeRankedFollowerCursor({
+            organizationId,
+            integrationId: integration.id,
+            window,
+            direction,
+            generation: ranked.rollup.activeGeneration,
+            interactionCount: last.interactionCount!,
+            interactionScore: last.interactionScore!,
+            lastInteractionAt: last.lastInteractionAt || null,
+            externalId: last.id,
+          }),
+        }
+        : {}),
+      window,
+      tracking,
+    };
+  }
+
+  private async getInteractionTracking(
+    organizationId: string,
+    integrationId: string,
+    coverage: ChannelInteractionKindCoverage[]
+  ) {
+    const tracking = await this._channelInteractionRepository.getInteractionTracking(
+      organizationId,
+      integrationId
+    );
+    return this.getInteractionTrackingMetadata(
+      tracking.followerSync,
+      tracking.subscriptions,
+      coverage
+    );
+  }
+
+  private getInteractionTrackingMetadata(
+    followerSync: {
+      activeGeneration: string | null;
+      status: ChannelFollowerSyncStatus;
+      completedAt: Date | null;
+    } | null | undefined,
+    subscriptions: {
+      state: ChannelInteractionTrackingState;
+      trackingStartedAt?: Date | null;
+      failureCategory?: string | null;
+      failureReason?: string | null;
+    }[],
+    coverage: ChannelInteractionKindCoverage[],
+    computedAt?: Date
+  ): FollowerPageTracking {
+    const states = subscriptions.map((subscription) => subscription.state);
+    const failedSubscription = subscriptions.find(
+      (subscription) => subscription.state === ChannelInteractionTrackingState.ERROR
+    );
+    const state = states.includes(ChannelInteractionTrackingState.ERROR)
+      ? 'error'
+      : states.includes(ChannelInteractionTrackingState.PROVISIONING) ||
+          !states.length
+        ? 'provisioning'
+        : states.includes(ChannelInteractionTrackingState.UNCONFIGURED)
+          ? 'unconfigured'
+        : coverage.some(
+            (item) =>
+              item.inbound === 'partial' || item.outbound === 'partial'
+          )
+          ? 'partial'
+          : 'active';
+    const availability =
+      followerSync?.activeGeneration && followerSync.completedAt && computedAt
+        ? 'ready'
+        : state === 'error' || state === 'unconfigured'
+          ? 'unavailable'
+          : 'provisioning';
+    const trackingStartedAt = subscriptions
+      .map((subscription) => subscription.trackingStartedAt)
+      .filter((startedAt): startedAt is Date => !!startedAt)
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+    const failureCategory = this.trackingFailureCategory(
+      failedSubscription?.failureCategory
+    );
+    return {
+      state,
+      availability,
+      noBackfill: true,
+      ...(trackingStartedAt
+        ? { trackingStartedAt: trackingStartedAt.toISOString() }
+        : {}),
+      ...(followerSync?.completedAt
+        ? { followerSnapshotAt: followerSync.completedAt.toISOString() }
+        : {}),
+      ...(computedAt ? { computedAt: computedAt.toISOString() } : {}),
+      ...(failureCategory ? { failureCategory } : {}),
+      ...(failedSubscription?.failureReason
+        ? { reason: failedSubscription.failureReason.slice(0, 160) }
+        : {}),
+      coverage,
+    };
+  }
+
+  private trackingFailureCategory(
+    value: string | null | undefined
+  ): ChannelInteractionTrackingFailureCategory | undefined {
+    return [
+      'configuration',
+      'authentication',
+      'authorization',
+      'entitlement',
+      'quota',
+      'transient',
+      'unknown',
+    ].includes(value || '')
+      ? value as ChannelInteractionTrackingFailureCategory
+      : undefined;
+  }
+
+  private toPrismaInteractionWindow(window: NonNullable<FollowerQuery['window']>) {
+    return {
+      week: ChannelInteractionWindow.WEEK,
+      month: ChannelInteractionWindow.MONTH,
+      '90_day': ChannelInteractionWindow.NINETY_DAY,
+      year: ChannelInteractionWindow.YEAR,
+    }[window];
+  }
+
+  private encodeRankedFollowerCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    window: NonNullable<FollowerQuery['window']>;
+    direction: 'asc' | 'desc';
+    generation: string;
+  } & RankedFollowerCursor) {
+    return `follower-rank:v1:${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeRankedFollowerCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    window: NonNullable<FollowerQuery['window']>,
+    direction: 'asc' | 'desc'
+  ): RankedFollowerCursor & { generation: string } {
+    try {
+      if (!value.startsWith('follower-rank:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(value.slice('follower-rank:v1:'.length), 'base64url').toString(
+          'utf8'
+        )
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.window !== window ||
+        cursor.direction !== direction ||
+        typeof cursor.generation !== 'string' ||
+        !Number.isSafeInteger(cursor.interactionCount) ||
+        !Number.isSafeInteger(cursor.interactionScore) ||
+        typeof cursor.externalId !== 'string' ||
+        (cursor.lastInteractionAt !== null &&
+          (typeof cursor.lastInteractionAt !== 'string' ||
+            Number.isNaN(new Date(cursor.lastInteractionAt).getTime())))
+      ) {
+        throw new Error();
+      }
+      return cursor;
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -341,7 +630,7 @@ export class IntegrationService {
 
     try {
       const pageScoped = isPageScopedFollowerSort(
-        provider.followerSorts,
+        this.getFollowerSorts(provider),
         query.sort
       );
       const providerQuery: FollowerQuery = pageScoped
@@ -358,7 +647,7 @@ export class IntegrationService {
         return sanitized;
       }
 
-      const sort = provider.followerSorts?.find(
+      const sort = this.getFollowerSorts(provider).find(
         (candidate) => candidate.key === query.sort
       );
       const direction = query.direction ?? sort?.defaultDirection ?? 'desc';
@@ -424,7 +713,26 @@ export class IntegrationService {
       ...(typeof follower.accountCreatedAt === 'string'
         ? { accountCreatedAt: follower.accountCreatedAt }
         : {}),
+      ...(Number.isSafeInteger(follower.interactionCount) &&
+      follower.interactionCount >= 0
+        ? { interactionCount: follower.interactionCount }
+        : {}),
+      ...(Number.isSafeInteger(follower.interactionScore) &&
+      follower.interactionScore >= 0
+        ? { interactionScore: follower.interactionScore }
+        : {}),
+      ...(typeof follower.lastInteractionAt === 'string'
+        ? { lastInteractionAt: follower.lastInteractionAt }
+        : {}),
     };
+  }
+
+  private getFollowerSorts(provider: SocialProvider) {
+    const sorts = provider.followerSorts || [];
+    return provider.channelInteractionWebhooks &&
+      !sorts.some((sort) => sort.key === FOLLOWER_DATABASE_INTERACTIONS_SORT.key)
+      ? [...sorts, FOLLOWER_DATABASE_INTERACTIONS_SORT]
+      : sorts;
   }
 
   private sanitizeHttpUrl(url: string | null | undefined) {
@@ -540,7 +848,11 @@ export class IntegrationService {
   }
 
   async disableChannel(org: string, id: string) {
-    return this._integrationRepository.disableChannel(org, id);
+    const integration = await this._integrationRepository.getIntegrationById(org, id);
+    await this._integrationRepository.disableChannel(org, id);
+    if (integration) {
+      await this.requestInteractionRemoval(integration);
+    }
   }
 
   async enableChannel(org: string, totalChannels: number, id: string) {
@@ -554,7 +866,11 @@ export class IntegrationService {
       throw new Error('You have reached the maximum number of channels');
     }
 
-    return this._integrationRepository.enableChannel(org, id);
+    await this._integrationRepository.enableChannel(org, id);
+    const integration = await this._integrationRepository.getIntegrationById(org, id);
+    if (integration) {
+      await this.requestInteractionReconciliation(integration);
+    }
   }
 
   async getPostsForChannel(org: string, id: string) {
@@ -562,7 +878,11 @@ export class IntegrationService {
   }
 
   async deleteChannel(org: string, id: string) {
-    return this._integrationRepository.deleteChannel(org, id);
+    const integration = await this._integrationRepository.getIntegrationById(org, id);
+    await this._integrationRepository.deleteChannel(org, id);
+    if (integration) {
+      await this.requestInteractionRemoval(integration);
+    }
   }
 
   async disableIntegrations(org: string, totalChannels: number) {
@@ -1109,5 +1429,34 @@ export class IntegrationService {
         ];
       }, [] as number[])
     );
+  }
+
+  private async requestInteractionReconciliation(integration: Integration) {
+    try {
+      await this._channelInteractionService.requestReconciliation(integration);
+      await this.pokeChannelInteractionMaintenance();
+    } catch {
+      // Reconciliation is best-effort state preparation; it must not fail a channel operation.
+    }
+  }
+
+  private async pokeChannelInteractionMaintenance() {
+    try {
+      const workflow = this._temporalService.client?.getRawClient()?.workflow;
+      await workflow
+        ?.getHandle('channel-interaction-maintenance-workflow-v1')
+        .signal('channelInteractionMaintenance');
+    } catch {
+      // The workflow may not be running yet; its hourly pass reconciles persisted state.
+    }
+  }
+
+  private async requestInteractionRemoval(integration: Integration) {
+    try {
+      await this._channelInteractionService.requestSubscriptionRemoval(integration);
+      await this.pokeChannelInteractionMaintenance();
+    } catch {
+      // Remote cleanup is performed by maintenance and never blocks local disable/delete.
+    }
   }
 }

@@ -46,6 +46,7 @@ import { OauthProvider } from '@gitroom/backend/services/auth/providers/oauth.pr
 import { PipelinesController } from '@gitroom/backend/api/routes/pipelines.controller';
 import { ContextDocumentsController } from '@gitroom/backend/api/routes/context-documents.controller';
 import { FollowersController } from '@gitroom/backend/api/routes/followers.controller';
+import { ChannelWebhooksController } from '@gitroom/backend/api/routes/channel-webhooks.controller';
 
 const authenticatedController = [
   UsersController,
@@ -82,6 +83,7 @@ const authenticatedController = [
     EnterpriseController,
     NoAuthIntegrationsController,
     OAuthController,
+    ChannelWebhooksController,
     ...authenticatedController,
   ],
   providers: [

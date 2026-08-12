@@ -55,6 +55,8 @@ import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/p
 import { OpenGraphRepository } from '@gitroom/nestjs-libraries/database/prisma/media/open.graph.repository';
 import { ContextDocumentRepository } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.repository';
 import { ContextDocumentService } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.service';
+import { ChannelInteractionRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
+import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 
 @Global()
 @Module({
@@ -119,6 +121,8 @@ import { ContextDocumentService } from '@gitroom/nestjs-libraries/database/prism
     PipelineManager,
     ContextDocumentRepository,
     ContextDocumentService,
+    ChannelInteractionRepository,
+    ChannelInteractionService,
   ],
   get exports() {
     return this.providers;

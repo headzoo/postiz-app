@@ -1,18 +1,31 @@
 import { TweetV2, TwitterApi } from 'twitter-api-v2';
-import { createHmac, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { parseFragment } from 'parse5';
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelInteractionDirection,
+  ChannelInteractionKind,
+  ChannelInteractionKindCoverage,
+  ChannelWebhookDeliveryRequest,
+  ChannelWebhookDeliveryResult,
+  ChannelInteractionSubscriptionReconciliationResult,
+  ChannelInteractionTrackingFailureCategory,
+  DesiredChannelInteractionSubscription,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
+  NormalizedChannelInteractionEvent,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
+  ProviderWebhookEndpointReconciliationResult,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
-import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+import {
+  API_ORDER_FOLLOWER_SORTS,
+  FOLLOWER_DATABASE_INTERACTIONS_SORT,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import { lookup } from 'mime-types';
 import sharp from 'sharp';
 import { readOrFetch } from '@gitroom/helpers/utils/read.or.fetch';
@@ -65,6 +78,91 @@ type XPendingData = {
   confirmed?: boolean;
 };
 
+type XWebhookUser = {
+  id?: string | number;
+  id_str?: string;
+  name?: string;
+  username?: string;
+  screen_name?: string;
+  profile_image_url?: string;
+  profile_image_url_https?: string;
+};
+
+type XActivitySubscriptionSpec = DesiredChannelInteractionSubscription & {
+  eventType:
+  | 'like.create'
+  | 'follow.follow'
+  | 'follow.unfollow'
+  | 'post.create'
+  | 'post.mention.create';
+  filterDirection?: ChannelInteractionDirection;
+};
+
+type XActivitySubscription = {
+  subscription_id?: string;
+  event_type?: string;
+  filter?: {
+    user_id?: string;
+    direction?: string;
+  };
+  tag?: string;
+  webhook_id?: string;
+};
+
+type XWebhookApiErrorCategory =
+  | 'authentication_failed'
+  | 'auth_mode_unsupported'
+  | 'entitlement_required'
+  | 'missing_scope'
+  | 'quota_exceeded'
+  | 'transient_failure'
+  | 'invalid_request';
+
+class XWebhookApiError extends Error {
+  constructor(public readonly category: XWebhookApiErrorCategory) {
+    super(category);
+  }
+}
+
+const X_WEBHOOK_NORMALIZATION_VERSION = 2;
+const X_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
+const X_WEBHOOK_MAX_CRC_TOKEN_LENGTH = 1024;
+const X_WEBHOOK_API_BASE = 'https://api.x.com/2';
+const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
+  {
+    eventKey: 'like.create',
+    eventType: 'like.create',
+    direction: 'inbound',
+    filterDirection: 'inbound',
+  },
+  {
+    eventKey: 'like.create',
+    eventType: 'like.create',
+    direction: 'outbound',
+    filterDirection: 'outbound',
+  },
+  {
+    eventKey: 'follow.follow',
+    eventType: 'follow.follow',
+    direction: 'inbound',
+  },
+  {
+    eventKey: 'follow.unfollow',
+    eventType: 'follow.unfollow',
+    direction: 'inbound',
+  },
+  {
+    eventKey: 'post.create',
+    eventType: 'post.create',
+    direction: 'outbound',
+  },
+  {
+    eventKey: 'post.mention.create',
+    eventType: 'post.mention.create',
+    direction: 'inbound',
+  },
+];
+
 @Rules(
   `X can have maximum 4 pictures, or maximum one video, it can also be without attachments, it can also be published as a long-form article (draft or published) when post_type is set to article ${process.env.STRIP_LINKS_FROM_X_POSTS
     ? 'do not add links, they will be stripped from the post'
@@ -90,7 +188,24 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   // regular tweets are stripped to plain text inside the provider.
   editor = 'html' as const;
   dto = XDto;
-  followerSorts: FollowerSort[] = API_ORDER_FOLLOWER_SORTS;
+  followerSorts: FollowerSort[] = [
+    ...API_ORDER_FOLLOWER_SORTS,
+    FOLLOWER_DATABASE_INTERACTIONS_SORT,
+  ];
+  channelInteractionWebhooks = {
+    verifyChallenge: async (request: {
+      query: Record<string, string | string[] | undefined>;
+    }) => this.verifyInteractionWebhookChallenge(request.query),
+    verifyAndNormalizeDelivery: async (
+      request: ChannelWebhookDeliveryRequest
+    ) => this.verifyAndNormalizeInteractionDelivery(request),
+    getDesiredSubscriptions: (integration: Integration) =>
+      this.getDesiredInteractionSubscriptions(integration),
+    getInteractionCoverage: () => this.getInteractionCoverage(),
+    reconcileEndpoint: () => this.reconcileInteractionWebhookEndpoint(),
+    reconcileSubscriptions: (integration: Integration, accessToken: string) =>
+      this.reconcileInteractionSubscriptions(integration, accessToken),
+  };
 
   maxLength(additionalSettings?: any, settings?: any) {
     // Articles are long-form content, the tweet character limit doesn't apply.
@@ -110,6 +225,937 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return integration.profile
       ? `https://x.com/${encodeURIComponent(integration.profile)}`
       : undefined;
+  }
+
+  private verifyInteractionWebhookChallenge(
+    query: Record<string, string | string[] | undefined>
+  ) {
+    const token = query.crc_token;
+    const secret = process.env.X_API_SECRET;
+    if (
+      !secret ||
+      typeof token !== 'string' ||
+      !token ||
+      token.length > X_WEBHOOK_MAX_CRC_TOKEN_LENGTH
+    ) {
+      return Promise.resolve({ accepted: false as const, statusCode: 400 });
+    }
+    return Promise.resolve({
+      accepted: true as const,
+      responseBody: {
+        response_token: `sha256=${createHmac('sha256', secret)
+          .update(token)
+          .digest('base64')}`,
+      },
+    });
+  }
+
+  private async verifyAndNormalizeInteractionDelivery(
+    request: ChannelWebhookDeliveryRequest
+  ): Promise<ChannelWebhookDeliveryResult> {
+    const secret = process.env.X_API_SECRET;
+    const rawBody = request?.rawBody;
+    const signature = this.singleHeader(
+      request?.headers,
+      'x-twitter-webhooks-signature'
+    );
+    if (!Buffer.isBuffer(rawBody) || !rawBody.length) {
+      return { accepted: false, statusCode: 400 };
+    }
+    if (rawBody.length > X_WEBHOOK_MAX_BODY_BYTES) {
+      return { accepted: false, statusCode: 413 };
+    }
+    if (!secret || !this.isValidWebhookSignature(rawBody, signature, secret)) {
+      return { accepted: false, statusCode: 401 };
+    }
+
+    let body: any;
+    try {
+      body = JSON.parse(rawBody.toString('utf8'));
+    } catch {
+      return { accepted: false, statusCode: 400 };
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return { accepted: false, statusCode: 400 };
+    }
+    const envelope = body.data;
+    if (
+      !envelope ||
+      typeof envelope !== 'object' ||
+      Array.isArray(envelope) ||
+      typeof envelope.event_type !== 'string' ||
+      !envelope.filter ||
+      typeof envelope.filter !== 'object' ||
+      Array.isArray(envelope.filter) ||
+      !envelope.payload ||
+      typeof envelope.payload !== 'object' ||
+      Array.isArray(envelope.payload) ||
+      (envelope.includes !== undefined &&
+        (!envelope.includes ||
+          typeof envelope.includes !== 'object' ||
+          Array.isArray(envelope.includes)))
+    ) {
+      return { accepted: false, statusCode: 400 };
+    }
+    const connectedAccountId = this.boundedId(envelope.filter.user_id);
+    if (!connectedAccountId) {
+      return { accepted: false, statusCode: 400 };
+    }
+
+    try {
+      const events = this.normalizeInteractionPayload(
+        envelope,
+        connectedAccountId,
+        new Date().toISOString()
+      );
+      return { accepted: true, connectedAccountId, events };
+    } catch {
+      return { accepted: false, statusCode: 400 };
+    }
+  }
+
+  private singleHeader(
+    headers: Record<string, string | string[] | undefined> | undefined,
+    name: string
+  ) {
+    if (!headers) return undefined;
+    const value = Object.entries(headers).find(
+      ([key]) => key.toLowerCase() === name
+    )?.[1];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private isValidWebhookSignature(
+    rawBody: Buffer,
+    signature: string | undefined,
+    secret: string
+  ) {
+    if (!signature?.startsWith('sha256=')) return false;
+    const encoded = signature.slice('sha256='.length);
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return false;
+    const supplied = Buffer.from(encoded, 'base64');
+    if (supplied.length !== 32 || supplied.toString('base64') !== encoded) {
+      return false;
+    }
+    const expected = createHmac('sha256', secret).update(rawBody).digest();
+    return timingSafeEqual(expected, supplied);
+  }
+
+  private normalizeInteractionPayload(
+    envelope: any,
+    connectedAccountId: string,
+    receivedAt: string
+  ): NormalizedChannelInteractionEvent[] {
+    const eventType = envelope.event_type;
+    const eventUuid = this.boundedId(envelope.event_uuid);
+    const payload = envelope.payload;
+    const includes = envelope.includes || {};
+
+    if (eventType === 'like.create') {
+      const direction = envelope.filter.direction;
+      if (direction !== 'inbound' && direction !== 'outbound') {
+        throw new Error('Malformed X like direction');
+      }
+      const likedAuthorId = this.boundedId(payload.liked_tweet_author_id);
+      const counterpartyId =
+        direction === 'outbound'
+          ? likedAuthorId
+          : this.xIncludedUsers(includes).find(
+            (candidate) => candidate.externalId !== connectedAccountId
+          )?.externalId;
+      const counterparty = this.xIncludedProfile(includes, counterpartyId);
+      const relatedObjectId = this.boundedId(payload.liked_tweet_id);
+      if (!counterparty || !relatedObjectId) return [];
+      return [
+        this.xInteractionEvent({
+          eventUuid,
+          sourceType: eventType,
+          sourceId: this.boundedId(payload.id),
+          kind: 'like',
+          direction,
+          eventAt: this.xEventTimestamp(payload, receivedAt),
+          counterparty,
+          connectedAccountId,
+          relatedObjectId,
+        }),
+      ];
+    }
+
+    if (eventType === 'follow.follow' || eventType === 'follow.unfollow') {
+      const source = this.xProfile(payload?.source?.data);
+      const target = this.xProfile(payload?.target?.data);
+      const direction =
+        source?.externalId === connectedAccountId
+          ? 'outbound'
+          : target?.externalId === connectedAccountId
+          ? 'inbound'
+          : undefined;
+      const counterparty = direction === 'outbound' ? target : source;
+      if (!direction || !counterparty) return [];
+      return [
+        this.xInteractionEvent({
+          eventUuid,
+          sourceType: eventType,
+          kind: 'follow',
+          direction,
+          eventAt: this.xEventTimestamp(payload, receivedAt),
+          counterparty,
+          connectedAccountId,
+          membershipUpdate:
+            direction === 'inbound'
+              ? eventType === 'follow.unfollow'
+                ? 'not_follower'
+                : 'follower'
+              : undefined,
+        }),
+      ];
+    }
+
+    if (eventType === 'post.create' || eventType === 'post.mention.create') {
+      return this.normalizeTweetInteraction(
+        payload,
+        includes,
+        connectedAccountId,
+        eventType,
+        eventUuid,
+        receivedAt
+      );
+    }
+
+    return [];
+  }
+
+  private normalizeTweetInteraction(
+    tweet: any,
+    includes: any,
+    connectedAccountId: string,
+    eventType: 'post.create' | 'post.mention.create',
+    eventUuid: string | undefined,
+    receivedAt: string
+  ): NormalizedChannelInteractionEvent[] {
+    const actor = this.xIncludedProfile(includes, tweet?.author_id);
+    const tweetId = this.boundedId(tweet?.id_str ?? tweet?.id);
+    if (!actor || !tweetId) {
+      throw new Error('Malformed X post activity');
+    }
+    const eventAt = this.xEventTimestamp(tweet, receivedAt);
+    const events: NormalizedChannelInteractionEvent[] = [];
+    const outbound =
+      eventType === 'post.create' && actor.externalId === connectedAccountId;
+    const references = Array.isArray(tweet?.referenced_tweets)
+      ? tweet.referenced_tweets
+      : [];
+    const replyReference = references.find(
+      (reference: any) => reference?.type === 'replied_to'
+    );
+    if (replyReference) {
+      const parent = this.xIncludedTweet(includes, replyReference.id);
+      const parentAuthorId = this.boundedId(parent?.author_id);
+      const relevant = outbound || parentAuthorId === connectedAccountId;
+      const counterparty = outbound
+        ? this.xIncludedProfile(includes, parentAuthorId)
+        : actor;
+      if (
+        relevant &&
+        counterparty &&
+        counterparty.externalId !== connectedAccountId
+      ) {
+        events.push(
+          this.xInteractionEvent({
+            eventUuid,
+            sourceType: eventType,
+            sourceId: tweetId,
+            kind: 'reply',
+            direction: outbound ? 'outbound' : 'inbound',
+            eventAt,
+            counterparty,
+            connectedAccountId,
+            relatedObjectId: this.boundedId(replyReference.id),
+          })
+        );
+      }
+    }
+
+    const repostReference = references.find(
+      (reference: any) => reference?.type === 'retweeted'
+    );
+    const referencedPost = this.xIncludedTweet(includes, repostReference?.id);
+    const referencedAuthor = this.xIncludedProfile(
+      includes,
+      referencedPost?.author_id
+    );
+    const repostIsRelevant =
+      repostReference &&
+      referencedAuthor &&
+      (outbound || referencedAuthor.externalId === connectedAccountId);
+    if (repostIsRelevant) {
+      const counterparty = outbound ? referencedAuthor : actor;
+      if (counterparty.externalId !== connectedAccountId) {
+        events.push(
+          this.xInteractionEvent({
+            eventUuid,
+            sourceType: eventType,
+            sourceId: tweetId,
+            kind: 'repost',
+            direction: outbound ? 'outbound' : 'inbound',
+            eventAt,
+            counterparty,
+            connectedAccountId,
+            relatedObjectId: this.boundedId(repostReference.id),
+            metadata: { referenceType: 'repost' },
+          })
+        );
+      }
+    }
+
+    if (!events.length) {
+      const mentions = this.xMentionProfiles(tweet);
+      if (
+        !outbound &&
+        mentions.some((m) => m.externalId === connectedAccountId)
+      ) {
+        events.push(
+          this.xInteractionEvent({
+            eventUuid,
+            sourceType: eventType,
+            sourceId: tweetId,
+            kind: 'mention',
+            direction: 'inbound',
+            eventAt,
+            counterparty: actor,
+            connectedAccountId,
+            relatedObjectId: tweetId,
+          })
+        );
+      } else if (outbound) {
+        for (const counterparty of mentions.filter(
+          (mention) => mention.externalId !== connectedAccountId
+        )) {
+          events.push(
+            this.xInteractionEvent({
+              eventUuid,
+              sourceType: eventType,
+              sourceId: tweetId,
+              kind: 'mention',
+              direction: 'outbound',
+              eventAt,
+              counterparty,
+              connectedAccountId,
+              relatedObjectId: tweetId,
+            })
+          );
+        }
+      }
+    }
+    return events;
+  }
+
+  private xMentionProfiles(tweet: any) {
+    const values = [
+      ...(tweet?.entities?.mentions || []),
+      ...(tweet?.entities?.user_mentions || []),
+      ...(tweet?.extended_tweet?.entities?.user_mentions || []),
+    ];
+    const profiles = values
+      .map((mention: any) =>
+        this.xProfile({
+          id_str: mention?.id_str ?? mention?.id,
+          name: mention?.name,
+          screen_name: mention?.screen_name ?? mention?.username,
+        })
+      )
+      .filter(Boolean) as NonNullable<ReturnType<XProvider['xProfile']>>[];
+    return uniqBy(profiles, (profile) => profile.externalId);
+  }
+
+  private xProfile(user: XWebhookUser | undefined) {
+    const externalId = this.boundedId(user?.id_str ?? user?.id);
+    if (!externalId) return undefined;
+    const username = this.boundedText(
+      user?.screen_name ?? user?.username,
+      512
+    );
+    const picture = this.safeHttpUrl(
+      user?.profile_image_url_https || user?.profile_image_url
+    );
+    return {
+      externalId,
+      ...(this.boundedText(user?.name, 512)
+        ? { name: this.boundedText(user?.name, 512) }
+        : {}),
+      ...(username
+        ? {
+            username,
+            profileUrl: `https://x.com/${encodeURIComponent(username)}`,
+          }
+        : {}),
+      ...(picture ? { picture } : {}),
+    };
+  }
+
+  private boundedId(value: unknown) {
+    if (
+      (typeof value !== 'string' && typeof value !== 'number') ||
+      !String(value) ||
+      String(value).length > 512
+    ) {
+      return undefined;
+    }
+    return String(value);
+  }
+
+  private boundedText(value: unknown, maxLength: number) {
+    return typeof value === 'string' &&
+      value.length > 0 &&
+      value.length <= maxLength
+      ? value
+      : undefined;
+  }
+
+  private safeHttpUrl(value: unknown) {
+    if (typeof value !== 'string' || value.length > 4096) return undefined;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' || url.protocol === 'http:'
+        ? value
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private xTimestamp(primary: unknown, fallback?: unknown) {
+    const value =
+      typeof primary === 'number' ||
+      (typeof primary === 'string' && /^\d+$/.test(primary))
+        ? new Date(Number(primary))
+        : new Date(String(primary ?? fallback ?? ''));
+    if (Number.isNaN(value.getTime())) {
+      throw new Error('Malformed X activity timestamp');
+    }
+    return value.toISOString();
+  }
+
+  private xEventTimestamp(payload: any, receivedAt: string) {
+    if (payload?.timestamp_ms !== undefined || payload?.created_at) {
+      return this.xTimestamp(payload.timestamp_ms, payload.created_at);
+    }
+    return receivedAt;
+  }
+
+  private xIncludedUsers(includes: any) {
+    if (includes?.users !== undefined && !Array.isArray(includes.users)) {
+      throw new Error('Malformed X activity user expansions');
+    }
+    return (includes?.users || [])
+      .map((user: any) => this.xProfile(user))
+      .filter(Boolean) as NonNullable<ReturnType<XProvider['xProfile']>>[];
+  }
+
+  private xIncludedProfile(includes: any, id: unknown) {
+    const externalId = this.boundedId(id);
+    if (!externalId) return undefined;
+    return (
+      this.xIncludedUsers(includes).find(
+        (profile) => profile.externalId === externalId
+      ) || this.xProfile({ id_str: externalId })
+    );
+  }
+
+  private xIncludedTweet(includes: any, id: unknown) {
+    const tweetId = this.boundedId(id);
+    if (!tweetId) return undefined;
+    if (includes?.tweets !== undefined && !Array.isArray(includes.tweets)) {
+      throw new Error('Malformed X activity post expansions');
+    }
+    return (includes?.tweets || []).find(
+      (tweet: any) => this.boundedId(tweet?.id) === tweetId
+    );
+  }
+
+  private xInteractionEvent(input: {
+    eventUuid?: string;
+    sourceType: string;
+    sourceId?: string;
+    kind: ChannelInteractionKind;
+    direction: ChannelInteractionDirection;
+    eventAt: string;
+    counterparty: NonNullable<ReturnType<XProvider['xProfile']>>;
+    connectedAccountId: string;
+    relatedObjectId?: string;
+    metadata?: Record<string, string>;
+    membershipUpdate?: 'follower' | 'not_follower';
+  }): NormalizedChannelInteractionEvent {
+    const semanticIdentity = [
+      input.kind,
+      input.direction,
+      input.connectedAccountId,
+      input.counterparty.externalId,
+      input.relatedObjectId || '',
+    ].join('\n');
+    const canonical = input.eventUuid
+      ? [
+          X_WEBHOOK_NORMALIZATION_VERSION,
+          'event_uuid',
+          input.eventUuid,
+          semanticIdentity,
+        ].join('\n')
+      : [
+          X_WEBHOOK_NORMALIZATION_VERSION,
+          input.sourceType,
+          input.sourceId || '',
+          semanticIdentity,
+          input.eventAt,
+        ].join('\n');
+    const providerEventKey = `x:v${X_WEBHOOK_NORMALIZATION_VERSION}:sha256:${createHash(
+      'sha256'
+    )
+      .update(canonical)
+      .digest('hex')}`;
+    return {
+      providerEventKey,
+      kind: input.kind,
+      direction: input.direction,
+      eventAt: input.eventAt,
+      counterparty: input.counterparty,
+      ...(input.relatedObjectId
+        ? { relatedObjectId: input.relatedObjectId }
+        : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      normalizationVersion: X_WEBHOOK_NORMALIZATION_VERSION,
+      ...(input.membershipUpdate
+        ? { membershipUpdate: input.membershipUpdate }
+        : {}),
+    };
+  }
+
+  private getDesiredInteractionSubscriptions(
+    _integration: Integration
+  ): DesiredChannelInteractionSubscription[] {
+    return X_ACTIVITY_SUBSCRIPTIONS.map(({ eventKey, direction }) => ({
+      eventKey,
+      direction,
+    }));
+  }
+
+  private getInteractionCoverage(): ChannelInteractionKindCoverage[] {
+    return [
+      { kind: 'like', inbound: 'supported', outbound: 'supported' },
+      { kind: 'follow', inbound: 'supported', outbound: 'supported' },
+      { kind: 'reply', inbound: 'supported', outbound: 'supported' },
+      { kind: 'mention', inbound: 'supported', outbound: 'supported' },
+      {
+        kind: 'repost',
+        inbound: 'partial',
+        outbound: 'supported',
+        reason:
+          'X Activity API has no dedicated repost event; inbound reposts are only observed when delivered through subscribed post events',
+      },
+    ];
+  }
+
+  private xWebhookCallbackUrl() {
+    const override = process.env.X_WEBHOOK_CALLBACK_URL;
+    const base = process.env.CHANNEL_WEBHOOK_CALLBACK_BASE_URL;
+    const value =
+      override ||
+      (base ? `${base.replace(/\/+$/, '')}/channel-webhooks/x` : '');
+    if (!value || value.length > 200) return undefined;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' ? url.toString() : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async reconcileInteractionWebhookEndpoint(): Promise<ProviderWebhookEndpointReconciliationResult> {
+    const callbackUrl = this.xWebhookCallbackUrl();
+    if (!callbackUrl || !process.env.X_WEBHOOK_BEARER_TOKEN) {
+      return {
+        state: 'unconfigured',
+        failureCategory: 'configuration',
+        reason: 'Tracking configuration is incomplete.',
+      };
+    }
+    try {
+      const webhooks = await this.xWebhookApi<{
+        data?: { id?: string; url?: string; valid?: boolean }[];
+      }>(`${X_WEBHOOK_API_BASE}/webhooks`, { method: 'GET' }, 'bearer');
+      const existing = (webhooks.data || []).find(
+        (webhook) => webhook.url === callbackUrl && this.boundedId(webhook.id)
+      );
+      if (existing?.id) {
+        if (!existing.valid) {
+          const validated = await this.xWebhookApi<{
+            data?: { valid?: boolean };
+          }>(
+            `${X_WEBHOOK_API_BASE}/webhooks/${encodeURIComponent(existing.id)}`,
+            { method: 'PUT' },
+            'bearer'
+          );
+          if (!validated.data?.valid) {
+            return {
+              state: 'error',
+              remoteWebhookId: existing.id,
+              failureCategory: 'configuration',
+              reason: 'The tracking callback could not be validated.',
+            };
+          }
+        }
+        return { state: 'active', remoteWebhookId: existing.id };
+      }
+      const created = await this.xWebhookApi<{
+        data?: { id?: string; valid?: boolean };
+      }>(
+        `${X_WEBHOOK_API_BASE}/webhooks`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: callbackUrl }),
+        },
+        'bearer'
+      );
+      const id = this.boundedId(created.data?.id);
+      return id && created.data?.valid
+        ? { state: 'active', remoteWebhookId: id }
+        : {
+            state: 'error',
+            ...(id ? { remoteWebhookId: id } : {}),
+            failureCategory: 'configuration',
+            reason: 'The tracking callback could not be validated.',
+          };
+    } catch (error) {
+      return {
+        state: 'error',
+        ...this.xWebhookFailure(error),
+      };
+    }
+  }
+
+  private async reconcileInteractionSubscriptions(
+    integration: Integration,
+    accessToken: string
+  ): Promise<ChannelInteractionSubscriptionReconciliationResult> {
+    const desired = this.getDesiredInteractionSubscriptions(integration);
+    const coverage = this.getInteractionCoverage();
+    const endpoint = await this.reconcileInteractionWebhookEndpoint();
+    if (!endpoint.remoteWebhookId || endpoint.state !== 'active') {
+      return {
+        state: endpoint.state,
+        subscriptions: desired.map((item) => ({
+          ...item,
+          state: endpoint.state,
+          ...(endpoint.failureCategory
+            ? {
+                failureCategory: endpoint.failureCategory,
+                reason: endpoint.reason,
+              }
+            : {}),
+        })),
+        coverage,
+      };
+    }
+    try {
+      const current = await this.xActivitySubscriptions(accessToken);
+      const reconciled: ChannelInteractionSubscriptionReconciliationResult['subscriptions'] =
+        [];
+
+      for (const spec of X_ACTIVITY_SUBSCRIPTIONS) {
+        const matching = current.filter((subscription) =>
+          this.xActivitySubscriptionMatches(
+            subscription,
+            spec,
+            integration.internalId
+          )
+        );
+
+        if (integration.disabled || integration.deletedAt) {
+          for (const subscription of matching) {
+            await this.deleteXActivitySubscription(
+              subscription.subscription_id,
+              accessToken
+            );
+          }
+          reconciled.push({
+            eventKey: spec.eventKey,
+            direction: spec.direction,
+            state: 'unconfigured',
+          });
+          continue;
+        }
+
+        let active = matching[0];
+        for (const duplicate of matching.slice(1)) {
+          await this.deleteXActivitySubscription(
+            duplicate.subscription_id,
+            accessToken
+          );
+        }
+
+        const tag = this.xActivitySubscriptionTag(integration, spec);
+        if (active?.subscription_id) {
+          if (
+            active.webhook_id !== endpoint.remoteWebhookId ||
+            active.tag !== tag
+          ) {
+            const updated = await this.xWebhookApi<{
+              data?: XActivitySubscription | { subscription?: XActivitySubscription };
+            }>(
+              `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(
+                active.subscription_id
+              )}`,
+              {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  webhook_id: endpoint.remoteWebhookId,
+                  tag,
+                }),
+              },
+              'oauth1',
+              accessToken
+            );
+            active = this.xActivitySubscriptionFromResponse(updated) || {
+              ...active,
+              webhook_id: endpoint.remoteWebhookId,
+              tag,
+            };
+          }
+        } else {
+          const created = await this.xWebhookApi<{
+            data?:
+            | XActivitySubscription
+            | XActivitySubscription[]
+            | { subscription?: XActivitySubscription };
+          }>(
+            `${X_WEBHOOK_API_BASE}/activity/subscriptions`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                event_type: spec.eventType,
+                filter: {
+                  user_id: integration.internalId,
+                  ...(spec.filterDirection
+                    ? { direction: spec.filterDirection }
+                    : {}),
+                },
+                webhook_id: endpoint.remoteWebhookId,
+                tag,
+              }),
+            },
+            'oauth1',
+            accessToken
+          );
+          active = this.xActivitySubscriptionFromResponse(created);
+        }
+
+        const remoteIdentifier = this.boundedId(active?.subscription_id);
+        if (!remoteIdentifier) {
+          throw new XWebhookApiError('invalid_request');
+        }
+        reconciled.push({
+          eventKey: spec.eventKey,
+          direction: spec.direction,
+          remoteIdentifier,
+          state: 'active',
+        });
+      }
+
+      if (integration.disabled || integration.deletedAt) {
+        return {
+          state: 'unconfigured',
+          subscriptions: reconciled,
+          coverage,
+        };
+      }
+      return {
+        state: 'active',
+        subscriptions: reconciled,
+        coverage,
+      };
+    } catch (error) {
+      const failure = this.xWebhookFailure(error);
+      return {
+        state: 'error',
+        subscriptions: desired.map((item) => ({
+          ...item,
+          state: 'error',
+          ...failure,
+        })),
+        coverage,
+      };
+    }
+  }
+
+  private async xActivitySubscriptions(accessToken: string) {
+    const subscriptions: XActivitySubscription[] = [];
+    let paginationToken: string | undefined;
+    do {
+      const url = new URL(`${X_WEBHOOK_API_BASE}/activity/subscriptions`);
+      url.searchParams.set('max_results', '1000');
+      if (paginationToken) {
+        url.searchParams.set('pagination_token', paginationToken);
+      }
+      const response = await this.xWebhookApi<{
+        data?: XActivitySubscription[];
+        meta?: { next_token?: string };
+      }>(url.toString(), { method: 'GET' }, 'oauth1', accessToken);
+      if (response.data !== undefined && !Array.isArray(response.data)) {
+        throw new XWebhookApiError('invalid_request');
+      }
+      subscriptions.push(...(response.data || []));
+      paginationToken = this.boundedId(response.meta?.next_token);
+    } while (paginationToken);
+    return subscriptions;
+  }
+
+  private xActivitySubscriptionMatches(
+    subscription: XActivitySubscription,
+    spec: XActivitySubscriptionSpec,
+    userId: string
+  ) {
+    return (
+      subscription.event_type === spec.eventType &&
+      subscription.filter?.user_id === userId &&
+      (subscription.filter?.direction || undefined) === spec.filterDirection &&
+      !!this.boundedId(subscription.subscription_id)
+    );
+  }
+
+  private xActivitySubscriptionTag(
+    integration: Integration,
+    spec: XActivitySubscriptionSpec
+  ) {
+    return `postiz:${integration.internalId}:${spec.eventKey}:${spec.direction}`;
+  }
+
+  private xActivitySubscriptionFromResponse(response: {
+    data?:
+    | XActivitySubscription
+    | XActivitySubscription[]
+    | { subscription?: XActivitySubscription };
+  }) {
+    const data = response.data;
+    if (Array.isArray(data)) return data[0];
+    if (data && 'subscription' in data) return data.subscription;
+    return data as XActivitySubscription | undefined;
+  }
+
+  private async deleteXActivitySubscription(
+    subscriptionId: string | undefined,
+    accessToken: string
+  ) {
+    const id = this.boundedId(subscriptionId);
+    if (!id) throw new XWebhookApiError('invalid_request');
+    await this.xWebhookApi(
+      `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+      'oauth1',
+      accessToken
+    );
+  }
+
+  private async xWebhookApi<T = any>(
+    url: string,
+    options: RequestInit,
+    authentication: 'bearer' | 'oauth1',
+    accessToken?: string
+  ): Promise<T> {
+    const method = options.method || 'GET';
+    let authorization: string;
+    if (authentication === 'bearer') {
+      authorization = `Bearer ${process.env.X_WEBHOOK_BEARER_TOKEN || ''}`;
+    } else {
+      const [token, secret] = (accessToken || '').split(':');
+      if (!token || !secret) {
+        throw new XWebhookApiError('authentication_failed');
+      }
+      authorization = this.signOAuth1(method, url, token, secret);
+    }
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization: authorization,
+      },
+    });
+    if (response.ok) {
+      if (response.status === 204) return {} as T;
+      return (await response.json()) as T;
+    }
+    let problem = '';
+    try {
+      problem = (await response.text()).slice(0, 4096).toLowerCase();
+    } catch {
+      // The status code is sufficient for classification.
+    }
+    throw new XWebhookApiError(
+      this.classifyXWebhookApiError(response.status, problem)
+    );
+  }
+
+  private classifyXWebhookApiError(
+    status: number,
+    problem: string
+  ): XWebhookApiErrorCategory {
+    if (status === 429) return 'quota_exceeded';
+    if (status >= 500) return 'transient_failure';
+    if (
+      problem.includes('scope') ||
+      problem.includes('like.read') ||
+      problem.includes('tweet.read')
+    ) {
+      return 'missing_scope';
+    }
+    if (
+      problem.includes('unsupported authentication') ||
+      problem.includes('auth mode') ||
+      problem.includes('oauth')
+    ) {
+      return 'auth_mode_unsupported';
+    }
+    if (status === 401) return 'authentication_failed';
+    if (
+      status === 402 ||
+      status === 403 ||
+      problem.includes('entitlement') ||
+      problem.includes('client-not-enrolled') ||
+      problem.includes('subscription limit')
+    ) {
+      return 'entitlement_required';
+    }
+    return 'invalid_request';
+  }
+
+  private xWebhookFailure(error: unknown): {
+    failureCategory: ChannelInteractionTrackingFailureCategory;
+    reason: string;
+  } {
+    const category = error instanceof XWebhookApiError
+      ? error.category
+      : 'transient_failure';
+    return {
+      failureCategory: {
+        authentication_failed: 'authentication',
+        auth_mode_unsupported: 'authorization',
+        entitlement_required: 'entitlement',
+        missing_scope: 'authorization',
+        quota_exceeded: 'quota',
+        transient_failure: 'transient',
+        invalid_request: 'unknown',
+      }[category] as ChannelInteractionTrackingFailureCategory,
+      reason: {
+        authentication_failed: 'Tracking authentication needs attention.',
+        auth_mode_unsupported: 'This channel authorization mode cannot create tracking subscriptions.',
+        entitlement_required: 'This provider plan does not include this tracking feature.',
+        missing_scope: 'Tracking permissions do not allow this subscription.',
+        quota_exceeded: 'The provider tracking quota has been reached.',
+        transient_failure: 'The provider is temporarily unavailable.',
+        invalid_request: 'Tracking setup could not be completed.',
+      }[category],
+    };
   }
 
   async followers(
@@ -544,14 +1590,23 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       oauth_version: '1.0',
     };
 
-    const paramString = Object.keys(params)
-      .sort()
-      .map((k) => `${pct(k)}=${pct(params[k])}`)
+    const parsedUrl = new URL(url);
+    const paramString = [
+      ...Object.entries(params),
+      ...Array.from(parsedUrl.searchParams.entries()),
+    ]
+      .map(([key, value]) => [pct(key), pct(value)] as const)
+      .sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+        leftKey === rightKey
+          ? leftValue.localeCompare(rightValue)
+          : leftKey.localeCompare(rightKey)
+      )
+      .map(([key, value]) => `${key}=${value}`)
       .join('&');
 
     const baseString = [
       method.toUpperCase(),
-      pct(url.split('?')[0]),
+      pct(`${parsedUrl.origin}${parsedUrl.pathname}`),
       pct(paramString),
     ].join('&');
 

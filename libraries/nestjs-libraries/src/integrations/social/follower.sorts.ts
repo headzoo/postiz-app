@@ -12,6 +12,15 @@ export const FOLLOWER_NATIVE_RECENT_SORT: FollowerSort = {
   scope: 'native',
 };
 
+export const FOLLOWER_DATABASE_INTERACTIONS_SORT: FollowerSort = {
+  key: 'interactions',
+  label: 'Interactions',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+  requiresWindow: true,
+};
+
 export const FOLLOWER_PAGE_SORTS: FollowerSort[] = [
   {
     key: 'followers_count',

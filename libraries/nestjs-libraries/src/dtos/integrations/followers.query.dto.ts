@@ -30,4 +30,8 @@ export class FollowersQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   direction?: 'asc' | 'desc';
+
+  @IsOptional()
+  @IsIn(['week', 'month', '90_day', 'year'])
+  window?: 'week' | 'month' | '90_day' | 'year';
 }

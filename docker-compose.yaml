@@ -39,6 +39,12 @@ services:
       X_URL: ''
       X_API_KEY: ''
       X_API_SECRET: ''
+      # Optional X Account Activity webhooks. Tracking remains disabled when
+      # either the HTTPS callback or app-only bearer token is absent.
+      X_WEBHOOK_BEARER_TOKEN: ''
+      X_WEBHOOK_CALLBACK_URL: ''
+      # Alternatively set a shared base; Postiz appends /channel-webhooks/x.
+      CHANNEL_WEBHOOK_CALLBACK_BASE_URL: ''
       LINKEDIN_CLIENT_ID: ''
       LINKEDIN_CLIENT_SECRET: ''
       REDDIT_CLIENT_ID: ''

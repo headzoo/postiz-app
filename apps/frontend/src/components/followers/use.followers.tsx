@@ -6,7 +6,57 @@ import useSWR from 'swr';
 
 export type FollowerSortDirection = 'asc' | 'desc';
 
-export type FollowerSortScope = 'native' | 'page';
+export type FollowerSortScope = 'native' | 'page' | 'database';
+
+export type ChannelInteractionWindow = 'week' | 'month' | '90_day' | 'year';
+
+export type ChannelInteractionTrackingState =
+  | 'unconfigured'
+  | 'provisioning'
+  | 'active'
+  | 'partial'
+  | 'error'
+  | 'unsupported';
+
+export type ChannelInteractionCoverageLevel =
+  | 'supported'
+  | 'partial'
+  | 'unsupported';
+
+export type ChannelInteractionTrackingFailureCategory =
+  | 'configuration'
+  | 'authentication'
+  | 'authorization'
+  | 'entitlement'
+  | 'quota'
+  | 'transient'
+  | 'unknown';
+
+export type ChannelInteractionKind =
+  | 'like'
+  | 'reply'
+  | 'repost'
+  | 'follow'
+  | 'mention';
+
+export type ChannelInteractionKindCoverage = {
+  kind: ChannelInteractionKind;
+  inbound: ChannelInteractionCoverageLevel;
+  outbound: ChannelInteractionCoverageLevel;
+  reason?: string;
+};
+
+export type FollowerPageTracking = {
+  state: ChannelInteractionTrackingState;
+  availability?: 'ready' | 'provisioning' | 'unavailable';
+  noBackfill: true;
+  trackingStartedAt?: string;
+  followerSnapshotAt?: string;
+  computedAt?: string;
+  failureCategory?: ChannelInteractionTrackingFailureCategory;
+  reason?: string;
+  coverage?: ChannelInteractionKindCoverage[];
+};
 
 export type FollowerSort = {
   key: string;
@@ -14,6 +64,7 @@ export type FollowerSort = {
   directions: FollowerSortDirection[];
   defaultDirection: FollowerSortDirection;
   scope?: FollowerSortScope;
+  requiresWindow?: boolean;
 };
 
 export type FollowerChannel = {
@@ -23,6 +74,7 @@ export type FollowerChannel = {
   display?: string;
   identifier: string;
   sorts: FollowerSort[];
+  tracking?: FollowerPageTracking;
 };
 
 export type Follower = {
@@ -37,6 +89,9 @@ export type Follower = {
   influenceScore?: number;
   followedAt?: string;
   accountCreatedAt?: string;
+  interactionCount?: number;
+  interactionScore?: number;
+  lastInteractionAt?: string;
 };
 
 export type FollowerPage = {
@@ -45,7 +100,27 @@ export type FollowerPage = {
   nextCursor?: string;
   previousCursor?: string;
   hasMore: boolean;
+  window?: ChannelInteractionWindow;
+  tracking?: FollowerPageTracking;
 };
+
+export const FOLLOWER_INTERACTION_WINDOWS: {
+  value: ChannelInteractionWindow;
+  labelKey: string;
+  defaultLabel: string;
+}[] = [
+  { value: 'week', labelKey: 'followers_window_week', defaultLabel: 'Week' },
+  { value: 'month', labelKey: 'followers_window_month', defaultLabel: 'Month' },
+  {
+    value: '90_day',
+    labelKey: 'followers_window_90_day',
+    defaultLabel: '90 Day',
+  },
+  { value: 'year', labelKey: 'followers_window_year', defaultLabel: 'Year' },
+];
+
+export const DEFAULT_FOLLOWER_INTERACTION_WINDOW: ChannelInteractionWindow =
+  'month';
 
 export const useFollowerChannels = () => {
   const fetch = useFetch();
@@ -75,6 +150,7 @@ export type UseFollowersParams = {
   limit: number;
   sort?: string;
   direction?: FollowerSortDirection;
+  window?: ChannelInteractionWindow;
 };
 
 const buildFollowersUrl = ({
@@ -83,6 +159,7 @@ const buildFollowersUrl = ({
   limit,
   sort,
   direction,
+  window,
 }: UseFollowersParams & { integrationId: string }) => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) {
@@ -94,6 +171,9 @@ const buildFollowersUrl = ({
       params.set('direction', direction);
     }
   }
+  if (window) {
+    params.set('window', window);
+  }
   return `/followers/${integrationId}?${params.toString()}`;
 };
 
@@ -103,6 +183,7 @@ export const useFollowers = ({
   limit,
   sort,
   direction,
+  window,
 }: UseFollowersParams) => {
   const fetch = useFetch();
 
@@ -116,8 +197,9 @@ export const useFollowers = ({
       limit,
       sort,
       direction,
+      window,
     });
-  }, [integrationId, cursor, limit, sort, direction]);
+  }, [integrationId, cursor, limit, sort, direction, window]);
 
   const load = useCallback(
     async (path: string) => {

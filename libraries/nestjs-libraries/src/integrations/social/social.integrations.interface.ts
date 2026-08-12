@@ -192,11 +192,14 @@ export type Follower = {
   influenceScore?: number;
   followedAt?: string;
   accountCreatedAt?: string;
+  interactionCount?: number;
+  interactionScore?: number;
+  lastInteractionAt?: string;
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';
 
-export type FollowerSortScope = 'native' | 'page';
+export type FollowerSortScope = 'native' | 'page' | 'database';
 
 export type FollowerSort = {
   key: string;
@@ -204,13 +207,61 @@ export type FollowerSort = {
   directions: FollowerSortDirection[];
   defaultDirection: FollowerSortDirection;
   scope?: FollowerSortScope;
+  requiresWindow?: boolean;
 };
+
+export type ChannelInteractionWindow = 'week' | 'month' | '90_day' | 'year';
 
 export type FollowerQuery = {
   limit: number;
   cursor?: string;
   sort?: string;
   direction?: FollowerSortDirection;
+  window?: ChannelInteractionWindow;
+};
+
+export type ChannelInteractionTrackingState =
+  | 'unconfigured'
+  | 'provisioning'
+  | 'active'
+  | 'partial'
+  | 'error';
+
+export type ChannelInteractionCoverageLevel =
+  | 'supported'
+  | 'partial'
+  | 'unsupported';
+
+export type ChannelInteractionTrackingFailureCategory =
+  | 'configuration'
+  | 'authentication'
+  | 'authorization'
+  | 'entitlement'
+  | 'quota'
+  | 'transient'
+  | 'unknown';
+
+export type ChannelInteractionKindCoverage = {
+  kind: ChannelInteractionKind;
+  inbound: ChannelInteractionCoverageLevel;
+  outbound: ChannelInteractionCoverageLevel;
+  reason?: string;
+};
+
+export type FollowerPageTracking = {
+  state: ChannelInteractionTrackingState | 'unsupported';
+  availability?: 'ready' | 'provisioning' | 'unavailable';
+  /**
+   * Rankings only include events received after tracking began. Historic
+   * provider activity is never backfilled.
+   */
+  noBackfill: true;
+  trackingStartedAt?: string;
+  followerSnapshotAt?: string;
+  computedAt?: string;
+  failureCategory?: ChannelInteractionTrackingFailureCategory;
+  reason?: string;
+  coverage?: ChannelInteractionKindCoverage[];
 };
 
 export type FollowerPage = {
@@ -219,7 +270,109 @@ export type FollowerPage = {
   nextCursor?: string;
   previousCursor?: string;
   hasMore: boolean;
+  window?: ChannelInteractionWindow;
+  tracking?: FollowerPageTracking;
 };
+
+export type ChannelInteractionDirection = 'inbound' | 'outbound';
+
+export type ChannelInteractionKind =
+  | 'like'
+  | 'reply'
+  | 'repost'
+  | 'follow'
+  | 'mention';
+
+export type ChannelAudienceMembership =
+  | 'follower'
+  | 'not_follower'
+  | 'unknown';
+
+export type ChannelInteractionCounterparty = {
+  externalId: string;
+  name?: string;
+  username?: string;
+  picture?: string;
+  profileUrl?: string;
+};
+
+export type NormalizedChannelInteractionEvent = {
+  providerEventKey: string;
+  kind: ChannelInteractionKind;
+  direction: ChannelInteractionDirection;
+  eventAt: string;
+  counterparty: ChannelInteractionCounterparty;
+  relatedObjectId?: string;
+  metadata?: Record<string, string>;
+  normalizationVersion: number;
+  membershipUpdate?: ChannelAudienceMembership;
+};
+
+export type ChannelWebhookChallengeRequest = {
+  query: Record<string, string | string[] | undefined>;
+};
+
+export type ChannelWebhookChallengeResult =
+  | { accepted: true; responseBody: Record<string, string> }
+  | { accepted: false; statusCode?: number };
+
+export type ChannelWebhookDeliveryRequest = {
+  rawBody: Buffer;
+  headers: Record<string, string | string[] | undefined>;
+};
+
+export type ChannelWebhookDeliveryResult =
+  | {
+      accepted: true;
+      connectedAccountId: string;
+      events: NormalizedChannelInteractionEvent[];
+    }
+  | { accepted: false; statusCode?: number };
+
+export type DesiredChannelInteractionSubscription = {
+  eventKey: string;
+  direction: ChannelInteractionDirection;
+};
+
+export type ReconciledChannelInteractionSubscription = {
+  eventKey: string;
+  direction: ChannelInteractionDirection;
+  remoteIdentifier?: string;
+  state: ChannelInteractionTrackingState;
+  failureCategory?: ChannelInteractionTrackingFailureCategory;
+  reason?: string;
+};
+
+export type ChannelInteractionSubscriptionReconciliationResult = {
+  state: ChannelInteractionTrackingState;
+  subscriptions: ReconciledChannelInteractionSubscription[];
+  coverage: ChannelInteractionKindCoverage[];
+};
+
+export type ProviderWebhookEndpointReconciliationResult = {
+  state: ChannelInteractionTrackingState;
+  remoteWebhookId?: string;
+  failureCategory?: ChannelInteractionTrackingFailureCategory;
+  reason?: string;
+};
+
+export interface ChannelInteractionWebhooksCapability {
+  verifyChallenge(
+    request: ChannelWebhookChallengeRequest
+  ): Promise<ChannelWebhookChallengeResult>;
+  verifyAndNormalizeDelivery(
+    request: ChannelWebhookDeliveryRequest
+  ): Promise<ChannelWebhookDeliveryResult>;
+  getDesiredSubscriptions(
+    integration: Integration
+  ): DesiredChannelInteractionSubscription[];
+  getInteractionCoverage(): ChannelInteractionKindCoverage[];
+  reconcileEndpoint?(): Promise<ProviderWebhookEndpointReconciliationResult>;
+  reconcileSubscriptions(
+    integration: Integration,
+    accessToken: string
+  ): Promise<ChannelInteractionSubscriptionReconciliationResult>;
+}
 
 export interface SocialProvider
   extends IAuthenticator,
@@ -295,4 +448,5 @@ export interface SocialProvider
     accessToken: string,
     query: FollowerQuery
   ): Promise<FollowerPage>;
+  channelInteractionWebhooks?: ChannelInteractionWebhooksCapability;
 }

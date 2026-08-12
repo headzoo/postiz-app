@@ -13,13 +13,89 @@ import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
 import { FollowerCard } from '@gitroom/frontend/components/followers/follower.card';
 import {
+  ChannelInteractionKindCoverage,
+  ChannelInteractionWindow,
+  DEFAULT_FOLLOWER_INTERACTION_WINDOW,
+  FOLLOWER_INTERACTION_WINDOWS,
   FollowerChannel,
+  FollowerPageTracking,
   FollowerSortDirection,
   useFollowerChannels,
   useFollowers,
 } from '@gitroom/frontend/components/followers/use.followers';
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
+
+const INTERACTION_KIND_LABELS: Record<string, { key: string; defaultLabel: string }> = {
+  like: { key: 'followers_interaction_kind_like', defaultLabel: 'Likes' },
+  reply: { key: 'followers_interaction_kind_reply', defaultLabel: 'Replies' },
+  repost: { key: 'followers_interaction_kind_repost', defaultLabel: 'Reposts' },
+  follow: { key: 'followers_interaction_kind_follow', defaultLabel: 'Follows' },
+  mention: { key: 'followers_interaction_kind_mention', defaultLabel: 'Mentions' },
+};
+
+const getPartialCoverageItems = (
+  coverage?: ChannelInteractionKindCoverage[]
+) =>
+  coverage?.filter(
+    (item) => item.inbound === 'partial' || item.outbound === 'partial'
+  ) ?? [];
+
+const formatTrackingTimestamp = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const trackingUnavailableMessage = (
+  category: FollowerPageTracking['failureCategory'],
+  reason: string | undefined,
+  t: ReturnType<typeof useT>
+) => {
+  if (reason) {
+    return reason;
+  }
+  const messages = {
+    configuration: [
+      'followers_tracking_configuration',
+      'Interaction tracking needs channel configuration before it can start.',
+    ],
+    authentication: [
+      'followers_tracking_authentication',
+      'Interaction tracking needs authentication. Reconnecting the channel may help.',
+    ],
+    authorization: [
+      'followers_tracking_authorization',
+      'Interaction tracking does not have the required channel permissions.',
+    ],
+    entitlement: [
+      'followers_tracking_entitlement',
+      'Your provider plan does not include this interaction tracking feature.',
+    ],
+    quota: [
+      'followers_tracking_quota',
+      'The provider tracking quota has been reached. Tracking will resume when capacity is available.',
+    ],
+    transient: [
+      'followers_tracking_transient',
+      'The provider is temporarily unavailable. We will retry tracking setup.',
+    ],
+    unknown: [
+      'followers_tracking_unknown',
+      'Interaction tracking could not be set up right now.',
+    ],
+  } as const;
+  const message = messages[category || 'unknown'];
+  return t(message[0], message[1]);
+};
 
 const FollowerCardSkeleton: FC = () => (
   <div
@@ -30,6 +106,110 @@ const FollowerCardSkeleton: FC = () => (
   />
 );
 
+const TrackingNotice: FC<{
+  tracking?: FollowerPageTracking;
+  showFreshness?: boolean;
+}> = ({ tracking, showFreshness = false }) => {
+  const t = useT();
+
+  if (!tracking) {
+    return null;
+  }
+
+  const partialCoverage = getPartialCoverageItems(tracking.coverage);
+  const freshness = tracking.computedAt
+    ? formatTrackingTimestamp(tracking.computedAt)
+    : null;
+  const isProvisioning = tracking.availability === 'provisioning';
+  const isUnavailable = tracking.availability === 'unavailable';
+  const showPartialNotice =
+    tracking.state === 'partial' || partialCoverage.length > 0;
+  const trackingStartedAt = tracking.trackingStartedAt
+    ? formatTrackingTimestamp(tracking.trackingStartedAt)
+    : null;
+
+  if (
+    !isProvisioning &&
+    !isUnavailable &&
+    !showPartialNotice &&
+    !(showFreshness && freshness)
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col gap-[8px]">
+      {isProvisioning && (
+        <div className="rounded-[10px] border border-amber-500/30 bg-amber-500/10 px-[14px] py-[10px] text-[13px] text-amber-400">
+          {t(
+            'followers_tracking_provisioning',
+            'Interaction tracking is still being set up for this channel. Rankings begin after tracking and the first follower sync complete.'
+          )}
+        </div>
+      )}
+      {isUnavailable && (
+        <div className="rounded-[10px] border border-amber-500/30 bg-amber-500/10 px-[14px] py-[10px] text-[13px] text-amber-400">
+          {t(
+            'followers_tracking_unavailable',
+            trackingUnavailableMessage(
+              tracking.failureCategory,
+              tracking.reason,
+              t
+            )
+          )}
+        </div>
+      )}
+      {showPartialNotice && (
+        <div className="rounded-[10px] border border-amber-500/30 bg-amber-500/10 px-[14px] py-[10px] text-[13px] text-amber-400">
+          <p>
+            {t(
+              'followers_tracking_partial',
+              'Some interaction types have limited coverage. Rankings may be incomplete.'
+            )}
+          </p>
+          {partialCoverage.length > 0 && (
+            <ul className="mt-[6px] list-disc ps-[18px]">
+              {partialCoverage.map((item) => {
+                const label = INTERACTION_KIND_LABELS[item.kind];
+                return (
+                  <li key={item.kind}>
+                    {item.reason ||
+                      t(
+                        label?.key || 'followers_interaction_kind_unknown',
+                        label?.defaultLabel || item.kind
+                      )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+      {showFreshness && freshness && (
+        <p className="text-[13px] text-textItemBlur">
+          {t('followers_tracking_freshness', 'Ranking summary computed {{date}}', {
+            date: freshness,
+          })}
+        </p>
+      )}
+      {tracking.noBackfill && (
+        <p className="text-[13px] text-textItemBlur">
+          {trackingStartedAt
+            ? t(
+                'followers_tracking_no_backfill_since',
+                'Rankings include events received after tracking began on {{date}}. Earlier provider activity is not backfilled.',
+                { date: trackingStartedAt }
+              )
+            : t(
+                'followers_tracking_no_backfill',
+                'Rankings include only events received after tracking begins. Earlier provider activity is not backfilled.'
+              )}
+        </p>
+      )}
+    </div>
+  );
+};
+
 export const FollowersComponent: FC = () => {
   const t = useT();
   const router = useRouter();
@@ -37,6 +217,9 @@ export const FollowersComponent: FC = () => {
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
   const [sort, setSort] = useState<string>();
   const [direction, setDirection] = useState<FollowerSortDirection>();
+  const [window, setWindow] = useState<ChannelInteractionWindow>(
+    DEFAULT_FOLLOWER_INTERACTION_WINDOW
+  );
   const [limit, setLimit] = useState<number>(24);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
@@ -66,6 +249,7 @@ export const FollowersComponent: FC = () => {
     const defaultSort = firstChannel.sorts[0];
     setSort(defaultSort?.key);
     setDirection(defaultSort?.defaultDirection);
+    setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
     setCursorHistory([]);
     setPageNumber(1);
   }, [channels, selectedIntegrationId]);
@@ -82,6 +266,9 @@ export const FollowersComponent: FC = () => {
     [selectedChannel, effectiveSort]
   );
 
+  const requiresWindow = !!activeSort?.requiresWindow;
+  const isDatabaseSort = activeSort?.scope === 'database';
+
   const resetPagination = useCallback(() => {
     setCursorHistory([]);
     setPageNumber(1);
@@ -93,6 +280,7 @@ export const FollowersComponent: FC = () => {
       const defaultSort = channel.sorts[0];
       setSort(defaultSort?.key);
       setDirection(defaultSort?.defaultDirection);
+      setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
       resetPagination();
     },
     [resetPagination]
@@ -111,6 +299,14 @@ export const FollowersComponent: FC = () => {
   const handleDirectionChange = useCallback(
     (value: FollowerSortDirection) => {
       setDirection(value);
+      resetPagination();
+    },
+    [resetPagination]
+  );
+
+  const handleWindowChange = useCallback(
+    (value: ChannelInteractionWindow) => {
+      setWindow(value);
       resetPagination();
     },
     [resetPagination]
@@ -140,6 +336,7 @@ export const FollowersComponent: FC = () => {
     limit,
     sort: effectiveSort,
     direction: effectiveDirection,
+    window: requiresWindow ? window : undefined,
   });
 
   const handleNext = useCallback(() => {
@@ -212,6 +409,86 @@ export const FollowersComponent: FC = () => {
   const isPageScopedSort = activeSort?.scope === 'page';
   const canGoPrevious = cursorHistory.length > 0 && !isLoadingFollowers;
   const canGoNext = !!followersPage?.hasMore && !isLoadingFollowers;
+  const tracking = followersPage?.tracking ?? selectedChannel?.tracking;
+  const isTrackingProvisioning = tracking?.availability === 'provisioning';
+  const isTrackingUnavailable = tracking?.availability === 'unavailable';
+  const isTrackingReady = tracking?.availability === 'ready';
+
+  const renderEmptyState = () => {
+    if (isDatabaseSort && isTrackingProvisioning) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t(
+              'followers_interactions_provisioning_title',
+              'Setting up interaction tracking'
+            )}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_interactions_provisioning_description',
+              'We are syncing followers and preparing interaction rankings for this channel. Check back shortly.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (isDatabaseSort && isTrackingUnavailable) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t(
+              'followers_interactions_unavailable_title',
+              'Interaction rankings unavailable'
+            )}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_interactions_unavailable_description',
+              'We could not load interaction rankings for this channel right now.'
+            )}
+          </p>
+          <Button onClick={() => mutateFollowers()}>
+            {t('followers_retry', 'Retry')}
+          </Button>
+        </div>
+      );
+    }
+
+    if (isDatabaseSort && isTrackingReady) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t(
+              'followers_interactions_empty_title',
+              'No interactions in this time window'
+            )}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_interactions_empty_description',
+              'No follower interactions were recorded during the selected period. Try a longer time window.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+        <p className="text-[18px] text-newTextColor">
+          {t('followers_empty_page', 'No followers on this page')}
+        </p>
+        <p className="text-[14px] text-textItemBlur max-w-[520px]">
+          {t(
+            'followers_reconnect_caveat',
+            'If you recently connected this channel, you may need to reconnect so it can access follower data.'
+          )}
+        </p>
+      </div>
+    );
+  };
 
   return (
     <>
@@ -327,6 +604,28 @@ export const FollowersComponent: FC = () => {
                 </Select>
               </div>
             )}
+            {requiresWindow && (
+              <div className="min-w-[140px]">
+                <Select
+                  label={t('followers_time_window', 'Time window')}
+                  name="followers-window"
+                  disableForm={true}
+                  hideErrors={true}
+                  value={window}
+                  onChange={(event) =>
+                    handleWindowChange(
+                      event.target.value as ChannelInteractionWindow
+                    )
+                  }
+                >
+                  {FOLLOWER_INTERACTION_WINDOWS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {t(option.labelKey, option.defaultLabel)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            )}
             {showDirectionSelector && (
               <div className="min-w-[140px]">
                 <Select
@@ -379,6 +678,10 @@ export const FollowersComponent: FC = () => {
           </p>
         )}
 
+        {isDatabaseSort && (
+          <TrackingNotice tracking={tracking} showFreshness={isTrackingReady} />
+        )}
+
         {followersError && (
           <div className="flex flex-col items-center justify-center gap-[12px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[24px] text-center">
             <p className="text-[16px] text-newTextColor">
@@ -402,17 +705,7 @@ export const FollowersComponent: FC = () => {
         )}
 
         {!followersError && !isLoadingFollowers && !followersPage?.items.length && (
-          <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
-            <p className="text-[18px] text-newTextColor">
-              {t('followers_empty_page', 'No followers on this page')}
-            </p>
-            <p className="text-[14px] text-textItemBlur max-w-[520px]">
-              {t(
-                'followers_reconnect_caveat',
-                'If you recently connected this channel, you may need to reconnect so it can access follower data.'
-              )}
-            </p>
-          </div>
+          renderEmptyState()
         )}
 
         {!followersError && !isLoadingFollowers && !!followersPage?.items.length && (

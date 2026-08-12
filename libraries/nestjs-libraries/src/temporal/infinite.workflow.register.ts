@@ -24,6 +24,7 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
           });
       } catch (err) {}
       await this.handoffPipelineScheduler();
+      await this.startChannelInteractionMaintenance();
     }
   }
 
@@ -55,6 +56,25 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
     } catch (error) {
       if (!this.isAlreadyStarted(error)) {
         this._logger.error('Failed to start Pipeline scheduler V2', error);
+        throw error;
+      }
+    }
+  }
+
+  private async startChannelInteractionMaintenance() {
+    const workflow = this._temporalService.client?.getRawClient()?.workflow;
+    if (!workflow) {
+      throw new Error('Temporal workflow client unavailable during maintenance start');
+    }
+    try {
+      await workflow.start('channelInteractionMaintenanceWorkflowV1', {
+        workflowId: 'channel-interaction-maintenance-workflow-v1',
+        taskQueue: 'main',
+        args: [{}],
+      });
+    } catch (error) {
+      if (!this.isAlreadyStarted(error)) {
+        this._logger.error('Failed to start Channel interaction maintenance', error);
         throw error;
       }
     }

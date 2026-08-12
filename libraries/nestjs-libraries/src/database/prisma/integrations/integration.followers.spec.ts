@@ -9,6 +9,10 @@ jest.mock('@gitroom/nestjs-libraries/redis/redis.service', () => ({
     set: jest.fn(),
   },
 }));
+jest.mock(
+  '@gitroom/nestjs-libraries/integrations/integration.manager',
+  () => ({ IntegrationManager: class IntegrationManager {} })
+);
 
 describe('IntegrationService followers', () => {
   const org = { id: 'org-a' } as any;
@@ -39,6 +43,10 @@ describe('IntegrationService followers', () => {
     };
     (service as any)._refreshIntegrationService = {
       refresh: jest.fn(),
+    };
+    (service as any)._channelInteractionRepository = {
+      getInteractionTracking: jest.fn(),
+      getRankedFollowers: jest.fn(),
     };
     return service;
   };
@@ -263,5 +271,71 @@ describe('IntegrationService followers', () => {
       message: 'Followers are temporarily unavailable',
       status: 503,
     });
+  });
+
+  it('uses the database-ranked follower path for interaction sorting', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (service as any)._channelInteractionRepository.getRankedFollowers.mockResolvedValue({
+      items: [{
+        counterpartyExternalId: 'follower-a',
+        interactionCount: 5,
+        interactionScore: 14,
+        lastInteractionAt: new Date('2026-08-12T12:00:00.000Z'),
+        audienceMember: { name: 'Follower A' },
+      }],
+      hasMore: false,
+      rollup: {
+        activeGeneration: 'generation-a',
+        computedAt: new Date('2026-08-12T12:00:00.000Z'),
+      },
+      followerSync: {
+        activeGeneration: 'followers-a',
+        status: 'IN_PROGRESS',
+        completedAt: new Date(),
+      },
+      subscriptions: [{ state: 'ACTIVE' }],
+    });
+
+    await expect(
+      service.getFollowers(org, 'channel-a', {
+        limit: 24,
+        sort: 'interactions',
+        direction: 'desc',
+        window: 'month',
+      })
+    ).resolves.toMatchObject({
+      items: [{
+        id: 'follower-a',
+        interactionCount: 5,
+        interactionScore: 14,
+      }],
+      window: 'month',
+      tracking: { availability: 'ready' },
+    });
+    expect(followers).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getRankedFollowers
+    ).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-a',
+      integrationId: 'channel-a',
+      direction: 'desc',
+      limit: 24,
+    }));
+
+    await expect(
+      service.getFollowers(org, 'channel-a', {
+        limit: 24,
+        sort: 'interactions',
+      })
+    ).rejects.toMatchObject({ status: 400 });
   });
 });

@@ -46,6 +46,13 @@ model Organization {
   oauthAuthorizations OAuthAuthorization[]
   pipelines           Pipeline[]
   contextDocuments    ContextDocument[]
+  channelAudienceMembers            ChannelAudienceMember[]
+  channelInteractionEvents          ChannelInteractionEvent[]
+  channelInteractionDailyAggregates ChannelInteractionDailyAggregate[]
+  channelInteractionWindowSummaries ChannelInteractionWindowSummary[]
+  channelInteractionRollupStates    ChannelInteractionRollupState[]
+  channelInteractionSubscriptions   ChannelInteractionSubscription[]
+  channelFollowerSyncStates         ChannelFollowerSyncState[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -349,6 +356,13 @@ model Integration {
   posts                 Post[]
   pipelineIntegrations  PipelineIntegration[]
   noticeReads           IntegrationNoticeRead[]
+  channelAudienceMembers            ChannelAudienceMember[]
+  channelInteractionEvents          ChannelInteractionEvent[]
+  channelInteractionDailyAggregates ChannelInteractionDailyAggregate[]
+  channelInteractionWindowSummaries ChannelInteractionWindowSummary[]
+  channelInteractionRollupStates    ChannelInteractionRollupState[]
+  channelInteractionSubscriptions   ChannelInteractionSubscription[]
+  channelFollowerSyncState          ChannelFollowerSyncState?
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -1155,4 +1169,206 @@ model Announcement {
   description String
   color       AnnouncementColor @default(INFO)
   createdAt   DateTime          @default(now())
+}
+
+model ChannelAudienceMember {
+  id                     String                    @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  externalId             String
+  name                   String?
+  username               String?
+  picture                String?
+  profileUrl             String?
+  bio                    String?
+  followersCount         Int?
+  followingCount         Int?
+  membershipState        ChannelAudienceMembership @default(UNKNOWN)
+  followedAt             DateTime?
+  accountCreatedAt       DateTime?
+  followerSyncGeneration String?
+  membershipEvidenceGeneration String?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  organization           Organization              @relation(fields: [organizationId], references: [id])
+  integration            Integration               @relation(fields: [integrationId], references: [id])
+  interactionSummaries   ChannelInteractionWindowSummary[] @relation("AudienceMemberInteractionSummaries")
+
+  @@unique([integrationId, externalId])
+  @@index([organizationId, integrationId, membershipState])
+  @@index([integrationId, followerSyncGeneration])
+  @@index([integrationId, membershipEvidenceGeneration])
+  @@index([integrationId])
+  @@index([organizationId])
+}
+
+model ChannelInteractionEvent {
+  id                     String                      @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  providerEventKey       String
+  counterpartyExternalId String
+  kind                   ChannelInteractionKind
+  direction              ChannelInteractionDirection
+  eventAt                DateTime
+  relatedObjectId        String?
+  metadata               Json?
+  normalizationVersion   Int                         @default(1)
+  createdAt              DateTime                    @default(now())
+  organization           Organization                @relation(fields: [organizationId], references: [id])
+  integration            Integration                 @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, providerEventKey])
+  @@index([integrationId, counterpartyExternalId, eventAt])
+  @@index([integrationId, kind, direction, eventAt])
+  @@index([organizationId])
+}
+
+model ChannelInteractionDailyAggregate {
+  id                     String       @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  counterpartyExternalId String
+  day                    DateTime     @db.Date
+  interactionCount       Int          @default(0)
+  interactionScore       Int          @default(0)
+  lastInteractionAt      DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  organization           Organization @relation(fields: [organizationId], references: [id])
+  integration            Integration  @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, counterpartyExternalId, day])
+  @@index([integrationId, day])
+  @@index([organizationId])
+}
+
+model ChannelInteractionWindowSummary {
+  id                     String                   @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  window                 ChannelInteractionWindow
+  generation             String
+  counterpartyExternalId String
+  interactionCount       Int                      @default(0)
+  interactionScore       Int                      @default(0)
+  lastInteractionAt      DateTime?
+  computedAt             DateTime
+  createdAt              DateTime                 @default(now())
+  organization           Organization             @relation(fields: [organizationId], references: [id])
+  integration            Integration              @relation(fields: [integrationId], references: [id])
+  audienceMember         ChannelAudienceMember   @relation("AudienceMemberInteractionSummaries", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
+
+  @@unique([integrationId, window, generation, counterpartyExternalId])
+  @@index([integrationId, window, generation, interactionCount, interactionScore, lastInteractionAt, counterpartyExternalId])
+  @@index([organizationId])
+}
+
+model ChannelInteractionRollupState {
+  id               String                   @id @default(cuid())
+  organizationId   String
+  integrationId    String
+  window           ChannelInteractionWindow
+  activeGeneration String
+  computedAt       DateTime
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  organization     Organization             @relation(fields: [organizationId], references: [id])
+  integration      Integration              @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, window])
+  @@index([organizationId])
+}
+
+model ChannelFollowerSyncState {
+  id               String                         @id @default(cuid())
+  organizationId   String
+  integrationId    String                         @unique
+  activeGeneration String?
+  pendingGeneration String?
+  status           ChannelFollowerSyncStatus      @default(IN_PROGRESS)
+  completedAt      DateTime?
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+  organization     Organization                   @relation(fields: [organizationId], references: [id])
+  integration      Integration                    @relation(fields: [integrationId], references: [id])
+
+  @@index([organizationId])
+  @@index([integrationId, pendingGeneration, status])
+}
+
+model ChannelInteractionSubscription {
+  id                String                         @id @default(cuid())
+  organizationId    String
+  integrationId     String
+  eventKey          String
+  direction         ChannelInteractionDirection
+  remoteIdentifier  String?
+  state             ChannelInteractionTrackingState @default(UNCONFIGURED)
+  trackingStartedAt DateTime?
+  failureCategory   String?
+  failureReason     String?
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+  organization      Organization                   @relation(fields: [organizationId], references: [id])
+  integration       Integration                    @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, eventKey, direction])
+  @@index([integrationId, state])
+  @@index([organizationId])
+}
+
+model ProviderWebhookEndpoint {
+  id                 String                          @id @default(cuid())
+  providerIdentifier String
+  callbackIdentity   String
+  remoteWebhookId    String?
+  state              ChannelInteractionTrackingState @default(UNCONFIGURED)
+  lastError          String?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+
+  @@unique([providerIdentifier, callbackIdentity])
+  @@index([providerIdentifier, state])
+}
+
+enum ChannelInteractionKind {
+  LIKE
+  REPLY
+  REPOST
+  FOLLOW
+  MENTION
+}
+
+enum ChannelInteractionDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum ChannelAudienceMembership {
+  FOLLOWER
+  NOT_FOLLOWER
+  UNKNOWN
+}
+
+enum ChannelInteractionWindow {
+  WEEK
+  MONTH
+  NINETY_DAY
+  YEAR
+}
+
+enum ChannelInteractionTrackingState {
+  UNCONFIGURED
+  REMOVING
+  PROVISIONING
+  ACTIVE
+  PARTIAL
+  ERROR
+}
+
+enum ChannelFollowerSyncStatus {
+  IN_PROGRESS
+  COMPLETE
+  FAILED
 }
