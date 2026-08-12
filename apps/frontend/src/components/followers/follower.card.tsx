@@ -51,42 +51,58 @@ export const FollowerCard: FC<{
       )}
     >
       <div className="flex flex-1 items-start gap-[12px]">
-        <ImageWithFallback
-          fallbackSrc="/no-picture.jpg"
-          src={follower.picture || '/no-picture.jpg'}
-          className="rounded-full shrink-0 object-cover"
-          alt={follower.name}
-          width={48}
-          height={48}
-        />
+        {follower.profileUrl ? (
+          <a
+            href={follower.profileUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="shrink-0 rounded-full hover:opacity-80"
+            aria-label={t(
+              'followers_view_profile_for',
+              'View profile for {{name}}',
+              { name: follower.name }
+            )}
+          >
+            <ImageWithFallback
+              fallbackSrc="/no-picture.jpg"
+              src={follower.picture || '/no-picture.jpg'}
+              className="rounded-full shrink-0 object-cover"
+              alt={follower.name}
+              width={48}
+              height={48}
+            />
+          </a>
+        ) : (
+          <ImageWithFallback
+            fallbackSrc="/no-picture.jpg"
+            src={follower.picture || '/no-picture.jpg'}
+            className="rounded-full shrink-0 object-cover"
+            alt={follower.name}
+            width={48}
+            height={48}
+          />
+        )}
         <div className="flex flex-1 min-w-0 flex-col gap-[12px] h-full">
           <div>
-            <div className="flex items-start justify-between gap-[8px]">
-              <div className="min-w-0">
-                <h3 className="text-[15px] font-[600] text-newTextColor truncate">
-                  {follower.name}
-                </h3>
-                {handle && (
+            <div className="min-w-0">
+              <h3 className="text-[15px] font-[600] text-newTextColor truncate">
+                {follower.name}
+              </h3>
+              {handle &&
+                (follower.profileUrl ? (
+                  <a
+                    href={follower.profileUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80 block"
+                  >
+                    {handle}
+                  </a>
+                ) : (
                   <p className="text-[13px] text-textItemBlur truncate">
                     {handle}
                   </p>
-                )}
-              </div>
-              {follower.profileUrl && (
-                <a
-                  href={follower.profileUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="shrink-0 text-[12px] text-newTextColor underline underline-offset-2 hover:opacity-80"
-                  aria-label={t(
-                    'followers_view_profile_for',
-                    'View profile for {{name}}',
-                    { name: follower.name }
-                  )}
-                >
-                  {t('followers_view_profile', 'Profile')}
-                </a>
-              )}
+                ))}
             </div>
             {(Number.isFinite(follower.followingCount) ||
               Number.isFinite(follower.followersCount) ||
