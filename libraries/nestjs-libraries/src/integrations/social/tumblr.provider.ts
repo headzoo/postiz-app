@@ -1,10 +1,12 @@
 import {
   AuthTokenDetails,
   FollowerQuery,
+  FollowerSort,
   PostDetails,
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
   BadBody,
   SocialAbstract,
@@ -76,24 +78,24 @@ type TumblrUploadMedia = {
 
 type TumblrContentBlock =
   | {
-      type: 'text';
-      text: string;
-      subtype?: 'heading1';
-    }
+    type: 'text';
+    text: string;
+    subtype?: 'heading1';
+  }
   | {
-      type: 'link';
-      url: string;
-    }
+    type: 'link';
+    url: string;
+  }
   | {
-      type: 'image';
-      media: TumblrUploadMedia[];
-      alt_text?: string;
-    }
+    type: 'image';
+    media: TumblrUploadMedia[];
+    alt_text?: string;
+  }
   | {
-      type: 'video';
-      provider: 'tumblr';
-      media: TumblrUploadMedia;
-    };
+    type: 'video';
+    provider: 'tumblr';
+    media: TumblrUploadMedia;
+  };
 
 export class TumblrProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3;
@@ -103,6 +105,7 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
   scopes = ['basic', 'write', 'offline_access'];
   editor = 'normal' as const;
   dto = TumblrDto;
+  followerSorts: FollowerSort[] = API_ORDER_FOLLOWER_SORTS;
 
   maxLength() {
     return 32768;
@@ -194,9 +197,9 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
     status?: number
   ):
     | {
-        type: 'refresh-token' | 'bad-body' | 'retry';
-        value: string;
-      }
+      type: 'refresh-token' | 'bad-body' | 'retry';
+      value: string;
+    }
     | undefined {
     if (
       status === 401 ||
@@ -459,9 +462,9 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
 
     const postId = String(
       response.response?.id_string ||
-        response.response?.post_id ||
-        response.response?.id ||
-        ''
+      response.response?.post_id ||
+      response.response?.id ||
+      ''
     );
     const blogUrl = this.normalizeBlogUrl(
       integration.profile || `https://www.tumblr.com/${id}`
@@ -577,7 +580,7 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
   private async createJsonPost(
     blogName: string,
     accessToken: string,
-    payload: { content: TumblrContentBlock[]; [key: string]: any }
+    payload: { content: TumblrContentBlock[];[key: string]: any }
   ) {
     return (await (
       await this.fetch(
@@ -598,7 +601,7 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
   private async createMultipartPost(
     blogName: string,
     accessToken: string,
-    payload: { content: TumblrContentBlock[]; [key: string]: any },
+    payload: { content: TumblrContentBlock[];[key: string]: any },
     media: NonNullable<PostDetails['media']>
   ) {
     // Each media part is streamed from its source into the multipart request

@@ -2,11 +2,13 @@ import {
   AuthTokenDetails,
   FollowerPage,
   FollowerQuery,
+  FollowerSort,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import {
   BadBody,
@@ -39,6 +41,7 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
   isBetweenSteps = false;
   scopes = ['write:statuses', 'profile', 'write:media'];
   editor = 'normal' as const;
+  followerSorts: FollowerSort[] = API_ORDER_FOLLOWER_SORTS;
 
   private mastodonInstanceUrl() {
     return new URL(process.env.MASTODON_URL || 'https://mastodon.social');
@@ -155,10 +158,10 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
           : {}),
         ...(account.note
           ? {
-              bio: String(account.note)
-                .replace(/<[^>]*>/g, '')
-                .trim(),
-            }
+            bio: String(account.note)
+              .replace(/<[^>]*>/g, '')
+              .trim(),
+          }
           : {}),
         ...(Number.isFinite(Number(account.followers_count))
           ? { followersCount: Number(account.followers_count) }
@@ -172,19 +175,19 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
         this.followerLink(response.headers.get('link'), 'next')
       )
         ? {
-            nextCursor: this.encodeFollowerCursor(
-              this.followerLink(response.headers.get('link'), 'next')
-            ),
-          }
+          nextCursor: this.encodeFollowerCursor(
+            this.followerLink(response.headers.get('link'), 'next')
+          ),
+        }
         : {}),
       ...(this.encodeFollowerCursor(
         this.followerLink(response.headers.get('link'), 'prev')
       )
         ? {
-            previousCursor: this.encodeFollowerCursor(
-              this.followerLink(response.headers.get('link'), 'prev')
-            ),
-          }
+          previousCursor: this.encodeFollowerCursor(
+            this.followerLink(response.headers.get('link'), 'prev')
+          ),
+        }
         : {}),
       hasMore: !!this.encodeFollowerCursor(
         this.followerLink(response.headers.get('link'), 'next')
@@ -196,8 +199,8 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
     const instance = process.env.MASTODON_URL || 'https://mastodon.social';
     return integration.profile
       ? `${instance.replace(/\/$/, '')}/@${encodeURIComponent(
-          integration.profile
-        )}`
+        integration.profile
+      )}`
       : undefined;
   }
 

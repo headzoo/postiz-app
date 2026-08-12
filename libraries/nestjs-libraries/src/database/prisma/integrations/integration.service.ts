@@ -15,6 +15,10 @@ import {
   FollowerQuery,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import {
+  isPageScopedFollowerSort,
+  sortFollowers,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import { Integration, Organization, User } from '@prisma/client';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 import dayjs from 'dayjs';
@@ -46,7 +50,7 @@ export class IntegrationService {
     private _refreshIntegrationService: RefreshIntegrationService,
     private _temporalService: TemporalService,
     private _pipelinePlugService: PipelinePlugService
-  ) {}
+  ) { }
 
   async changeActiveCron(orgId: string) {
     const data = await this._autopostsRepository.getAutoposts(orgId);
@@ -54,7 +58,7 @@ export class IntegrationService {
     for (const item of data.filter((f) => f.active)) {
       try {
         await this._temporalService.terminateWorkflow(`autopost-${item.id}`);
-      } catch (err) {}
+      } catch (err) { }
     }
 
     return true;
@@ -94,12 +98,12 @@ export class IntegrationService {
   async createOrUpdateIntegration(
     additionalSettings:
       | {
-          title: string;
-          description: string;
-          type: 'checkbox' | 'text' | 'textarea';
-          value: any;
-          regex?: string;
-        }[]
+        title: string;
+        description: string;
+        type: 'checkbox' | 'text' | 'textarea';
+        value: any;
+        regex?: string;
+      }[]
       | undefined,
     oneTimeToken: boolean,
     org: string,
@@ -121,9 +125,9 @@ export class IntegrationService {
       ? picture?.indexOf('imagedelivery.net') > -1
         ? picture
         : await this.storage.uploadSimple(picture).catch((err) => {
-            console.log('Failed to upload profile picture:', picture, err);
-            return undefined;
-          })
+          console.log('Failed to upload profile picture:', picture, err);
+          return undefined;
+        })
       : undefined;
 
     return this._integrationRepository.createOrUpdateIntegration(
@@ -197,7 +201,7 @@ export class IntegrationService {
             } else if (cached === '0') {
               eligible = false;
             }
-          } catch {}
+          } catch { }
 
           if (eligible === undefined) {
             try {
@@ -216,7 +220,7 @@ export class IntegrationService {
                     ? 1
                     : 300
                 );
-              } catch {}
+              } catch { }
             } catch {
               return;
             }
@@ -336,12 +340,33 @@ export class IntegrationService {
     }
 
     try {
+      const pageScoped = isPageScopedFollowerSort(
+        provider.followerSorts,
+        query.sort
+      );
+      const providerQuery: FollowerQuery = pageScoped
+        ? { ...query, sort: undefined, direction: undefined }
+        : query;
       const page = await provider.followers!(
         liveIntegration,
         liveIntegration.token,
-        query
+        providerQuery
       );
-      return this.sanitizeFollowerPage(page);
+      const sanitized = this.sanitizeFollowerPage(page);
+
+      if (!pageScoped || !query.sort) {
+        return sanitized;
+      }
+
+      const sort = provider.followerSorts?.find(
+        (candidate) => candidate.key === query.sort
+      );
+      const direction = query.direction ?? sort?.defaultDirection ?? 'desc';
+
+      return {
+        ...sanitized,
+        items: sortFollowers(sanitized.items, query.sort, direction),
+      };
     } catch (error) {
       if (error instanceof RefreshToken && !forceRefresh) {
         return this.getFollowerPage(integration, provider, query, true);
@@ -359,11 +384,11 @@ export class IntegrationService {
         ? { total: page.total }
         : {}),
       ...(typeof page?.nextCursor === 'string' &&
-      !this.isHttpUrl(page.nextCursor)
+        !this.isHttpUrl(page.nextCursor)
         ? { nextCursor: page.nextCursor }
         : {}),
       ...(typeof page?.previousCursor === 'string' &&
-      !this.isHttpUrl(page.previousCursor)
+        !this.isHttpUrl(page.previousCursor)
         ? { previousCursor: page.previousCursor }
         : {}),
       hasMore: page?.hasMore === true,

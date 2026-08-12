@@ -79,12 +79,14 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
       label: 'Alphabetical',
       directions: ['asc'],
       defaultDirection: 'asc',
+      scope: 'native',
     },
     {
       key: 'relevance',
       label: 'Relevance',
       directions: ['desc'],
       defaultDirection: 'desc',
+      scope: 'native',
     },
   ];
 
@@ -115,14 +117,14 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
           name: subscriber!.title || subscriber!.channelId!,
           ...(subscriber!.description ? { bio: subscriber!.description } : {}),
           ...(subscriber!.thumbnails?.high?.url ||
-          subscriber!.thumbnails?.medium?.url ||
-          subscriber!.thumbnails?.default?.url
+            subscriber!.thumbnails?.medium?.url ||
+            subscriber!.thumbnails?.default?.url
             ? {
-                picture:
-                  subscriber!.thumbnails?.high?.url ||
-                  subscriber!.thumbnails?.medium?.url ||
-                  subscriber!.thumbnails?.default?.url,
-              }
+              picture:
+                subscriber!.thumbnails?.high?.url ||
+                subscriber!.thumbnails?.medium?.url ||
+                subscriber!.thumbnails?.default?.url,
+            }
             : {}),
           profileUrl: `https://www.youtube.com/channel/${encodeURIComponent(
             subscriber!.channelId!
@@ -143,10 +145,10 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
     return integration.profile
       ? `https://www.youtube.com/${encodeURIComponent(integration.profile)}`
       : integration.internalId
-      ? `https://www.youtube.com/channel/${encodeURIComponent(
+        ? `https://www.youtube.com/channel/${encodeURIComponent(
           integration.internalId
         )}`
-      : undefined;
+        : undefined;
   }
 
   maxLength() {
@@ -168,9 +170,9 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
 
   override handleErrors(body: string):
     | {
-        type: 'refresh-token' | 'bad-body';
-        value: string;
-      }
+      type: 'refresh-token' | 'bad-body';
+      value: string;
+    }
     | undefined {
     if (body.includes('invalidTags')) {
       return {

@@ -4,11 +4,13 @@ import {
   ChannelNoticeStatus,
   FollowerPage,
   FollowerQuery,
+  FollowerSort,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import {
   BadBody,
@@ -263,6 +265,7 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
   isBetweenSteps = false;
   scopes = ['write:statuses', 'profile', 'write:media'];
   editor = 'normal' as const;
+  followerSorts: FollowerSort[] = API_ORDER_FOLLOWER_SORTS;
   maxLength() {
     return 300;
   }
@@ -599,9 +602,9 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
     const witness = (): PendingCheckResponse =>
       pendingData.attempting && !pendingData.confirmed
         ? {
-            status: 'ready',
-            pendingData: { ...pendingData, confirmed: true },
-          }
+          status: 'ready',
+          pendingData: { ...pendingData, confirmed: true },
+        }
         : { status: 'ready', pendingData };
 
     // Image-only posts have no asynchronous processing step.

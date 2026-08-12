@@ -6,11 +6,13 @@ import {
   AuthTokenDetails,
   FollowerPage,
   FollowerQuery,
+  FollowerSort,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import { lookup } from 'mime-types';
 import sharp from 'sharp';
 import { readOrFetch } from '@gitroom/helpers/utils/read.or.fetch';
@@ -37,11 +39,11 @@ type XPendingData = {
   message: string;
   settings: {
     who_can_reply_post?:
-      | 'everyone'
-      | 'following'
-      | 'mentionedUsers'
-      | 'subscribers'
-      | 'verified';
+    | 'everyone'
+    | 'following'
+    | 'mentionedUsers'
+    | 'subscribers'
+    | 'verified';
     community?: string;
     made_with_ai?: boolean;
     paid_partnership?: boolean;
@@ -64,10 +66,9 @@ type XPendingData = {
 };
 
 @Rules(
-  `X can have maximum 4 pictures, or maximum one video, it can also be without attachments, it can also be published as a long-form article (draft or published) when post_type is set to article ${
-    process.env.STRIP_LINKS_FROM_X_POSTS
-      ? 'do not add links, they will be stripped from the post'
-      : ''
+  `X can have maximum 4 pictures, or maximum one video, it can also be without attachments, it can also be published as a long-form article (draft or published) when post_type is set to article ${process.env.STRIP_LINKS_FROM_X_POSTS
+    ? 'do not add links, they will be stripped from the post'
+    : ''
   }`
 )
 export class XProvider extends SocialAbstract implements SocialProvider {
@@ -89,6 +90,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   // regular tweets are stripped to plain text inside the provider.
   editor = 'html' as const;
   dto = XDto;
+  followerSorts: FollowerSort[] = API_ORDER_FOLLOWER_SORTS;
 
   maxLength(additionalSettings?: any, settings?: any) {
     // Articles are long-form content, the tweet character limit doesn't apply.
@@ -204,9 +206,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
 
   override handleErrors(body: string):
     | {
-        type: 'refresh-token' | 'bad-body' | 'retry';
-        value: string;
-      }
+      type: 'refresh-token' | 'bad-body' | 'retry';
+      value: string;
+    }
     | undefined {
     if (body.includes('You are not permitted to perform this action')) {
       return {
@@ -449,7 +451,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     const { url, oauth_token, oauth_token_secret } =
       await client.generateAuthLink(
         (process.env.X_URL || process.env.FRONTEND_URL) +
-          `/integrations/social/x`,
+        `/integrations/social/x`,
         {
           authAccessType: 'write',
           linkMode: 'authenticate',
@@ -618,10 +620,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         this.identifier,
         JSON.stringify(processing),
         Buffer.from('{}'),
-        `X failed to process the uploaded video${
-          (processing as any)?.error?.message
-            ? `: ${(processing as any).error.message}`
-            : ''
+        `X failed to process the uploaded video${(processing as any)?.error?.message
+          ? `: ${(processing as any).error.message}`
+          : ''
         }`
       );
     }
@@ -668,8 +669,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           this.identifier,
           JSON.stringify(processing),
           Buffer.from('{}'),
-          `X failed to process the uploaded video${
-            processing?.error?.message ? `: ${processing.error.message}` : ''
+          `X failed to process the uploaded video${processing?.error?.message ? `: ${processing.error.message}` : ''
           }`
         );
       }
@@ -717,43 +717,43 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           async () =>
             hasExtension(m.path, 'mp4')
               ? this.uploadWithRateLimitRetry(() =>
-                  this.uploadVideoInChunks(client, m.path)
-                )
+                this.uploadVideoInChunks(client, m.path)
+              )
               : {
-                  // Articles reject GIF media, so the tweet pipeline (which
-                  // converts every image to GIF) can't be reused for them -
-                  // article images are uploaded as JPEG with the tweet_image
-                  // category the article references them by.
-                  mediaId: await this.uploadWithRateLimitRetry(async () =>
-                    asArticleImage
-                      ? client.v2.uploadMedia(
-                          await sharp(await readOrFetch(m.path))
-                            .resize({
-                              width: 1000,
-                            })
-                            .jpeg()
-                            .toBuffer(),
-                          {
-                            media_type: 'image/jpeg' as any,
-                            media_category: 'tweet_image' as any,
-                          }
-                        )
-                      : client.v2.uploadMedia(
-                          await sharp(await readOrFetch(m.path), {
-                            animated: lookup(m.path) === 'image/gif',
-                          })
-                            .resize({
-                              width: 1000,
-                            })
-                            .gif()
-                            .toBuffer(),
-                          {
-                            media_type: (lookup(m.path) || '') as any,
-                          }
-                        )
-                  ),
-                  processing: false,
-                },
+                // Articles reject GIF media, so the tweet pipeline (which
+                // converts every image to GIF) can't be reused for them -
+                // article images are uploaded as JPEG with the tweet_image
+                // category the article references them by.
+                mediaId: await this.uploadWithRateLimitRetry(async () =>
+                  asArticleImage
+                    ? client.v2.uploadMedia(
+                      await sharp(await readOrFetch(m.path))
+                        .resize({
+                          width: 1000,
+                        })
+                        .jpeg()
+                        .toBuffer(),
+                      {
+                        media_type: 'image/jpeg' as any,
+                        media_category: 'tweet_image' as any,
+                      }
+                    )
+                    : client.v2.uploadMedia(
+                      await sharp(await readOrFetch(m.path), {
+                        animated: lookup(m.path) === 'image/gif',
+                      })
+                        .resize({
+                          width: 1000,
+                        })
+                        .gif()
+                        .toBuffer(),
+                      {
+                        media_type: (lookup(m.path) || '') as any,
+                      }
+                    )
+                ),
+                processing: false,
+              },
           true
         );
 
@@ -799,11 +799,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       thread_finisher: string;
       community?: string;
       who_can_reply_post:
-        | 'everyone'
-        | 'following'
-        | 'mentionedUsers'
-        | 'subscribers'
-        | 'verified';
+      | 'everyone'
+      | 'following'
+      | 'mentionedUsers'
+      | 'subscribers'
+      | 'verified';
       made_with_ai?: boolean;
       paid_partnership?: boolean;
       post_type?: 'post' | 'article';
@@ -833,12 +833,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       : undefined;
     const coverMediaId = coverPath
       ? (
-          await this.uploadMediaEntries(
-            client,
-            [{ id: 'article-cover', media: [{ path: coverPath }] } as any],
-            true
-          )
-        ).media['article-cover']?.[0]
+        await this.uploadMediaEntries(
+          client,
+          [{ id: 'article-cover', media: [{ path: coverPath }] } as any],
+          true
+        )
+      ).media['article-cover']?.[0]
       : undefined;
 
     return [
@@ -929,8 +929,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           this.identifier,
           JSON.stringify(processing),
           Buffer.from('{}'),
-          `X failed to process the uploaded video${
-            processing?.error?.message ? `: ${processing.error.message}` : ''
+          `X failed to process the uploaded video${processing?.error?.message ? `: ${processing.error.message}` : ''
           }`
         );
       }
@@ -1138,12 +1137,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         ),
         ...(coverMediaId
           ? {
-              cover_media: {
-                // Lowercase, matching the category the upload stored.
-                media_category: 'tweet_image',
-                media_id: coverMediaId,
-              },
-            }
+            cover_media: {
+              // Lowercase, matching the category the upload stored.
+              media_category: 'tweet_image',
+              media_id: coverMediaId,
+            },
+          }
           : {}),
       }),
     });
@@ -1247,16 +1246,16 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     const tweetUrl = 'https://api.x.com/2/tweets';
     const tweetBody = {
       ...(!settings.who_can_reply_post ||
-      settings.who_can_reply_post === 'everyone'
+        settings.who_can_reply_post === 'everyone'
         ? {}
         : {
-            reply_settings: settings.who_can_reply_post,
-          }),
+          reply_settings: settings.who_can_reply_post,
+        }),
       ...(settings.community
         ? {
-            share_with_followers: true,
-            community_id: settings.community?.split('/').pop() || '',
-          }
+          share_with_followers: true,
+          community_id: settings.community?.split('/').pop() || '',
+        }
         : {}),
       text: this.stripLinks()
         ? removeLinks(pendingData.message)
@@ -1301,11 +1300,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       thread_finisher: string;
       community?: string;
       who_can_reply_post:
-        | 'everyone'
-        | 'following'
-        | 'mentionedUsers'
-        | 'subscribers'
-        | 'verified';
+      | 'everyone'
+      | 'following'
+      | 'mentionedUsers'
+      | 'subscribers'
+      | 'verified';
       made_with_ai?: boolean;
       paid_partnership?: boolean;
     }>[],
@@ -1459,12 +1458,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       ...tweets.data.data,
       ...(tweets.data.data.length === 100
         ? await this.loadAllTweets(
-            client,
-            id,
-            until,
-            since,
-            tweets.meta.next_token
-          )
+          client,
+          id,
+          until,
+          since,
+          tweets.meta.next_token
+        )
         : []),
     ];
   };

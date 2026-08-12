@@ -209,6 +209,7 @@ export const FollowersComponent: FC = () => {
 
   const showSortSelector = (selectedChannel?.sorts.length ?? 0) > 1;
   const showDirectionSelector = (activeSort?.directions.length ?? 0) > 1;
+  const isPageScopedSort = activeSort?.scope === 'page';
   const canGoPrevious = cursorHistory.length > 0 && !isLoadingFollowers;
   const canGoNext = !!followersPage?.hasMore && !isLoadingFollowers;
 
@@ -256,7 +257,7 @@ export const FollowersComponent: FC = () => {
               className={clsx(
                 'flex gap-[12px] items-center group/profile justify-center hover:bg-boxHover rounded-e-[8px] text-start',
                 selectedChannel?.id !== channel.id &&
-                  'opacity-20 hover:opacity-100 cursor-pointer'
+                'opacity-20 hover:opacity-100 cursor-pointer'
               )}
             >
               <div className="relative rounded-full flex justify-center items-center gap-[6px]">
@@ -368,6 +369,15 @@ export const FollowersComponent: FC = () => {
             </div>
           </div>
         </div>
+
+        {isPageScopedSort && (
+          <p className="text-[13px] text-textItemBlur">
+            {t(
+              'followers_page_sort_hint',
+              'Sorting applies to the current page only. Use Recent for the channel’s native order across pages.'
+            )}
+          </p>
+        )}
 
         {followersError && (
           <div className="flex flex-col items-center justify-center gap-[12px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[24px] text-center">

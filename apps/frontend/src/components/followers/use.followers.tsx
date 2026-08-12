@@ -6,11 +6,14 @@ import useSWR from 'swr';
 
 export type FollowerSortDirection = 'asc' | 'desc';
 
+export type FollowerSortScope = 'native' | 'page';
+
 export type FollowerSort = {
   key: string;
   label: string;
   directions: FollowerSortDirection[];
   defaultDirection: FollowerSortDirection;
+  scope?: FollowerSortScope;
 };
 
 export type FollowerChannel = {

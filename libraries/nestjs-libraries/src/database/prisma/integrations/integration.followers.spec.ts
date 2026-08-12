@@ -176,6 +176,56 @@ describe('IntegrationService followers', () => {
     ).rejects.toMatchObject({ status: 404 });
   });
 
+  it('sorts page-scoped follower results locally without passing sort to the provider', async () => {
+    const followers = jest.fn().mockResolvedValue({
+      items: [
+        { id: 'low', name: 'Low', followersCount: 10 },
+        { id: 'high', name: 'High', followersCount: 100 },
+      ],
+      hasMore: false,
+    });
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [
+          {
+            key: 'recent',
+            label: 'Recent',
+            directions: ['desc'],
+            defaultDirection: 'desc',
+            scope: 'native',
+          },
+          {
+            key: 'followers_count',
+            label: 'Followers',
+            directions: ['asc', 'desc'],
+            defaultDirection: 'desc',
+            scope: 'page',
+          },
+        ],
+      },
+    });
+
+    await expect(
+      service.getFollowers(org, 'channel-a', {
+        limit: 24,
+        sort: 'followers_count',
+        direction: 'desc',
+      })
+    ).resolves.toEqual({
+      items: [
+        { id: 'high', name: 'High', followersCount: 100 },
+        { id: 'low', name: 'Low', followersCount: 10 },
+      ],
+      hasMore: false,
+    });
+    expect(followers).toHaveBeenCalledWith(
+      expect.anything(),
+      'token',
+      expect.objectContaining({ limit: 24, sort: undefined, direction: undefined })
+    );
+  });
+
   it('refreshes exactly once after a refresh-token failure', async () => {
     const followers = jest
       .fn()

@@ -28,8 +28,7 @@ const client = new NeynarAPIClient({
 )
 export class FarcasterProvider
   extends SocialAbstract
-  implements SocialProvider
-{
+  implements SocialProvider {
   identifier = 'wrapcast';
   name = 'Farcaster';
   followerSorts: FollowerSort[] = [
@@ -38,12 +37,14 @@ export class FarcasterProvider
       label: 'Recent',
       directions: ['desc'],
       defaultDirection: 'desc',
+      scope: 'native',
     },
     {
       key: 'recommended',
       label: 'Recommended',
       directions: ['desc'],
       defaultDirection: 'desc',
+      scope: 'native',
     },
   ];
   isBetweenSteps = false;
@@ -168,7 +169,7 @@ export class FarcasterProvider
 
     const channels =
       !firstPost?.settings?.subreddit ||
-      firstPost?.settings?.subreddit.length === 0
+        firstPost?.settings?.subreddit.length === 0
         ? [undefined]
         : firstPost?.settings?.subreddit;
 

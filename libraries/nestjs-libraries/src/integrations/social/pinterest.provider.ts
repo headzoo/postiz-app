@@ -3,11 +3,13 @@ import {
   AuthTokenDetails,
   FollowerPage,
   FollowerQuery,
+  FollowerSort,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import { Integration } from '@prisma/client';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { PinterestSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/pinterest.dto';
@@ -51,8 +53,7 @@ type PinterestPendingData = {
 )
 export class PinterestProvider
   extends SocialAbstract
-  implements SocialProvider
-{
+  implements SocialProvider {
   identifier = 'pinterest';
   name = 'Pinterest';
   isBetweenSteps = false;
@@ -64,6 +65,7 @@ export class PinterestProvider
     'user_accounts:read',
   ];
   override maxConcurrentJob = 3; // Pinterest has more lenient rate limits
+  followerSorts: FollowerSort[] = API_ORDER_FOLLOWER_SORTS;
   maxLength() {
     return 500;
   }
@@ -119,9 +121,9 @@ export class PinterestProvider
 
   public override handleErrors(body: string):
     | {
-        type: 'refresh-token' | 'bad-body' | 'retry';
-        value: string;
-      }
+      type: 'refresh-token' | 'bad-body' | 'retry';
+      value: string;
+    }
     | undefined {
     if (body.indexOf('constraint: maxItems=5') > -1) {
       return {
@@ -243,13 +245,12 @@ export class PinterestProvider
   async generateAuthUrl() {
     const state = makeId(6);
     return {
-      url: `https://www.pinterest.com/oauth/?client_id=${
-        process.env.PINTEREST_CLIENT_ID
-      }&redirect_uri=${encodeURIComponent(
-        `${process.env.FRONTEND_URL}/integrations/social/pinterest`
-      )}&response_type=code&scope=${encodeURIComponent(
-        'boards:read,boards:write,pins:read,pins:write,user_accounts:read'
-      )}&state=${state}`,
+      url: `https://www.pinterest.com/oauth/?client_id=${process.env.PINTEREST_CLIENT_ID
+        }&redirect_uri=${encodeURIComponent(
+          `${process.env.FRONTEND_URL}/integrations/social/pinterest`
+        )}&response_type=code&scope=${encodeURIComponent(
+          'boards:read,boards:write,pins:read,pins:write,user_accounts:read'
+        )}&state=${state}`,
       codeVerifier: makeId(10),
       state,
     };
@@ -409,9 +410,9 @@ export class PinterestProvider
     const witness = (): PendingCheckResponse =>
       pendingData.attempting && !pendingData.confirmed
         ? {
-            status: 'ready',
-            pendingData: { ...pendingData, confirmed: true },
-          }
+          status: 'ready',
+          pendingData: { ...pendingData, confirmed: true },
+        }
         : { status: 'ready', pendingData };
 
     // Image-only pins have no asynchronous processing step.
@@ -500,16 +501,16 @@ export class PinterestProvider
           board_id: pendingData.settings.board,
           media_source: pendingData.mediaId
             ? {
-                source_type: 'video_id',
-                media_id: pendingData.mediaId,
-                cover_image_url: pendingData.coverPath,
-              }
+              source_type: 'video_id',
+              media_id: pendingData.mediaId,
+              cover_image_url: pendingData.coverPath,
+            }
             : mapImages?.length === 1
-            ? {
+              ? {
                 source_type: 'image_url',
                 url: mapImages?.[0]?.path,
               }
-            : {
+              : {
                 source_type: 'multiple_image_urls',
                 items: mapImages.map((m) => ({
                   url: m.path,

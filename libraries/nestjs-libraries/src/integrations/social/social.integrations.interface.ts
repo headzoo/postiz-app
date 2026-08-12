@@ -168,10 +168,10 @@ export type ChannelNoticeCategory =
 
 export type ChannelNoticeStatus =
   | {
-      state: 'ok';
-      unreadCount: number;
-      categories?: Partial<Record<ChannelNoticeCategory, number>>;
-    }
+    state: 'ok';
+    unreadCount: number;
+    categories?: Partial<Record<ChannelNoticeCategory, number>>;
+  }
   | { state: 'unsupported' }
   | { state: 'unavailable' };
 
@@ -196,11 +196,14 @@ export type Follower = {
 
 export type FollowerSortDirection = 'asc' | 'desc';
 
+export type FollowerSortScope = 'native' | 'page';
+
 export type FollowerSort = {
   key: string;
   label: string;
   directions: FollowerSortDirection[];
   defaultDirection: FollowerSortDirection;
+  scope?: FollowerSortScope;
 };
 
 export type FollowerQuery = {
@@ -220,7 +223,7 @@ export type FollowerPage = {
 
 export interface SocialProvider
   extends IAuthenticator,
-    ISocialMediaIntegration {
+  ISocialMediaIntegration {
   identifier: string;
   isConfigured?: () => boolean;
   refreshWait?: boolean;
