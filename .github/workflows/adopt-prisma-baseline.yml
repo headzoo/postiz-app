@@ -1,0 +1,82 @@
+---
+name: Adopt Prisma baseline
+
+# One-time operator-gated adoption for a database previously managed with
+# `prisma db push`. Regular Deploy / Build Containers jobs never run this.
+#
+# Required secrets: same as Deploy
+#   VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_COMPOSE_DIR
+# Optional:
+#   VPS_PORT — SSH port; defaults to 22
+#
+# Docker on the VPS runs as root. VPS_USER must be able to run
+# `sudo -n docker` / `sudo -n docker compose` without a password.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_baseline:
+        description: >-
+          Type exactly: I have a tested backup and verified the existing
+          database schema matches the v1.4.5 migrations
+        required: true
+        type: string
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  adopt:
+    runs-on: ubuntu-latest
+    env:
+      EXPECTED_CONFIRMATION: I have a tested backup and verified the existing database schema matches the v1.4.5 migrations
+    steps:
+      - name: Verify operator confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm_baseline }}
+        run: |
+          set -euo pipefail
+          if [ "$CONFIRM" != "$EXPECTED_CONFIRMATION" ]; then
+            echo "::error::Confirmation string did not match. Refusing to run migrate resolve."
+            exit 1
+          fi
+
+      - name: Resolve historical migrations over SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_USER: ${{ github.actor }}
+          VPS_COMPOSE_DIR: ${{ secrets.VPS_COMPOSE_DIR }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          command_timeout: 20m
+          envs: GH_TOKEN,GH_USER,VPS_COMPOSE_DIR
+          script: |
+            set -euo pipefail
+            cd "$VPS_COMPOSE_DIR"
+            echo "$GH_TOKEN" | sudo -n docker login ghcr.io -u "$GH_USER" --password-stdin
+            sudo -n docker compose pull postiz
+            schema=./libraries/nestjs-libraries/src/database/prisma/schema.prisma
+            for migration in \
+              20260812110000_pre_channel_interactions_baseline \
+              20260812120000_channel_interactions \
+              20260812130000_follower_relationship_details \
+              20260813000000_audience_member_note_count \
+              20260813120000_post_webhook_http_logs \
+              20260813130000_align_relationship_fk_name
+            do
+              sudo -n docker compose run --rm --no-deps postiz pnpm exec prisma migrate resolve \
+                --applied "$migration" \
+                --schema "$schema"
+            done
+            sudo -n docker compose run --rm --no-deps postiz pnpm run prisma-migrate-deploy
+            sudo -n docker compose up -d postiz
+            sudo -n docker image prune -f

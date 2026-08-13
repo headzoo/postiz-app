@@ -83,11 +83,11 @@
 
 ### Our Sponsors
 
-| Sponsor |                                  Logo                                   | Description     |
-|---------|:-----------------------------------------------------------------------:|-----------------|
-| [Hostinger](https://www.hostinger.com/vps/docker/postiz?ref=postiz) | <img src=".github/sponsors/hostinger.png" alt="Hostinger" width="500"/> | Hostinger is on a mission to make online success possible for anyone – from developers to aspiring bloggers and business owners |
-| [Virlo](https://dev.virlo.ai/?ref=postiz) | <img src="https://github.com/user-attachments/assets/25182598-5344-45fc-b9cd-e4cfa16aabfd" alt="Virlo" width="500"/> | Virlo is the #1 social media trend spotting and all-in-one GTM tool for teams leveraging short-form video |
-| [ChatbotX](https://chatbotx.io/?ref=postiz) | <img src="https://github.com/user-attachments/assets/0aa6b058-9a64-46d3-bc26-337abc51737d" alt="ChatbotX" width="500"/> | The ManyChat alternative that you can self-host, white-label, and resell to your clients. Bring your own OpenClaw, Hermes, or Claude agents! |
+| Sponsor                                                             |                                                          Logo                                                           | Description                                                                                                                                  |
+| ------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Hostinger](https://www.hostinger.com/vps/docker/postiz?ref=postiz) |                         <img src=".github/sponsors/hostinger.png" alt="Hostinger" width="500"/>                         | Hostinger is on a mission to make online success possible for anyone – from developers to aspiring bloggers and business owners              |
+| [Virlo](https://dev.virlo.ai/?ref=postiz)                           |  <img src="https://github.com/user-attachments/assets/25182598-5344-45fc-b9cd-e4cfa16aabfd" alt="Virlo" width="500"/>   | Virlo is the #1 social media trend spotting and all-in-one GTM tool for teams leveraging short-form video                                    |
+| [ChatbotX](https://chatbotx.io/?ref=postiz)                         | <img src="https://github.com/user-attachments/assets/0aa6b058-9a64-46d3-bc26-337abc51737d" alt="ChatbotX" width="500"/> | The ManyChat alternative that you can self-host, white-label, and resell to your clients. Bring your own OpenClaw, Hermes, or Claude agents! |
 
 ![Bronze Tier](https://opencollective.com/postiz/tiers/main-repository-bronze-tier.svg?avatarHeight=36&width=600&button=false)
 
@@ -168,6 +168,7 @@ Do this one-time adoption before enabling an automated deployment that runs
    Use the same `prisma migrate resolve --applied <migration-name> --schema ...`
    command for each verified migration. Leave unapplied migrations unresolved so
    `migrate deploy` can apply them.
+
 5. Run:
 
    ```bash
@@ -180,9 +181,21 @@ Do this one-time adoption before enabling an automated deployment that runs
 
 Never automate `migrate resolve` for an unknown or merely populated database.
 
+This repository also has a manual GitHub Action, **Adopt Prisma baseline**, that
+runs the six historical `--applied` resolves above, then `migrate deploy`, then
+recreates Postiz. It only starts if you type this confirmation string exactly:
+
+```text
+I have a tested backup and verified the existing database schema matches the v1.4.5 migrations
+```
+
+It does not run on tag pushes or regular Deploy jobs. Do not use it unless you
+have already completed steps 1–2.
+
 ## Sponsor Postiz
 
 We now give a few options to Sponsor Postiz:
+
 - Just a donation: You like what we are building, and want to buy us some coffee so we can build faster.
 - Main repository: Get your logo with a backlink from the main Postiz repository. Postiz has over 7M downloads and 20k views per month.
 
