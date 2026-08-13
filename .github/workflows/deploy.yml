@@ -1,0 +1,48 @@
+---
+name: Deploy
+
+# Required secrets:
+#   VPS_HOST, VPS_USER, VPS_SSH_KEY
+#   VPS_COMPOSE_DIR  — absolute path of the docker compose project on the VPS
+# Optional:
+#   VPS_PORT         — SSH port; defaults to 22
+#
+# Docker on the VPS runs as root. VPS_USER must be able to run
+# `sudo -n docker` / `sudo -n docker compose` without a password.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_USER: ${{ github.actor }}
+          VPS_COMPOSE_DIR: ${{ secrets.VPS_COMPOSE_DIR }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          command_timeout: 20m
+          envs: GH_TOKEN,GH_USER,VPS_COMPOSE_DIR
+          script: |
+            set -euo pipefail
+            cd "$VPS_COMPOSE_DIR"
+            echo "$GH_TOKEN" | sudo -n docker login ghcr.io -u "$GH_USER" --password-stdin
+            sudo -n docker compose pull postiz
+            sudo -n docker compose up -d postiz
+            sudo -n docker image prune -f

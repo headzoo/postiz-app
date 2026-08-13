@@ -54,3 +54,8 @@ jobs:
             --no-cache \
             --provenance=false --sbom=false \
             --push .
+
+  deploy:
+    needs: build-containers
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
