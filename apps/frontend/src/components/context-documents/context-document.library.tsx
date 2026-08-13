@@ -4,6 +4,8 @@ import {
   ChangeEvent,
   FC,
   useCallback,
+  useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -36,45 +38,36 @@ import { useContextDocumentDelete } from '@gitroom/frontend/components/context-d
 
 const ContextDocumentMarkdown: FC<{
   content: string;
-  compact?: boolean;
-}> = ({ content, compact }) => {
+}> = ({ content }) => {
   return (
     <div
       className={clsx(
-        compact
-          ? 'text-[5pt] leading-[1.25] text-textColor [&_*]:!text-[5pt] [&_*]:!leading-[1.25] [&_*]:!my-[1px] [&_ul]:!ps-[8px] [&_ol]:!ps-[8px] [&_pre]:overflow-hidden [&_img]:max-w-full'
-          : clsx(
-              'whitespace-normal text-[14px] leading-[1.6] text-textColor',
-              '[&_h1]:text-[24px] [&_h1]:font-[600] [&_h1]:mb-[12px] [&_h1]:mt-[8px]',
-              '[&_h2]:text-[20px] [&_h2]:font-[600] [&_h2]:mb-[10px] [&_h2]:mt-[16px]',
-              '[&_h3]:text-[16px] [&_h3]:font-[600] [&_h3]:mb-[8px] [&_h3]:mt-[14px]',
-              '[&_p]:mb-[10px]',
-              '[&_ul]:list-disc [&_ul]:ps-[20px] [&_ul]:mb-[10px]',
-              '[&_ol]:list-decimal [&_ol]:ps-[20px] [&_ol]:mb-[10px]',
-              '[&_li]:mb-[4px]',
-              '[&_blockquote]:border-s-[3px] [&_blockquote]:border-newBorder [&_blockquote]:ps-[12px] [&_blockquote]:opacity-80 [&_blockquote]:mb-[10px]',
-              '[&_pre]:bg-newBgColor [&_pre]:p-[12px] [&_pre]:rounded-[8px] [&_pre]:overflow-x-auto [&_pre]:mb-[10px] [&_pre]:text-[13px]',
-              '[&_code]:font-mono [&_code]:text-[13px]',
-              '[&_a]:underline',
-              '[&_hr]:border-newBorder [&_hr]:my-[16px]',
-              '[&_table]:w-full [&_table]:mb-[12px] [&_th]:border [&_td]:border [&_th]:border-newBorder [&_td]:border-newBorder [&_th]:p-[6px] [&_td]:p-[6px] [&_th]:text-start',
-              '[&_img]:max-w-full [&_img]:rounded-[8px]'
-            )
+        'whitespace-normal text-[14px] leading-[1.6] text-textColor',
+        '[&_h1]:text-[24px] [&_h1]:font-[600] [&_h1]:mb-[12px] [&_h1]:mt-[8px]',
+        '[&_h2]:text-[20px] [&_h2]:font-[600] [&_h2]:mb-[10px] [&_h2]:mt-[16px]',
+        '[&_h3]:text-[16px] [&_h3]:font-[600] [&_h3]:mb-[8px] [&_h3]:mt-[14px]',
+        '[&_p]:mb-[10px]',
+        '[&_ul]:list-disc [&_ul]:ps-[20px] [&_ul]:mb-[10px]',
+        '[&_ol]:list-decimal [&_ol]:ps-[20px] [&_ol]:mb-[10px]',
+        '[&_li]:mb-[4px]',
+        '[&_blockquote]:border-s-[3px] [&_blockquote]:border-newBorder [&_blockquote]:ps-[12px] [&_blockquote]:opacity-80 [&_blockquote]:mb-[10px]',
+        '[&_pre]:bg-newBgColor [&_pre]:p-[12px] [&_pre]:rounded-[8px] [&_pre]:overflow-x-auto [&_pre]:mb-[10px] [&_pre]:text-[13px]',
+        '[&_code]:font-mono [&_code]:text-[13px]',
+        '[&_a]:underline',
+        '[&_hr]:border-newBorder [&_hr]:my-[16px]',
+        '[&_table]:w-full [&_table]:mb-[12px] [&_th]:border [&_td]:border [&_th]:border-newBorder [&_td]:border-newBorder [&_th]:p-[6px] [&_td]:p-[6px] [&_th]:text-start',
+        '[&_img]:max-w-full [&_img]:rounded-[8px]'
       )}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        components={
-          compact
-            ? undefined
-            : {
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noreferrer">
-                    {children}
-                  </a>
-                ),
-              }
-        }
+        components={{
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer">
+              {children}
+            </a>
+          ),
+        }}
       >
         {content}
       </ReactMarkdown>
@@ -178,7 +171,6 @@ const ContextDocumentCard: FC<{
 }> = ({ document, pending, uploading, onReplace, onDelete }) => {
   const t = useT();
   const modal = useModals();
-  const { data, error, isLoading } = useContextDocumentContent(document.id);
 
   const openReader = useCallback(() => {
     modal.openModal({
@@ -192,51 +184,25 @@ const ContextDocumentCard: FC<{
   return (
     <div
       className={clsx(
-        'h-full rounded-[8px] border border-newBorder bg-newBgColorInner flex flex-col',
+        'rounded-[8px] border border-newBorder bg-newBgColorInner flex',
         pending && 'opacity-70 pointer-events-none'
       )}
     >
-      <div className="relative flex-1 overflow-hidden rounded-t-[8px]">
-        <div className="p-[12px] bg-newBgColor min-h-[180px] h-[180px] overflow-hidden select-none">
-          {isLoading && !data ? (
-            <div className="h-full flex items-center justify-center">
-              <Loading width={28} height={28} />
-            </div>
-          ) : error || !data ? (
-            <div className="h-full flex items-center justify-center text-[12px] opacity-50">
-              {t(
-                'context_document_preview_unavailable',
-                'Preview unavailable'
-              )}
-            </div>
-          ) : (
-            <ContextDocumentMarkdown content={data.content} compact />
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={openReader}
-          aria-label={t('context_document_open', 'Open document')}
-          className="absolute inset-0 cursor-pointer"
-        />
-      </div>
-      <div className="relative z-[3] p-[12px] border-t border-newBorder flex flex-col gap-[8px] rounded-b-[8px]">
-        <div className="flex items-start justify-between gap-[8px]">
-          <div className="min-w-0 flex-1 flex items-center gap-[6px]">
-            <span className="font-[600] text-[13px] truncate min-w-0 flex-1">
-              {document.name}
+      <button
+        type="button"
+        onClick={openReader}
+        aria-label={t('context_document_open', 'Open document')}
+        className="min-w-0 flex-1 p-[12px] flex flex-col gap-[8px] text-start"
+      >
+        <div className="min-w-0 flex items-center gap-[6px]">
+          <span className="font-[600] text-[13px] truncate min-w-0 flex-1">
+            {document.name}
+          </span>
+          {document.isLarge && (
+            <span className="shrink-0 text-[11px] px-[7px] py-[2px] rounded-full border border-amber-500/40 text-amber-500">
+              {t('context_document_large_badge', 'Large')}
             </span>
-            {document.isLarge && (
-              <span className="shrink-0 text-[11px] px-[7px] py-[2px] rounded-full border border-amber-500/40 text-amber-500">
-                {t('context_document_large_badge', 'Large')}
-              </span>
-            )}
-          </div>
-          <ContextDocumentMenu
-            disabled={pending || uploading}
-            onReplace={onReplace}
-            onDelete={onDelete}
-          />
+          )}
         </div>
         <div className="text-[12px] opacity-70">
           {t('size', 'Size')}: {formatContextDocumentSize(document.fileSize)} (
@@ -245,6 +211,13 @@ const ContextDocumentCard: FC<{
         {document.warning && (
           <div className="text-[12px] text-amber-500">{document.warning}</div>
         )}
+      </button>
+      <div className="shrink-0 p-[12px] ps-0">
+        <ContextDocumentMenu
+          disabled={pending || uploading}
+          onReplace={onReplace}
+          onDelete={onDelete}
+        />
       </div>
     </div>
   );
@@ -260,6 +233,24 @@ export const ContextDocumentLibrary: FC = () => {
   const deleteDocument = useContextDocumentDelete();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const documents = data || [];
+  const filteredDocuments = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return documents;
+    }
+    return documents.filter((document) =>
+      document.name.toLowerCase().includes(query)
+    );
+  }, [documents, search]);
+
+  useEffect(() => {
+    if (!documents.length && search) {
+      setSearch('');
+    }
+  }, [documents.length, search]);
 
   const handleUploadClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -341,13 +332,13 @@ export const ContextDocumentLibrary: FC = () => {
         toaster.show(
           existing
             ? t(
-                'context_document_replaced_success',
-                'Document replaced successfully.'
-              )
+              'context_document_replaced_success',
+              'Document replaced successfully.'
+            )
             : t(
-                'context_document_uploaded_success',
-                'Document uploaded successfully.'
-              ),
+              'context_document_uploaded_success',
+              'Document uploaded successfully.'
+            ),
           'success'
         );
 
@@ -357,10 +348,10 @@ export const ContextDocumentLibrary: FC = () => {
       } catch (err: any) {
         toaster.show(
           err?.message ||
-            t(
-              'context_document_upload_error',
-              'Failed to upload document. Please try again.'
-            ),
+          t(
+            'context_document_upload_error',
+            'Failed to upload document. Please try again.'
+          ),
           'warning'
         );
       } finally {
@@ -401,10 +392,10 @@ export const ContextDocumentLibrary: FC = () => {
       } catch (err: any) {
         toaster.show(
           err?.message ||
-            t(
-              'context_document_delete_error',
-              'Failed to delete document. Please try again.'
-            ),
+          t(
+            'context_document_delete_error',
+            'Failed to delete document. Please try again.'
+          ),
           'warning'
         );
       } finally {
@@ -453,13 +444,27 @@ export const ContextDocumentLibrary: FC = () => {
         </div>
       )}
 
-      <div className="flex justify-between items-center gap-[12px] flex-wrap">
+      <div className="flex items-center gap-[12px] flex-wrap">
+        {!!documents.length && (
+          <div className="flex-1 min-w-[220px]">
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t(
+                'search_context_documents',
+                'Search documents by name'
+              )}
+              className="w-full h-[40px] px-[12px] rounded-[8px] bg-newBgColor border border-newColColor text-[14px] outline-none focus:border-[#612BD3]"
+            />
+          </div>
+        )}
         <Button onClick={handleUploadClick} loading={uploading}>
-          {t('context_document_upload', 'Upload Markdown')}
+          {t('context_document_upload', '+ Upload')}
         </Button>
       </div>
 
-      {!data?.length ? (
+      {!documents.length ? (
         <div className="rounded-[12px] border border-newBorder bg-newBgColor p-[32px] flex flex-col items-center justify-center gap-[12px] text-center">
           <div className="text-[18px] font-[600]">
             {t('context_documents_empty_title', 'No context documents yet')}
@@ -471,12 +476,24 @@ export const ContextDocumentLibrary: FC = () => {
             )}
           </div>
           <Button onClick={handleUploadClick} loading={uploading}>
-            {t('context_document_upload', 'Upload Markdown')}
+            {t('context_document_upload', '+ Upload')}
           </Button>
+        </div>
+      ) : !filteredDocuments.length ? (
+        <div className="rounded-[12px] border border-newBorder bg-newBgColor p-[32px] flex flex-col items-center justify-center gap-[12px] text-center">
+          <div className="text-[18px] font-[600]">
+            {t('no_matching_documents', 'No documents match your search.')}
+          </div>
+          <div className="text-[14px] opacity-70 max-w-[520px]">
+            {t(
+              'context_documents_search_empty_description',
+              'Try a different file name, or clear the search to see all documents.'
+            )}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[12px]">
-          {data.map((document) => (
+          {filteredDocuments.map((document) => (
             <ContextDocumentCard
               key={document.id}
               document={document}
