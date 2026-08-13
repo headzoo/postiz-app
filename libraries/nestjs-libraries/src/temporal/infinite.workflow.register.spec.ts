@@ -39,10 +39,18 @@ describe('InfiniteWorkflowRegister', () => {
     await register.onModuleInit();
 
     expect(workflow.getHandle).toHaveBeenCalledWith(
-      'channel-interaction-maintenance-workflow-v1'
+      'channel-interaction-maintenance-workflow-v2'
     );
     expect(workflow.getHandle().signal).toHaveBeenCalledWith(
       'channelInteractionMaintenance'
+    );
+    expect(workflow.start).toHaveBeenCalledWith(
+      'channelInteractionMaintenanceWorkflowV2',
+      expect.objectContaining({
+        workflowId: 'channel-interaction-maintenance-workflow-v2',
+        taskQueue: 'main',
+        args: [{}],
+      })
     );
     expect(workflow.start).toHaveBeenCalledWith(
       'channelRelationshipGradeWorkflowV1',

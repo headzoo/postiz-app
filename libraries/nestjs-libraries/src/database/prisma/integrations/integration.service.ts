@@ -2327,7 +2327,7 @@ export class IntegrationService {
     try {
       const workflow = this._temporalService.client?.getRawClient()?.workflow;
       await workflow
-        ?.getHandle('channel-interaction-maintenance-workflow-v1')
+        ?.getHandle('channel-interaction-maintenance-workflow-v2')
         .signal('channelInteractionMaintenance');
     } catch {
       // The workflow may not be running yet; its hourly pass reconciles persisted state.

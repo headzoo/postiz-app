@@ -26,6 +26,7 @@ jest.mock('@temporalio/workflow', () => ({
 }));
 
 import { channelInteractionMaintenanceWorkflowV1 } from './channel-interaction-maintenance.workflow.v1';
+import { channelInteractionMaintenanceWorkflowV2 } from './channel-interaction-maintenance.workflow.v2';
 
 describe('channelInteractionMaintenanceWorkflowV1', () => {
   const candidate = {
@@ -117,6 +118,57 @@ describe('channelInteractionMaintenanceWorkflowV1', () => {
 
     expect(condition).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
     expect(setHandler).toHaveBeenCalled();
+    expect(continueAsNew).toHaveBeenCalledWith({});
+  });
+});
+
+describe('channelInteractionMaintenanceWorkflowV2', () => {
+  const candidate = {
+    id: 'integration',
+    organizationId: 'organization',
+    maintenance: 'active' as const,
+  };
+  let signalHandler: (() => void) | undefined;
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+    signalHandler = undefined;
+    setHandler.mockImplementation((_signal, handler) => {
+      signalHandler = handler;
+    });
+    continueAsNew.mockResolvedValue(undefined);
+  });
+
+  it('restarts scanning from the beginning after a poke during a candidate pass', async () => {
+    listCandidates.mockResolvedValue({ candidates: [candidate] });
+    reconcileSubscriptions.mockImplementation(async () => {
+      signalHandler?.();
+      return { supported: true, state: 'active' };
+    });
+    beginFollowerSync.mockResolvedValue({ supported: false });
+
+    await channelInteractionMaintenanceWorkflowV2({ after: 'before' });
+
+    expect(reconcileSubscriptions).toHaveBeenCalledWith(candidate);
+    expect(continueAsNew).toHaveBeenCalledWith({});
+  });
+
+  it('restarts scanning from the beginning after a poke during follower sync', async () => {
+    fetchAndApplyFollowerPage.mockImplementation(async () => {
+      signalHandler?.();
+      return { hasMore: true, nextCursor: 'next-page' };
+    });
+
+    await channelInteractionMaintenanceWorkflowV2({
+      after: 'before',
+      followerSync: { candidate, generation: 'generation', cursor: 'current-page' },
+    });
+
+    expect(fetchAndApplyFollowerPage).toHaveBeenCalledWith({
+      candidate,
+      generation: 'generation',
+      cursor: 'current-page',
+    });
     expect(continueAsNew).toHaveBeenCalledWith({});
   });
 });
