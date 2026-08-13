@@ -7,9 +7,10 @@ import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import clsx from 'clsx';
-import { capitalize } from 'lodash';
+import { capitalize, groupBy, orderBy } from 'lodash';
 import {
   FC,
+  MouseEvent,
   ReactNode,
   useCallback,
   useMemo,
@@ -17,22 +18,49 @@ import {
 } from 'react';
 import useCookie from 'react-use-cookie';
 import { useDrag, useDrop } from 'react-dnd';
-import { groupBy, orderBy } from 'lodash';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import SafeImage from '@gitroom/react/helpers/safe.image';
 import { Menu } from '@gitroom/frontend/components/launches/menu/menu';
 import { IntegrationListItem } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import { DNDProvider } from '@gitroom/frontend/components/launches/helpers/dnd.provider';
+
+export type ChannelGroup = {
+  id: string;
+  name: string;
+  values: IntegrationListItem[];
+};
+
+export const groupChannelsByCustomer = (
+  integrations: IntegrationListItem[]
+): ChannelGroup[] =>
+  orderBy(
+    Object.values(
+      groupBy(integrations, (integration) => integration.customer?.id || '')
+    ).map((values) => ({
+      id: values[0].customer?.id || '',
+      name: values[0].customer?.name || '',
+      values: orderBy(
+        values,
+        ['type', 'disabled', 'identifier'],
+        ['desc', 'asc', 'asc']
+      ),
+    })),
+    ['name'],
+    ['asc']
+  );
 
 export const ChannelsSidebar = ({
   integrationCount,
   onUpdate,
   children,
   showCalendarActions = false,
+  showAddProvider = true,
 }: {
   integrationCount: number;
-  onUpdate: (shouldReload: boolean) => void;
+  onUpdate?: (shouldReload: boolean) => void;
   children: (collapsed: boolean) => ReactNode;
   showCalendarActions?: boolean;
+  showAddProvider?: boolean;
 }) => {
   const user = useUser();
   const { billingEnabled } = useVariables();
@@ -42,75 +70,81 @@ export const ChannelsSidebar = ({
   const collapsed = collapseMenu === '1';
 
   return (
-    <div
-      className={clsx(
-        'flex relative flex-col',
-        collapsed ? 'group sidebar w-[100px]' : 'w-[260px]'
-      )}
-    >
-      <div className="bg-newBgColorInner p-[20px] flex flex-col gap-[15px] transition-all absolute start-0 top-0 w-full h-full overflow-x-hidden overflow-y-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
-        <div className="flex items-center">
-          <h2 className="group-[.sidebar]:hidden flex-1 text-[20px] font-[500]">
-            {t('channels')}
-          </h2>
-          <div
-            onClick={() => setCollapseMenu(collapsed ? '0' : '1')}
-            className="group-[.sidebar]:rotate-[180deg] group-[.sidebar]:mx-auto text-btnText bg-btnSimple rounded-[6px] w-[24px] h-[24px] flex items-center justify-center cursor-pointer select-none"
-          >
-            <svg width="7" height="13" viewBox="0 0 7 13" fill="none">
-              <path
-                d="M6 11.5L1 6.5L6 1.5"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+    <DNDProvider>
+      <div
+        className={clsx(
+          'flex relative flex-col',
+          collapsed ? 'group sidebar w-[100px]' : 'w-[260px]'
+        )}
+      >
+        <div className="bg-newBgColorInner p-[20px] flex flex-col gap-[15px] transition-all absolute start-0 top-0 w-full h-full overflow-x-hidden overflow-y-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
+          <div className="flex items-center">
+            <h2 className="group-[.sidebar]:hidden flex-1 text-[20px] font-[500]">
+              {t('channels', 'Channels')}
+            </h2>
+            <div
+              onClick={() => setCollapseMenu(collapsed ? '0' : '1')}
+              className="group-[.sidebar]:rotate-[180deg] group-[.sidebar]:mx-auto text-btnText bg-btnSimple rounded-[6px] w-[24px] h-[24px] flex items-center justify-center cursor-pointer select-none"
+            >
+              <svg width="7" height="13" viewBox="0 0 7 13" fill="none">
+                <path
+                  d="M6 11.5L1 6.5L6 1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
           </div>
-        </div>
-        <div className="flex flex-col gap-[8px] group-[.sidebar]:mx-auto group-[.sidebar]:w-[44px]">
-          <AddProviderButton update={() => onUpdate(true)} />
-          {showCalendarActions && (
-            <div className="flex gap-[8px] group-[.sidebar]:flex-col">
-              {integrationCount > 0 && <NewPost />}
-              {integrationCount > 0 && user?.tier?.ai && billingEnabled && (
-                <GeneratorComponent />
+          {(showAddProvider || showCalendarActions) && (
+            <div className="flex flex-col gap-[8px] group-[.sidebar]:mx-auto group-[.sidebar]:w-[44px]">
+              {showAddProvider && (
+                <AddProviderButton update={() => onUpdate?.(true)} />
+              )}
+              {showCalendarActions && (
+                <div className="flex gap-[8px] group-[.sidebar]:flex-col">
+                  {integrationCount > 0 && <NewPost />}
+                  {integrationCount > 0 && user?.tier?.ai && billingEnabled && (
+                    <GeneratorComponent />
+                  )}
+                </div>
               )}
             </div>
           )}
-        </div>
-        <div className="gap-[32px] flex flex-col select-none flex-1">
-          {integrationCount === 0 && !collapsed && (
-            <div className="flex-1 max-h-[500px] justify-center items-center flex">
-              <div className="flex flex-col gap-[12px] text-center">
-                <img
-                  src={
-                    mode === 'dark'
-                      ? '/no-channels.svg'
-                      : '/no-channels-colors.svg'
-                  }
-                  alt="No channels"
-                  className="mx-auto min-w-[100%]"
-                />
-                <div className="font-[600] text-[20px]">
-                  {t('no_channels', 'No channels yet')}
-                </div>
-                <div className="text-[14px]">
-                  {t('connect_your_accounts')}
+          <div className="gap-[32px] flex flex-col select-none flex-1">
+            {integrationCount === 0 && !collapsed && (
+              <div className="flex-1 max-h-[500px] justify-center items-center flex">
+                <div className="flex flex-col gap-[12px] text-center">
+                  <img
+                    src={
+                      mode === 'dark'
+                        ? '/no-channels.svg'
+                        : '/no-channels-colors.svg'
+                    }
+                    alt="No channels"
+                    className="mx-auto min-w-[100%]"
+                  />
+                  <div className="font-[600] text-[20px]">
+                    {t('no_channels', 'No channels yet')}
+                  </div>
+                  <div className="text-[14px]">
+                    {t('connect_your_accounts')}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-          {children(collapsed)}
-        </div>
-        <div className="mt-[5px] text-center flex flex-col">
-          {billingEnabled && user?.isLifetime && (
-            <div>{capitalize(user?.tier?.current || '')} tier</div>
-          )}
-          <div>{process.env.NEXT_PUBLIC_VERSION || ''}</div>
+            )}
+            {children(collapsed)}
+          </div>
+          <div className="mt-[5px] text-center flex flex-col">
+            {billingEnabled && user?.isLifetime && (
+              <div>{capitalize(user?.tier?.current || '')} tier</div>
+            )}
+            <div>{process.env.NEXT_PUBLIC_VERSION || ''}</div>
+          </div>
         </div>
       </div>
-    </div>
+    </DNDProvider>
   );
 };
 
@@ -133,26 +167,23 @@ const OpenClose: FC<{ isOpen: boolean }> = ({ isOpen }) => (
   </svg>
 );
 
-type ChannelMenuProps = {
+export type ChannelMenuProps = {
   integrations: IntegrationListItem[];
-  mutate: () => void;
-  onUpdate: (shouldReload: boolean) => void;
-  onGroupChange: (id: string, group: string) => void;
-  onRefreshChannel: (integration: IntegrationListItem) => () => void;
-  onContinueIntegration: (integration: IntegrationListItem) => () => void;
+  selectedIds?: string[];
+  onSelect?: (integration: IntegrationListItem) => void;
+  mutate?: () => void;
+  onUpdate?: (shouldReload: boolean) => void;
+  onGroupChange?: (id: string, group: string) => void;
+  onRefreshChannel?: (integration: IntegrationListItem) => () => void;
+  onContinueIntegration?: (integration: IntegrationListItem) => () => void;
   noticeStatuses?: Record<string, { unreadCount: number }>;
   onClearNotices?: (integrationId: string) => void;
-};
-
-type ChannelGroup = {
-  id: string;
-  name: string;
-  values: IntegrationListItem[];
 };
 
 const ChannelMenuRow: FC<
   Omit<ChannelMenuProps, 'onGroupChange'> & {
     collapsed: boolean;
+    enableDrag: boolean;
     integration: IntegrationListItem;
   }
 > = ({
@@ -162,141 +193,185 @@ const ChannelMenuRow: FC<
   onRefreshChannel,
   onContinueIntegration,
   collapsed,
+  enableDrag,
   integration,
   noticeStatuses,
   onClearNotices,
+  selectedIds,
+  onSelect,
 }) => {
-  const user = useUser();
-  const [{}, drag, dragPreview] = useDrag(() => ({
-    type: 'menu',
-    item: { id: integration.id },
-  }));
-  const totalNonDisabledChannels = useMemo(
-    () => integrations.filter((item) => !item.disabled).length,
-    [integrations]
-  );
-  const unreadCount = noticeStatuses?.[integration.id]?.unreadCount || 0;
+    const user = useUser();
+    const canDrag = enableDrag;
+    const [{ }, drag, dragPreview] = useDrag(
+      () => ({
+        type: 'menu',
+        item: { id: integration.id },
+        canDrag,
+      }),
+      [canDrag, integration.id]
+    );
+    const totalNonDisabledChannels = useMemo(
+      () => integrations.filter((item) => !item.disabled).length,
+      [integrations]
+    );
+    const unreadCount = noticeStatuses?.[integration.id]?.unreadCount || 0;
+    const isUnselected =
+      !!selectedIds && !selectedIds.includes(integration.id);
+    const showMenu = !!mutate && !!onUpdate && !!onRefreshChannel;
 
-  return (
-    <div
-      ref={(node) => {
-        dragPreview(node);
-      }}
-      {...(integration.refreshNeeded && {
-        onClick: onRefreshChannel(integration),
-        'data-tooltip-id': 'tooltip',
-        'data-tooltip-content': 'Channel disconnected, click to reconnect.',
-      })}
-      {...(collapsed && {
-        'data-tooltip-id': 'tooltip',
-        'data-tooltip-content': integration.name,
-      })}
-      className={clsx(
-        'flex gap-[12px] items-center bg-newBgColorInner hover:bg-boxHover group/profile transition-all rounded-e-[8px]',
-        integration.refreshNeeded && 'cursor-pointer'
-      )}
-    >
-      <div
-        className={clsx(
-          'relative gap-[6px] flex justify-center items-center',
-          integration.disabled && 'opacity-50'
-        )}
-      >
-        {(integration.inBetweenSteps || integration.refreshNeeded) && (
-          <div
-            className="absolute start-0 top-0 w-[39px] h-[46px] cursor-pointer"
-            onClick={
-              integration.refreshNeeded
-                ? onRefreshChannel(integration)
-                : onContinueIntegration(integration)
-            }
-          >
-            <div className="bg-red-500 w-[15px] h-[15px] rounded-full start-[5px] top-[5px] absolute z-[200] text-[10px] flex justify-center items-center">
-              !
-            </div>
-            <div className="bg-primary/60 w-[39px] h-[46px] start-0 top-0 absolute rounded-full z-[199]" />
-          </div>
-        )}
-        {unreadCount > 0 &&
-          !integration.inBetweenSteps &&
-          !integration.refreshNeeded && (
-            <div
-              className="absolute z-[200] start-[26px] top-[-2px] min-w-[16px] h-[16px] px-[4px] rounded-full bg-[#FF3EA2] text-[10px] text-white flex items-center justify-center border border-fifth"
-              data-tooltip-id="tooltip"
-              data-tooltip-content={`${unreadCount} unread notice${
-                unreadCount === 1 ? '' : 's'
-              }`}
-            >
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </div>
-          )}
-        <ImageWithFallback
-          fallbackSrc="/no-picture.jpg"
-          src={integration.picture || '/no-picture.jpg'}
-          className="rounded-[8px] min-w-[36px] min-h-[36px]"
-          alt={integration.identifier}
-          width={36}
-          height={36}
-        />
-        <SafeImage
-          src={`/icons/platforms/${integration.identifier}.png`}
-          className="rounded-[8px] absolute z-[3] bottom-[5px] -end-[5px] border border-fifth"
-          alt={integration.identifier}
-          width={18}
-          height={18}
-        />
-      </div>
+    const handleRowClick = () => {
+      if (onSelect) {
+        onSelect(integration);
+        return;
+      }
+      if (integration.refreshNeeded && onRefreshChannel) {
+        onRefreshChannel(integration)();
+      }
+    };
+
+    const handleOverlayClick = (event: MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+      if (integration.refreshNeeded) {
+        onRefreshChannel?.(integration)();
+        return;
+      }
+      onContinueIntegration?.(integration)();
+    };
+
+    return (
       <div
         ref={(node) => {
-          drag(node);
+          if (canDrag) {
+            dragPreview(node);
+          }
         }}
-        {...(integration.disabled &&
-        totalNonDisabledChannels === user?.totalChannels
-          ? {
+        onClick={onSelect || integration.refreshNeeded ? handleRowClick : undefined}
+        {...(integration.refreshNeeded &&
+          !onSelect && {
+          'data-tooltip-id': 'tooltip',
+          'data-tooltip-content': 'Channel disconnected, click to reconnect.',
+        })}
+        {...(collapsed && {
+          'data-tooltip-id': 'tooltip',
+          'data-tooltip-content': integration.name,
+        })}
+        className={clsx(
+          'flex gap-[12px] items-center bg-newBgColorInner hover:bg-boxHover group/profile transition-all rounded-e-[8px]',
+          (onSelect || integration.refreshNeeded) && 'cursor-pointer',
+          isUnselected && 'opacity-20 hover:opacity-100'
+        )}
+      >
+        <div
+          className={clsx(
+            'relative gap-[6px] flex justify-center items-center',
+            integration.disabled && 'opacity-50'
+          )}
+        >
+          {(integration.inBetweenSteps || integration.refreshNeeded) &&
+            (onRefreshChannel || onContinueIntegration) && (
+              <div
+                className="absolute start-0 top-0 w-[39px] h-[46px] cursor-pointer"
+                onClick={handleOverlayClick}
+              >
+                <div className="bg-red-500 w-[15px] h-[15px] rounded-full start-[5px] top-[5px] absolute z-[200] text-[10px] flex justify-center items-center">
+                  !
+                </div>
+                <div className="bg-primary/60 w-[39px] h-[46px] start-0 top-0 absolute rounded-full z-[199]" />
+              </div>
+            )}
+          {unreadCount > 0 &&
+            !integration.inBetweenSteps &&
+            !integration.refreshNeeded && (
+              <div
+                className="absolute z-[200] start-[26px] top-[-2px] min-w-[16px] h-[16px] px-[4px] rounded-full bg-[#FF3EA2] text-[10px] text-white flex items-center justify-center border border-fifth"
+                data-tooltip-id="tooltip"
+                data-tooltip-content={`${unreadCount} unread notice${unreadCount === 1 ? '' : 's'
+                  }`}
+              >
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </div>
+            )}
+          <ImageWithFallback
+            fallbackSrc="/no-picture.jpg"
+            src={integration.picture || '/no-picture.jpg'}
+            className="rounded-[8px] min-w-[36px] min-h-[36px]"
+            alt={integration.identifier}
+            width={36}
+            height={36}
+          />
+          <SafeImage
+            src={`/icons/platforms/${integration.identifier}.png`}
+            className="rounded-[8px] absolute z-[3] bottom-[5px] -end-[5px] border border-fifth"
+            alt={integration.identifier}
+            width={18}
+            height={18}
+          />
+        </div>
+        <div
+          ref={(node) => {
+            if (canDrag) {
+              drag(node);
+            }
+          }}
+          {...(integration.disabled &&
+            totalNonDisabledChannels === user?.totalChannels
+            ? {
               'data-tooltip-id': 'tooltip',
               'data-tooltip-content':
                 'This channel is disabled, please upgrade your plan to enable it.',
             }
-          : {})}
-        role="handle"
-        className={clsx(
-          'group-[.sidebar]:hidden flex-1 whitespace-nowrap text-ellipsis overflow-hidden cursor-move',
-          integration.disabled && 'opacity-50'
+            : {})}
+          role={canDrag ? 'handle' : undefined}
+          className={clsx(
+            'group-[.sidebar]:hidden flex-1 whitespace-nowrap text-ellipsis overflow-hidden',
+            canDrag && 'cursor-move',
+            integration.disabled && 'opacity-50'
+          )}
+        >
+          {integration.name}
+        </div>
+        {showMenu && (
+          <Menu
+            canChangeProfilePicture={integration.changeProfilePicture}
+            canChangeNickName={integration.changeNickName}
+            integration={integration}
+            integrations={integrations}
+            refreshChannel={onRefreshChannel}
+            mutate={mutate}
+            onChange={onUpdate}
+            onPostSuccess={mutate}
+            canEnable={
+              user?.totalChannels! > totalNonDisabledChannels &&
+              integration.disabled
+            }
+            canDisable={!integration.disabled}
+            hasUnreadNotices={unreadCount > 0}
+            onClearNotices={onClearNotices}
+          />
         )}
-      >
-        {integration.name}
       </div>
-      <Menu
-        canChangeProfilePicture={integration.changeProfilePicture}
-        canChangeNickName={integration.changeNickName}
-        integration={integration}
-        integrations={integrations}
-        refreshChannel={onRefreshChannel}
-        mutate={mutate}
-        onChange={onUpdate}
-        onPostSuccess={mutate}
-        canEnable={
-          user?.totalChannels! > totalNonDisabledChannels && integration.disabled
-        }
-        canDisable={!integration.disabled}
-        hasUnreadNotices={unreadCount > 0}
-        onClearNotices={onClearNotices}
-      />
-    </div>
-  );
-};
+    );
+  };
 
 const ChannelMenuGroup: FC<
   ChannelMenuProps & { collapsed: boolean; group: ChannelGroup }
 > = ({ group, collapsed, onGroupChange, ...props }) => {
   const [isOpen, setIsOpen] = useState(
-    () => typeof window === 'undefined' || !!+(localStorage.getItem(`${group.name}_isOpen`) || '1')
+    () =>
+      typeof window === 'undefined' ||
+      !!+(localStorage.getItem(`${group.name}_isOpen`) || '1')
   );
-  const [{ isOver }, drop] = useDrop(() => ({
-    accept: 'menu',
-    drop: (item: { id: string }) => onGroupChange(item.id, group.id),
-    collect: (monitor) => ({ isOver: !!monitor.isOver() }),
-  }));
+  const [{ isOver }, drop] = useDrop(
+    () => ({
+      accept: 'menu',
+      canDrop: () => !!onGroupChange,
+      drop: (item: { id: string }) => onGroupChange?.(item.id, group.id),
+      collect: (monitor) => ({
+        isOver: !!monitor.isOver() && !!monitor.canDrop(),
+      }),
+    }),
+    [onGroupChange, group.id]
+  );
   const changeOpenClose = useCallback(() => {
     setIsOpen((open) => {
       localStorage.setItem(`${group.name}_isOpen`, open ? '0' : '1');
@@ -334,11 +409,14 @@ const ChannelMenuGroup: FC<
           </span>
         </button>
       )}
-      <div className={clsx('gap-[12px] flex flex-col relative', !isOpen && 'hidden')}>
+      <div
+        className={clsx('gap-[12px] flex flex-col relative', !isOpen && 'hidden')}
+      >
         {group.values.map((integration) => (
           <ChannelMenuRow
             {...props}
             collapsed={collapsed}
+            enableDrag={!!onGroupChange}
             key={integration.id}
             integration={integration}
           />
@@ -354,18 +432,7 @@ export const ChannelMenu: FC<ChannelMenuProps & { collapsed: boolean }> = ({
   ...props
 }) => {
   const groups = useMemo(
-    () =>
-      orderBy(
-        Object.values(groupBy(integrations, (integration) => integration.customer?.id || '')).map(
-          (values) => ({
-            id: values[0].customer?.id || '',
-            name: values[0].customer?.name || '',
-            values: orderBy(values, ['type', 'disabled', 'identifier'], ['desc', 'asc', 'asc']),
-          })
-        ),
-        ['name'],
-        ['asc']
-      ),
+    () => groupChannelsByCustomer(integrations),
     [integrations]
   );
 

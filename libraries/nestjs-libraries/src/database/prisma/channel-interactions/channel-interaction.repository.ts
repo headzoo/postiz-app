@@ -229,6 +229,21 @@ export class ChannelInteractionRepository {
     });
   }
 
+  getActiveIntegrationsForProvider(providerIdentifier: string) {
+    return this._integration.model.integration.findMany({
+      where: {
+        providerIdentifier,
+        type: 'social',
+        disabled: false,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+      },
+    });
+  }
+
   async listMaintenanceCandidates(after?: string, take = 1) {
     const integrations = await this._integration.model.integration.findMany({
       where: {
@@ -1276,11 +1291,11 @@ export class ChannelInteractionRepository {
         ? direction === 'desc'
           ? { [field]: { [comparison]: typedValue } }
           : {
-              OR: [
-                { [field]: { [comparison]: typedValue } },
-                { [field]: null },
-              ],
-            }
+            OR: [
+              { [field]: { [comparison]: typedValue } },
+              { [field]: null },
+            ],
+          }
         : direction === 'desc'
           ? { [field]: { not: null } }
           : {};

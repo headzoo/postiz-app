@@ -44,5 +44,6 @@ jobs:
             cd "$VPS_COMPOSE_DIR"
             echo "$GH_TOKEN" | sudo -n docker login ghcr.io -u "$GH_USER" --password-stdin
             sudo -n docker compose pull postiz
+            sudo -n docker compose run --rm --no-deps postiz pnpm run prisma-migrate-deploy
             sudo -n docker compose up -d postiz
             sudo -n docker image prune -f

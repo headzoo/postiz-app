@@ -1,7 +1,11 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { PipelineScheduleOccurrence, PipelineScheduleSlot } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import {
+  PipelineScheduleOccurrence,
+  PipelineScheduleSlot,
+  PipelineSummary,
+} from '@gitroom/frontend/components/pipelines/pipeline.types';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -353,6 +357,19 @@ export const convertDisplayScheduleTargetToPipelineSlot = (
     dayOfWeek: pipelineLocal.day(),
     minuteOfDay: pipelineLocal.hour() * 60 + pipelineLocal.minute(),
   };
+};
+
+export const filterPipelinesByChannel = (
+  pipelines: PipelineSummary[],
+  channelId?: string
+): PipelineSummary[] => {
+  if (!channelId) {
+    return pipelines;
+  }
+
+  return pipelines.filter((pipeline) =>
+    pipeline.channels.some((channel) => channel.id === channelId)
+  );
 };
 
 export const loadPipelineGlobalSchedule = async (

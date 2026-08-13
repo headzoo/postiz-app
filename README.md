@@ -113,6 +113,73 @@
 
 To have the project up and running, please follow the [Quick Start Guide](https://docs.postiz.com/quickstart)
 
+## Database migrations for self-hosted deployments
+
+Postiz containers do not change the database schema during application startup. The
+image contains the workspace-pinned Prisma CLI and generated client, and migrations
+must succeed before the application container is replaced.
+
+### Fresh database
+
+Start PostgreSQL, pull the target Postiz image, and run the migration container
+before starting Postiz:
+
+```bash
+docker compose up -d postiz-postgres
+docker compose pull postiz
+docker compose run --rm --no-deps postiz pnpm run prisma-migrate-deploy
+docker compose up -d postiz
+```
+
+The migration command uses the `DATABASE_URL` configured for the `postiz` Compose
+service and does not publish the application's ports.
+
+### Existing database previously managed by `prisma db push`
+
+Do this one-time adoption before enabling an automated deployment that runs
+`prisma migrate deploy`.
+
+1. Stop Postiz writes and take a tested PostgreSQL backup. Keep the previous image
+   and backup available; Prisma migrations do not provide an automatic rollback.
+2. Pull the target image and verify the database schema against the migration SQL
+   and the Prisma schema in that exact image. Identify which migrations are already
+   fully reflected in the database. Do not infer adoption from a Prisma error code.
+3. Mark the generated baseline as applied only when every object in the historical
+   pre-`20260812120000_channel_interactions` schema has been verified. Verify any
+   later objects separately in the next step:
+
+   ```bash
+   docker compose run --rm --no-deps postiz pnpm exec prisma migrate resolve \
+     --applied 20260812110000_pre_channel_interactions_baseline \
+     --schema ./libraries/nestjs-libraries/src/database/prisma/schema.prisma
+   ```
+
+4. In chronological order, mark each later migration as applied only if an operator
+   has verified that its complete SQL change is already present:
+
+   ```text
+   20260812120000_channel_interactions
+   20260812130000_follower_relationship_details
+   20260813000000_audience_member_note_count
+   20260813120000_post_webhook_http_logs
+   20260813130000_align_relationship_fk_name
+   ```
+
+   Use the same `prisma migrate resolve --applied <migration-name> --schema ...`
+   command for each verified migration. Leave unapplied migrations unresolved so
+   `migrate deploy` can apply them.
+5. Run:
+
+   ```bash
+   docker compose run --rm --no-deps postiz pnpm run prisma-migrate-deploy
+   ```
+
+   Start or recreate Postiz only after it succeeds. If verification or migration
+   fails, keep Postiz stopped, investigate, and restore the backup before returning
+   to the previous image when recovery is required.
+
+Never automate `migrate resolve` for an unknown or merely populated database.
+
 ## Sponsor Postiz
 
 We now give a few options to Sponsor Postiz:

@@ -85,14 +85,26 @@ export class ChannelInteractionService {
     private _repository: ChannelInteractionRepository,
     private _integrationManager?: IntegrationManager,
     private _logsService?: LogsService
-  ) {}
+  ) { }
 
   async handleChallenge(
     providerIdentifier: string,
     request: ChannelWebhookChallengeRequest
   ) {
     const capability = this.getWebhookCapability(providerIdentifier);
-    return capability.verifyChallenge(request);
+    const result = await capability.verifyChallenge(request);
+    await this.logInboundRequest({
+      providerIdentifier,
+      method: 'GET',
+      requestHeaders: request.query,
+      requestBody: request.query,
+      statusCode: result.accepted
+        ? 200
+        : ('statusCode' in result && result.statusCode) || 400,
+      responseBody: result.accepted ? result.responseBody : undefined,
+      error: result.accepted ? undefined : 'Channel webhook challenge rejected',
+    });
+    return result;
   }
 
   async handleDelivery(
@@ -101,64 +113,141 @@ export class ChannelInteractionService {
   ) {
     const capability = this.getWebhookCapability(providerIdentifier);
     const delivery = await capability.verifyAndNormalizeDelivery(request);
-    if (!delivery.accepted) {
-      return delivery;
+    const connectedAccountId = delivery.accepted
+      ? delivery.connectedAccountId
+      : this.peekConnectedAccountId(request.rawBody);
+    const matchedIntegrations = connectedAccountId
+      ? await this._repository.getActiveIntegrationsForAccount(
+        providerIdentifier,
+        connectedAccountId
+      )
+      : [];
+
+    if (delivery.accepted) {
+      try {
+        await Promise.all(
+          matchedIntegrations.map((integration) =>
+            this.recordNormalizedDelivery(
+              integration.organizationId,
+              integration.id,
+              delivery.events
+            )
+          )
+        );
+      } catch {
+        /** persist the inspectable log even if event recording fails */
+      }
     }
 
-    const integrations = await this._repository.getActiveIntegrationsForAccount(
+    await this.logInboundRequest({
       providerIdentifier,
-      delivery.connectedAccountId
-    );
-    await Promise.all(
-      integrations.map((integration) =>
-        this.recordNormalizedDelivery(
-          integration.organizationId,
-          integration.id,
-          delivery.events
-        )
-      )
-    );
-    await this.logInboundDelivery(
-      providerIdentifier,
-      request,
-      integrations,
-      200,
-      { ok: true }
-    );
+      method: 'POST',
+      integrations: await this.resolveLogIntegrations(
+        providerIdentifier,
+        connectedAccountId,
+        matchedIntegrations
+      ),
+      requestHeaders: request.headers,
+      requestBody: request.rawBody,
+      statusCode: delivery.accepted
+        ? 200
+        : ('statusCode' in delivery && delivery.statusCode) || 400,
+      responseBody: delivery.accepted ? { ok: true } : undefined,
+      error: delivery.accepted
+        ? undefined
+        : 'Channel webhook delivery rejected',
+    });
     return delivery;
   }
 
-  private async logInboundDelivery(
-    providerIdentifier: string,
-    request: ChannelWebhookDeliveryRequest,
-    integrations: Array<{ id: string; organizationId: string }>,
-    statusCode: number,
-    responseBody: unknown
-  ) {
-    if (!this._logsService || integrations.length === 0) {
-      return;
+  private peekConnectedAccountId(rawBody: Buffer) {
+    try {
+      const body = JSON.parse(rawBody.toString('utf8'));
+      const userId = body?.data?.filter?.user_id;
+      if (typeof userId === 'string' || typeof userId === 'number') {
+        const value = String(userId);
+        return value && value.length <= 512 ? value : undefined;
+      }
+    } catch {
+      /** body is only used to attach a rejected delivery to an org */
     }
-    const orgs = new Map<string, string | undefined>();
-    for (const integration of integrations) {
-      if (!orgs.has(integration.organizationId)) {
-        orgs.set(integration.organizationId, integration.id);
+    return undefined;
+  }
+
+  private async resolveLogIntegrations(
+    providerIdentifier: string,
+    connectedAccountId?: string,
+    matchedIntegrations?: Array<{ id: string; organizationId: string }>
+  ) {
+    if (matchedIntegrations?.length) {
+      return matchedIntegrations;
+    }
+    if (connectedAccountId) {
+      const matched = await this._repository.getActiveIntegrationsForAccount(
+        providerIdentifier,
+        connectedAccountId
+      );
+      if (matched.length) {
+        return matched;
       }
     }
-    await Promise.all(
-      [...orgs.entries()].map(([organizationId, integrationId]) =>
-        this._logsService!.logInboundWebhook({
-          organizationId,
-          integrationId,
-          method: 'POST',
-          url: `/channel-webhooks/${providerIdentifier}`,
-          statusCode,
-          requestHeaders: request.headers,
-          requestBody: request.rawBody,
-          responseHeaders: { 'content-type': 'application/json' },
-          responseBody,
-        })
-      )
+    const providerIntegrations =
+      await this._repository.getActiveIntegrationsForProvider(
+        providerIdentifier
+      );
+    const orgIds = new Set(
+      providerIntegrations.map((integration) => integration.organizationId)
     );
+    // Only fall back when a single org owns this provider, so a hosted
+    // multi-tenant deploy does not leak one account's payload to others.
+    return orgIds.size === 1 ? providerIntegrations : [];
+  }
+
+  private async logInboundRequest(input: {
+    providerIdentifier: string;
+    method: string;
+    integrations?: Array<{ id: string; organizationId: string }>;
+    requestHeaders?: unknown;
+    requestBody?: unknown;
+    statusCode: number;
+    responseBody?: unknown;
+    error?: string;
+  }) {
+    try {
+      if (!this._logsService) {
+        return;
+      }
+      const integrations =
+        input.integrations ||
+        (await this.resolveLogIntegrations(input.providerIdentifier));
+      if (!integrations.length) {
+        return;
+      }
+      const orgs = new Map<string, string | undefined>();
+      for (const integration of integrations) {
+        if (!orgs.has(integration.organizationId)) {
+          orgs.set(integration.organizationId, integration.id);
+        }
+      }
+      await Promise.all(
+        [...orgs.entries()].map(([organizationId, integrationId]) =>
+          this._logsService!.logInboundWebhook({
+            organizationId,
+            integrationId,
+            method: input.method,
+            url: `/channel-webhooks/${input.providerIdentifier}`,
+            statusCode: input.statusCode,
+            requestHeaders: input.requestHeaders,
+            requestBody: input.requestBody,
+            responseHeaders: { 'content-type': 'application/json' },
+            responseBody: input.responseBody,
+            error: input.error,
+          })
+        )
+      );
+    } catch {
+      /** logging must never break webhook delivery */
+    }
   }
 
   async requestReconciliation(integration: Integration) {

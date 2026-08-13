@@ -9,6 +9,7 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/posts/posts.repository.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/logs/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/channel-interactions/**/*.spec.ts',
+    '<rootDir>/apps/backend/src/api/routes/channel-webhooks.controller.spec.ts',
     '<rootDir>/apps/orchestrator/src/activities/post.activity.spec.ts',
     '<rootDir>/apps/frontend/src/components/settings/logs.component.spec.tsx',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/file.provider.spec.ts',
@@ -21,6 +22,7 @@ module.exports = {
     '<rootDir>/apps/frontend/src/components/media/**/*.spec.tsx',
     '<rootDir>/apps/frontend/src/components/agents/**/*.spec.tsx',
     '<rootDir>/apps/frontend/src/components/agents/**/*.spec.ts',
+    '<rootDir>/apps/frontend/src/components/launches/channels.sidebar.spec.tsx',
   ],
   transform: {
     '^.+\\.tsx?$': [

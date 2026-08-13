@@ -1,0 +1,2 @@
+-- RenameForeignKey
+ALTER TABLE "ChannelRelationshipGradeSnapshot" RENAME CONSTRAINT "ChannelRelationshipGradeSnapshot_integrationId_counterparty_fke" TO "ChannelRelationshipGradeSnapshot_integrationId_counterpart_fkey";

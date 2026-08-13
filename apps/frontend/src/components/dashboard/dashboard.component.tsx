@@ -1,18 +1,18 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import {
   ChannelMenu,
   ChannelsSidebar,
+  groupChannelsByCustomer,
 } from '@gitroom/frontend/components/launches/channels.sidebar';
 import {
   IntegrationListItem,
   useIntegrationList,
 } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import { useIntegrationNoticeStatus } from '@gitroom/frontend/components/launches/helpers/use.integration.notice.status';
-import { DNDProvider } from '@gitroom/frontend/components/launches/helpers/dnd.provider';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useRouter } from 'next/navigation';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
@@ -59,6 +59,7 @@ export const Dashboard = () => {
   const fetch = useFetch();
   const router = useRouter();
   const [date, setDate] = useState<7 | 30 | 90>(7);
+  const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
   const {
     data: integrations,
     isLoading: integrationsLoading,
@@ -68,13 +69,36 @@ export const Dashboard = () => {
     data: noticeStatus,
     mutate: mutateNoticeStatus,
   } = useIntegrationNoticeStatus();
+  const groupedIntegrations = useMemo(
+    () => groupChannelsByCustomer(integrations),
+    [integrations]
+  );
+
+  useEffect(() => {
+    if (!integrations.length) {
+      setSelectedIntegrationId(undefined);
+      return;
+    }
+
+    if (
+      selectedIntegrationId &&
+      integrations.some((integration) => integration.id === selectedIntegrationId)
+    ) {
+      return;
+    }
+
+    setSelectedIntegrationId(groupedIntegrations[0]?.values[0]?.id);
+  }, [groupedIntegrations, integrations, selectedIntegrationId]);
+
   const {
     data: channels,
     isLoading: analyticsLoading,
-  } = useDashboardAnalytics(date);
+  } = useDashboardAnalytics(date, selectedIntegrationId);
+  const selectedChannel = channels?.[0];
+  const selectedIntegration = integrations.find(
+    (integration) => integration.id === selectedIntegrationId
+  );
 
-  const allUnsupported =
-    !!channels?.length && channels.every((channel) => channel.state === 'unsupported');
   const changeItemGroup = useCallback(
     async (id: string, group: string) => {
       await mutateIntegrations(
@@ -135,7 +159,7 @@ export const Dashboard = () => {
     [fetch, mutateNoticeStatus]
   );
 
-  if (integrationsLoading || analyticsLoading) {
+  if (integrationsLoading) {
     return (
       <div className="bg-newBgColorInner flex flex-1 items-center justify-center">
         <LoadingComponent />
@@ -144,7 +168,7 @@ export const Dashboard = () => {
   }
 
   return (
-    <DNDProvider>
+    <>
       <ChannelsSidebar
         integrationCount={integrations.length}
         onUpdate={() => void mutateIntegrations()}
@@ -154,6 +178,10 @@ export const Dashboard = () => {
             <ChannelMenu
               collapsed={collapsed}
               integrations={integrations}
+              selectedIds={selectedIntegrationId ? [selectedIntegrationId] : []}
+              onSelect={(integration) =>
+                setSelectedIntegrationId(integration.id)
+              }
               mutate={() => void mutateIntegrations()}
               onUpdate={() => void mutateIntegrations()}
               onGroupChange={(id, group) => void changeItemGroup(id, group)}
@@ -168,26 +196,46 @@ export const Dashboard = () => {
       <main className="bg-newBgColorInner flex-1 overflow-y-auto p-[20px]">
         <div className="mx-auto flex max-w-[1400px] flex-col gap-[24px]">
           <div className="flex flex-wrap items-center justify-between gap-[12px]">
-            <div>
-              <h2 className="text-[20px] font-[600]">Channel analytics</h2>
-              <p className="mt-[4px] text-[14px] text-newTableText">
-                Analytics available for each connected channel.
-              </p>
-            </div>
-            <div className="flex rounded-[8px] bg-btnSimple p-[4px]">
-              {dateOptions.map((option) => (
-                <button
-                  key={option}
-                  className={clsx(
-                    'rounded-[6px] px-[12px] py-[6px] text-[13px]',
-                    date === option && 'bg-newBgColorInner shadow-sm'
+            <div className="min-w-0">
+              <div className="flex items-center gap-[10px]">
+                {selectedIntegration && (
+                  <ImageWithFallback
+                    fallbackSrc="/no-picture.jpg"
+                    src={selectedIntegration.picture || '/no-picture.jpg'}
+                    className="rounded-[8px]"
+                    alt={selectedIntegration.identifier}
+                    width={36}
+                    height={36}
+                  />
+                )}
+                <div className="min-w-0">
+                  <h2 className="text-[20px] font-[600] truncate">
+                    {selectedIntegration?.name || 'Channel analytics'}
+                  </h2>
+                  {selectedIntegration && (
+                    <p className="text-[13px] text-newTableText truncate">
+                      {selectedIntegration.display || selectedIntegration.identifier}
+                    </p>
                   )}
-                  onClick={() => setDate(option)}
-                >
-                  {option} days
-                </button>
-              ))}
+                </div>
+              </div>
             </div>
+            {!!selectedIntegration && (
+              <div className="flex rounded-[8px] bg-btnSimple p-[4px]">
+                {dateOptions.map((option) => (
+                  <button
+                    key={option}
+                    className={clsx(
+                      'rounded-[6px] px-[12px] py-[6px] text-[13px]',
+                      date === option && 'bg-newBgColorInner shadow-sm'
+                    )}
+                    onClick={() => setDate(option)}
+                  >
+                    {option} days
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {integrations.length === 0 && (
@@ -199,34 +247,20 @@ export const Dashboard = () => {
             </div>
           )}
 
-          {allUnsupported && (
-            <div className="rounded-[12px] border border-newTableBorder bg-newTableHeader px-[24px] py-[32px] text-[14px] text-newTableText">
-              Analytics are not supported by any of your connected channels.
+          {!!selectedIntegration && analyticsLoading && (
+            <div className="flex flex-1 items-center justify-center py-[48px]">
+              <LoadingComponent />
             </div>
           )}
 
-          {channels?.map((channel) => (
-            <section key={channel.id} className="flex flex-col gap-[14px]">
-              <div className="flex items-center gap-[10px]">
-                <ImageWithFallback
-                  fallbackSrc="/no-picture.jpg"
-                  src={channel.picture || '/no-picture.jpg'}
-                  className="rounded-[8px]"
-                  alt={channel.identifier}
-                  width={36}
-                  height={36}
-                />
-                <div>
-                  <h3 className="font-[600]">{channel.name}</h3>
-                  <p className="text-[13px] text-newTableText">{channel.identifier}</p>
-                </div>
-              </div>
-              {channel.state === 'ok' ? (
-                channel.analytics.length ? (
+          {!!selectedChannel && !analyticsLoading && (
+            <section className="flex flex-col gap-[14px]">
+              {selectedChannel.state === 'ok' ? (
+                selectedChannel.analytics.length ? (
                   <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2 xl:grid-cols-3">
-                    {channel.analytics.map((metric, index) => (
+                    {selectedChannel.analytics.map((metric, index) => (
                       <AnalyticsCard
-                        key={`${channel.id}-${metric.label}`}
+                        key={`${selectedChannel.id}-${metric.label}`}
                         item={metric}
                         total={analyticsTotal(metric)}
                         index={index}
@@ -234,15 +268,15 @@ export const Dashboard = () => {
                     ))}
                   </div>
                 ) : (
-                  <ChannelState channel={channel} empty />
+                  <ChannelState channel={selectedChannel} empty />
                 )
               ) : (
-                <ChannelState channel={channel} />
+                <ChannelState channel={selectedChannel} />
               )}
             </section>
-          ))}
+          )}
         </div>
       </main>
-    </DNDProvider>
+    </>
   );
 };

@@ -7,7 +7,7 @@ import {
 
 jest.mock(
   '@gitroom/nestjs-libraries/integrations/integration.manager',
-  () => ({ IntegrationManager: class IntegrationManager {} })
+  () => ({ IntegrationManager: class IntegrationManager { } })
 );
 
 const interaction = (overrides: Record<string, any> = {}) => ({
@@ -33,6 +33,7 @@ const createRepository = () => ({
   failFollowerSync: jest.fn().mockResolvedValue(true),
   rebuildWindowSummary: jest.fn().mockResolvedValue({ itemCount: 0 }),
   getActiveIntegrationsForAccount: jest.fn().mockResolvedValue([]),
+  getActiveIntegrationsForProvider: jest.fn().mockResolvedValue([]),
   requestSubscriptionReconciliation: jest.fn().mockResolvedValue(undefined),
   markSubscriptionsForRemoval: jest.fn().mockResolvedValue({ count: 0 }),
   getDueRelationshipGradeBatch: jest.fn().mockResolvedValue({ members: [] }),
@@ -335,6 +336,165 @@ describe('ChannelInteractionService', () => {
         statusCode: 200,
       })
     );
+  });
+
+  it('logs a verified delivery to the sole org when the account is unknown locally', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([]);
+    repository.getActiveIntegrationsForProvider.mockResolvedValue([
+      { id: 'integration-x', organizationId: 'org-only' },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyAndNormalizeDelivery: jest.fn().mockResolvedValue({
+            accepted: true,
+            connectedAccountId: 'missing-account',
+            events: [interaction()],
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      logsService as any
+    );
+    const record = jest.spyOn(service, 'recordNormalizedDelivery');
+
+    await service.handleDelivery('x', {
+      rawBody: Buffer.from('{"data":{"filter":{"user_id":"missing-account"}}}'),
+      headers: {},
+    });
+
+    expect(record).not.toHaveBeenCalled();
+    expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-only',
+        method: 'POST',
+        url: '/channel-webhooks/x',
+        statusCode: 200,
+      })
+    );
+  });
+
+  it('logs a rejected delivery when the payload names a connected account', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([
+      { id: 'integration-a', organizationId: 'org-a' },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyAndNormalizeDelivery: jest.fn().mockResolvedValue({
+            accepted: false,
+            statusCode: 401,
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      logsService as any
+    );
+
+    await service.handleDelivery('x', {
+      rawBody: Buffer.from(
+        JSON.stringify({ data: { filter: { user_id: '42' } } })
+      ),
+      headers: { 'x-twitter-webhooks-signature': 'invalid' },
+    });
+
+    expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        method: 'POST',
+        statusCode: 401,
+        error: 'Channel webhook delivery rejected',
+      })
+    );
+    expect(repository.getActiveIntegrationsForAccount).toHaveBeenCalledWith(
+      'x',
+      '42'
+    );
+  });
+
+  it('logs a challenge against the sole org that owns the provider', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForProvider.mockResolvedValue([
+      { id: 'integration-x', organizationId: 'org-only' },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyChallenge: jest.fn().mockResolvedValue({
+            accepted: true,
+            responseBody: { response_token: 'sha256=challenge' },
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      logsService as any
+    );
+
+    await service.handleChallenge('x', { query: { crc_token: 'challenge' } });
+
+    expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-only',
+        method: 'GET',
+        url: '/channel-webhooks/x',
+        statusCode: 200,
+      })
+    );
+  });
+
+  it('does not fan an unmatched payload to every org on a shared provider', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([]);
+    repository.getActiveIntegrationsForProvider.mockResolvedValue([
+      { id: 'integration-a', organizationId: 'org-a' },
+      { id: 'integration-b', organizationId: 'org-b' },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyAndNormalizeDelivery: jest.fn().mockResolvedValue({
+            accepted: true,
+            connectedAccountId: 'missing-account',
+            events: [],
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      logsService as any
+    );
+
+    await service.handleDelivery('x', {
+      rawBody: Buffer.from('{}'),
+      headers: {},
+    });
+
+    expect(logsService.logInboundWebhook).not.toHaveBeenCalled();
   });
 
   it('acknowledges a verified delivery for an unknown local account', async () => {

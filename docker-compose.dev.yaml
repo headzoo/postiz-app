@@ -18,6 +18,11 @@ services:
       - 5432:5432
     networks:
       - postiz-network
+    healthcheck:
+      test: pg_isready -U postiz-local -d postiz-db-local
+      interval: 10s
+      timeout: 3s
+      retries: 3
   postiz-redis:
     # ref: https://hub.docker.com/_/redis
     image: redis:7-alpine # 7.4.0
@@ -27,6 +32,11 @@ services:
       - 6379:6379
     networks:
       - postiz-network
+    healthcheck:
+      test: redis-cli ping
+      interval: 10s
+      timeout: 3s
+      retries: 3
   postiz-pg-admin:
     # ref: https://hub.docker.com/r/dpage/pgadmin4/tags
     image: dpage/pgadmin4:latest
@@ -70,6 +80,16 @@ services:
       - 9200
     volumes:
       - /var/lib/elasticsearch/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sf 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s'",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   temporal-postgresql:
     container_name: temporal-postgresql
@@ -83,6 +103,11 @@ services:
       - 5432
     volumes:
       - /var/lib/postgresql/data
+    healthcheck:
+      test: pg_isready -U temporal
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   temporal:
     container_name: temporal
@@ -90,8 +115,10 @@ services:
       - "7233:7233"
     image: temporalio/auto-setup:1.28.1
     depends_on:
-      - temporal-postgresql
-      - temporal-elasticsearch
+      temporal-postgresql:
+        condition: service_healthy
+      temporal-elasticsearch:
+        condition: service_healthy
     environment:
       - DB=postgres12
       - DB_PORT=5432
@@ -109,6 +136,21 @@ services:
       - ./dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "temporal",
+          "operator",
+          "cluster",
+          "health",
+          "--address",
+          "temporal:7233",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
@@ -120,7 +162,8 @@ services:
       - temporal-network
     stdin_open: true
     depends_on:
-      - temporal
+      temporal:
+        condition: service_healthy
     tty: true
 
   temporal-ui:
@@ -133,6 +176,9 @@ services:
       - temporal-network
     ports:
       - "8080:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
 
 volumes:
   redisinsight:

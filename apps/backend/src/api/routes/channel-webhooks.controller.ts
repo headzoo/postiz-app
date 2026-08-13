@@ -23,7 +23,7 @@ const MAX_ARRAY_VALUES = 8;
 export class ChannelWebhooksController {
   constructor(
     private readonly _channelInteractionService: ChannelInteractionService
-  ) {}
+  ) { }
 
   @Get('/:providerIdentifier')
   async challenge(
@@ -84,26 +84,47 @@ export class ChannelWebhooksController {
     values: Record<string, string | string[] | undefined>,
     maximumEntries: number
   ) {
-    const entries = Object.entries(values || {});
-    if (entries.length > maximumEntries) {
-      throw new BadRequestException('Too many channel webhook values');
-    }
-    for (const [key, value] of entries) {
+    const priority: Record<string, string | string[]> = {};
+    const extras: Array<[string, string | string[]]> = [];
+    for (const [key, value] of Object.entries(values || {})) {
       if (!key || key.length > MAX_KEY_LENGTH) {
-        throw new BadRequestException('Invalid channel webhook value name');
+        continue;
       }
-      const normalized = Array.isArray(value) ? value : [value];
-      if (normalized.length > MAX_ARRAY_VALUES) {
-        throw new BadRequestException('Too many channel webhook value entries');
+      const normalized = (Array.isArray(value) ? value : [value])
+        .filter((item): item is string => typeof item === 'string')
+        .slice(0, MAX_ARRAY_VALUES);
+      if (!normalized.length) {
+        continue;
       }
-      if (
-        normalized.some(
-          (item) => typeof item !== 'string' || item.length > MAX_VALUE_LENGTH
-        )
-      ) {
-        throw new BadRequestException('Invalid channel webhook value');
+      const truncated = normalized.map((item) =>
+        item.length > MAX_VALUE_LENGTH ? item.slice(0, MAX_VALUE_LENGTH) : item
+      );
+      const entry = Array.isArray(value) ? truncated : truncated[0];
+      if (this.isPriorityWebhookField(key)) {
+        priority[key] = entry;
+      } else {
+        extras.push([key, entry]);
       }
     }
-    return values;
+    const bounded: Record<string, string | string[]> = {};
+    for (const [key, entry] of [
+      ...Object.entries(priority),
+      ...extras,
+    ]) {
+      if (Object.keys(bounded).length >= maximumEntries) {
+        break;
+      }
+      bounded[key] = entry;
+    }
+    return bounded;
+  }
+
+  private isPriorityWebhookField(key: string) {
+    const name = key.toLowerCase();
+    return (
+      name.includes('signature') ||
+      name.includes('hmac') ||
+      name.includes('crc')
+    );
   }
 }

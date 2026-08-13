@@ -103,4 +103,34 @@ describe('IntegrationService dashboard analytics', () => {
     expect(analytics).toHaveBeenNthCalledWith(1, 'social', 'old-token', 7);
     expect(analytics).toHaveBeenNthCalledWith(2, 'social', 'new-token', 7);
   });
+
+  it('filters dashboard analytics to a requested integration', async () => {
+    const supportedAnalytics = jest.fn().mockResolvedValue([]);
+    const otherAnalytics = jest.fn().mockResolvedValue([]);
+    const service = createService(
+      [social, { ...social, id: 'other', providerIdentifier: 'other' }],
+      {
+        supported: { analytics: supportedAnalytics },
+        other: { analytics: otherAnalytics },
+      }
+    );
+
+    await expect(service.getDashboardAnalytics(org, 7, 'social')).resolves.toEqual([
+      expect.objectContaining({ id: 'social', state: 'ok' }),
+    ]);
+    expect(supportedAnalytics).toHaveBeenCalled();
+    expect(otherAnalytics).not.toHaveBeenCalled();
+  });
+
+  it('returns no dashboard analytics when the requested integration is missing', async () => {
+    const supportedAnalytics = jest.fn().mockResolvedValue([]);
+    const service = createService([social], {
+      supported: { analytics: supportedAnalytics },
+    });
+
+    await expect(service.getDashboardAnalytics(org, 7, 'missing')).resolves.toEqual(
+      []
+    );
+    expect(supportedAnalytics).not.toHaveBeenCalled();
+  });
 });

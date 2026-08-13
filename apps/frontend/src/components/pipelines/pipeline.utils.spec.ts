@@ -1,9 +1,14 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
-import { PipelineScheduleOccurrence } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import {
+  PipelineScheduleOccurrence,
+  PipelineSummary,
+} from '@gitroom/frontend/components/pipelines/pipeline.types';
+import { Integrations } from '@gitroom/frontend/components/launches/calendar.context';
 import {
   convertDisplayScheduleTargetToPipelineSlot,
+  filterPipelinesByChannel,
   getContrastRatio,
   getPipelineScheduleWeek,
   getReadableForegroundColor,
@@ -328,5 +333,58 @@ describe('loadPipelineGlobalSchedule', () => {
     await expect(
       loadPipelineGlobalSchedule(fetchFn, '/pipelines/schedule?startDate=a&endDate=b')
     ).rejects.toThrow('startDate must be valid, endDate must be valid');
+  });
+});
+
+describe('filterPipelinesByChannel', () => {
+  const channel = (id: string): Integrations =>
+    ({
+      id,
+      name: id,
+      inBetweenSteps: false,
+      editor: 'normal',
+      display: id,
+      identifier: id,
+      type: 'social',
+      picture: '',
+      changeProfilePicture: false,
+      additionalSettings: '',
+      changeNickName: false,
+      time: [],
+    }) as Integrations;
+
+  const pipeline = (
+    id: string,
+    channelIds: string[]
+  ): PipelineSummary => ({
+    id,
+    name: id,
+    timezone: 'UTC',
+    color: '#3366ff',
+    active: true,
+    scheduleRevision: 1,
+    channels: channelIds.map((channelId) => channel(channelId)),
+    queueCount: 0,
+  });
+
+  const pipelines = [
+    pipeline('pipeline-a', ['channel-a', 'channel-b']),
+    pipeline('pipeline-b', ['channel-c']),
+    pipeline('pipeline-c', ['channel-a']),
+  ];
+
+  it('returns every pipeline when no channel is selected', () => {
+    expect(filterPipelinesByChannel(pipelines)).toEqual(pipelines);
+    expect(filterPipelinesByChannel(pipelines, undefined)).toEqual(pipelines);
+  });
+
+  it('keeps only pipelines that include the selected channel', () => {
+    expect(
+      filterPipelinesByChannel(pipelines, 'channel-a').map((item) => item.id)
+    ).toEqual(['pipeline-a', 'pipeline-c']);
+  });
+
+  it('returns an empty list when no pipeline includes the channel', () => {
+    expect(filterPipelinesByChannel(pipelines, 'channel-missing')).toEqual([]);
   });
 });

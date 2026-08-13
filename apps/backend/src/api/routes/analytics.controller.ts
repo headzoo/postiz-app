@@ -12,14 +12,18 @@ export class AnalyticsController {
   constructor(
     private _integrationService: IntegrationService,
     private _postsService: PostsService
-  ) {}
+  ) { }
 
   @Get('/dashboard')
   async getDashboard(
     @GetOrgFromRequest() org: Organization,
     @Query() query: DashboardAnalyticsDto
   ) {
-    return this._integrationService.getDashboardAnalytics(org, query.date);
+    return this._integrationService.getDashboardAnalytics(
+      org,
+      query.date,
+      query.integrationId
+    );
   }
 
   @Get('/:integration')

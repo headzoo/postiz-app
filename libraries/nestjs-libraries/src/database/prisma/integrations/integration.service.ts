@@ -1784,14 +1784,21 @@ export class IntegrationService {
     return { analytics: [], failed: false };
   }
 
-  async getDashboardAnalytics(org: Organization, date: 7 | 30 | 90) {
+  async getDashboardAnalytics(
+    org: Organization,
+    date: 7 | 30 | 90,
+    integrationId?: string
+  ) {
     const integrations = await this._integrationRepository.getIntegrationsList(
       org.id
     );
+    const selected = integrationId
+      ? integrations.filter((integration) => integration.id === integrationId)
+      : integrations;
     const limit = pLimit(5);
 
     return Promise.all(
-      integrations.map((integration) =>
+      selected.map((integration) =>
         limit(async () => {
           const channel = {
             id: integration.id,

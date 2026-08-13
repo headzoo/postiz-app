@@ -1,83 +1,122 @@
 import { TemporalModule } from 'nestjs-temporal-core';
+import {
+  bundleWorkflowCode,
+  type WorkflowBundleWithSourceMap,
+} from '@temporalio/worker';
 import { socialIntegrationList } from '@gitroom/nestjs-libraries/integrations/integration.manager';
+
+const getConnectionOptions = () => ({
+  isGlobal: true,
+  connection: {
+    address: process.env.TEMPORAL_ADDRESS || 'localhost:7233',
+    ...(process.env.TEMPORAL_TLS === 'true' ? { tls: true } : {}),
+    ...(process.env.TEMPORAL_API_KEY ? { apiKey: process.env.TEMPORAL_API_KEY } : {}),
+    namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+  },
+  taskQueue: 'main',
+  logLevel: 'error' as const,
+});
+
+const getWorkerMode = () => {
+  const mode = process.env.TEMPORAL_WORKER_MODE;
+
+  if (!mode || mode === 'all') {
+    return 'all';
+  }
+
+  if (mode === 'main') {
+    return 'main';
+  }
+
+  throw new Error(
+    `Unsupported TEMPORAL_WORKER_MODE "${mode}". Use "main" or "all".`
+  );
+};
+
+const getWorkerDefinitions = (
+  workflowBundle: WorkflowBundleWithSourceMap,
+  activityClasses: any[],
+  mode: 'main' | 'all'
+) => {
+  const excludeQueues = (process.env.EXCLUDE_QUEUE || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const divider = Math.max(
+    1,
+    Number(process.env.WORKER_CONCURRENCY_DIVIDER) || 1
+  );
+
+  const integrations =
+    mode === 'main'
+      ? [{ identifier: 'main', maxConcurrentJob: undefined }]
+      : [
+          { identifier: 'main', maxConcurrentJob: undefined },
+          ...socialIntegrationList,
+        ];
+
+  return integrations
+    .filter((integration) => integration.identifier.indexOf('-') === -1)
+    .map((integration) => ({
+      integration,
+      taskQueue: integration.identifier.split('-')[0],
+    }))
+    .filter(({ taskQueue }) => !excludeQueues.includes(taskQueue))
+    .map(({ integration, taskQueue }) => {
+      const concurrency = integration.maxConcurrentJob
+        ? Math.max(1, Math.floor(integration.maxConcurrentJob / divider))
+        : undefined;
+
+      return {
+        taskQueue,
+        workflowBundle: workflowBundle as unknown as Record<string, unknown>,
+        activityClasses,
+        autoStart: true,
+        ...(concurrency
+          ? {
+              workerOptions: {
+                maxConcurrentActivityTaskExecutions: concurrency,
+              },
+            }
+          : {
+              workerOptions: {
+                maxConcurrentActivityTaskExecutions: 1000000,
+              },
+            }),
+      };
+    });
+};
 
 export const getTemporalModule = (
   isWorkers: boolean,
   path?: string,
   activityClasses?: any[]
 ) => {
-  // Queues this worker server should NOT run, comma-separated
-  // (e.g. EXCLUDE_QUEUE="reddit,x,twitch"). Use it to pin a queue to a single
-  // server: exclude it on every server except the one that should own it.
-  // Meant for the providers whose concurrency is too low to split (limit 1).
-  const excludeQueues = (process.env.EXCLUDE_QUEUE || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
+  if (!isWorkers) {
+    return TemporalModule.register(getConnectionOptions());
+  }
 
-  // How many worker servers share each (non-excluded) queue. Per-server
-  // concurrency is divided by this so the GLOBAL concurrency stays correct.
-  // 1 server => 1 (full), 2 servers => 2 (half each), 3 servers => 3, etc.
-  const divider = Math.max(
-    1,
-    Number(process.env.WORKER_CONCURRENCY_DIVIDER) || 1
-  );
-
-  return TemporalModule.register({
+  return TemporalModule.registerAsync({
     isGlobal: true,
-    connection: {
-      address: process.env.TEMPORAL_ADDRESS || 'localhost:7233',
-      ...(process.env.TEMPORAL_TLS === 'true' ? { tls: true } : {}),
-      ...(process.env.TEMPORAL_API_KEY
-        ? { apiKey: process.env.TEMPORAL_API_KEY }
-        : {}),
-      namespace: process.env.TEMPORAL_NAMESPACE || 'default',
-    },
-    taskQueue: 'main',
-    logLevel: 'error',
-    ...(isWorkers
-      ? {
-          workers: [
-            { identifier: 'main', maxConcurrentJob: undefined },
-            ...socialIntegrationList,
-          ]
-            .filter((f) => f.identifier.indexOf('-') === -1)
-            .map((integration) => ({
-              integration,
-              taskQueue: integration.identifier.split('-')[0],
-            }))
-            .filter(({ taskQueue }) => !excludeQueues.includes(taskQueue))
-            .map(({ integration, taskQueue }) => {
-              // Split the per-provider cap across the servers sharing this
-              // queue. Floor (never below 1) so the global total never exceeds
-              // the provider's limit. Providers whose limit is smaller than the
-              // server count must be pinned via EXCLUDE_QUEUE instead.
-              const concurrency = integration.maxConcurrentJob
-                ? Math.max(
-                    1,
-                    Math.floor(integration.maxConcurrentJob / divider)
-                  )
-                : undefined;
+    useFactory: async () => {
+      if (!path) {
+        throw new Error('A workflows path is required when workers are enabled.');
+      }
 
-              return {
-                taskQueue,
-                workflowsPath: path!,
-                activityClasses: activityClasses!,
-                autoStart: true,
-                ...(concurrency
-                  ? {
-                      workerOptions: {
-                        maxConcurrentActivityTaskExecutions: concurrency,
-                      },
-                    }
-                  : {
-                      workerOptions: {
-                        maxConcurrentActivityTaskExecutions: 1000000,
-                      },
-                    }),
-              };
-            }),
-        }
-      : {}),
+      const mode = getWorkerMode();
+      const workflowBundle = await bundleWorkflowCode({
+        workflowsPath: path,
+      });
+
+      return {
+        ...getConnectionOptions(),
+        workers: getWorkerDefinitions(
+          workflowBundle,
+          activityClasses || [],
+          mode
+        ),
+      };
+    },
   });
 };

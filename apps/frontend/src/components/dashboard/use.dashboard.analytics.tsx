@@ -21,17 +21,28 @@ export type DashboardChannelAnalytics = {
   analytics: DashboardAnalyticsMetric[];
 };
 
-export const useDashboardAnalytics = (date: 7 | 30 | 90) => {
+export const useDashboardAnalytics = (
+  date: 7 | 30 | 90,
+  integrationId?: string
+) => {
   const fetch = useFetch();
 
   const load = useCallback(
     async (): Promise<DashboardChannelAnalytics[]> =>
-      (await (await fetch(`/analytics/dashboard?date=${date}`)).json()),
-    [date, fetch]
+    (
+      await (
+        await fetch(
+          `/analytics/dashboard?date=${date}&integrationId=${integrationId}`
+        )
+      ).json()
+    ),
+    [date, fetch, integrationId]
   );
 
   return useSWR<DashboardChannelAnalytics[]>(
-    `/analytics/dashboard?date=${date}`,
+    integrationId
+      ? `/analytics/dashboard?date=${date}&integrationId=${integrationId}`
+      : null,
     load,
     {
       revalidateOnFocus: false,

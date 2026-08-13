@@ -2,20 +2,22 @@
 
 import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
-import useCookie from 'react-use-cookie';
 import { useDebounce } from 'use-debounce';
 import { useRouter } from 'next/navigation';
-import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
-import SafeImage from '@gitroom/react/helpers/safe.image';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Button } from '@gitroom/react/form/button';
 import { Input } from '@gitroom/react/form/input';
 import { Select } from '@gitroom/react/form/select';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
-import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
 import { FollowerCard } from '@gitroom/frontend/components/followers/follower.card';
 import { FollowerDetailModal } from '@gitroom/frontend/components/followers/follower.detail.modal';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import {
+  ChannelMenu,
+  ChannelsSidebar,
+  groupChannelsByCustomer,
+} from '@gitroom/frontend/components/launches/channels.sidebar';
+import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import {
   ChannelInteractionKindCoverage,
   ChannelInteractionWindow,
@@ -219,7 +221,6 @@ export const FollowersComponent: FC = () => {
   const t = useT();
   const router = useRouter();
   const modal = useModals();
-  const [collapseMenu, setCollapseMenu] = useCookie('collapseMenu', '0');
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
   const [sort, setSort] = useState<string>();
   const [direction, setDirection] = useState<FollowerSortDirection>();
@@ -239,6 +240,16 @@ export const FollowersComponent: FC = () => {
     error: channelsError,
     mutate: mutateChannels,
   } = useFollowerChannels();
+  const { data: integrations = [], isLoading: isLoadingIntegrations } =
+    useIntegrationList();
+  const followerIntegrations = useMemo(() => {
+    const followerIds = new Set(channels.map((channel) => channel.id));
+    return integrations.filter((integration) => followerIds.has(integration.id));
+  }, [channels, integrations]);
+  const groupedFollowerIntegrations = useMemo(
+    () => groupChannelsByCustomer(followerIntegrations),
+    [followerIntegrations]
+  );
 
   useEffect(() => {
     if (!channels.length) {
@@ -253,7 +264,10 @@ export const FollowersComponent: FC = () => {
       return;
     }
 
-    const firstChannel = channels[0];
+    const firstChannelId =
+      groupedFollowerIntegrations[0]?.values[0]?.id || channels[0].id;
+    const firstChannel =
+      channels.find((channel) => channel.id === firstChannelId) || channels[0];
     setSelectedIntegrationId(firstChannel.id);
     const defaultSort = firstChannel.sorts[0];
     setSort(defaultSort?.key);
@@ -261,7 +275,7 @@ export const FollowersComponent: FC = () => {
     setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
     setCursorHistory([]);
     setPageNumber(1);
-  }, [channels, selectedIntegrationId]);
+  }, [channels, groupedFollowerIntegrations, selectedIntegrationId]);
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedIntegrationId),
@@ -398,7 +412,7 @@ export const FollowersComponent: FC = () => {
     [modal, selectedIntegrationId]
   );
 
-  if (isLoadingChannels) {
+  if (isLoadingChannels || isLoadingIntegrations) {
     return (
       <div className="bg-newBgColorInner p-[20px] flex flex-1 flex-col gap-[15px] transition-all items-center justify-center">
         <LoadingComponent />
@@ -570,78 +584,24 @@ export const FollowersComponent: FC = () => {
 
   return (
     <>
-      <div
-        className={clsx(
-          'bg-newBgColorInner p-[20px] flex flex-col gap-[15px] transition-all',
-          collapseMenu === '1' ? 'group sidebar w-[100px]' : 'w-[260px]'
-        )}
+      <ChannelsSidebar
+        integrationCount={followerIntegrations.length}
+        showAddProvider={false}
       >
-        <div className="flex gap-[12px] flex-col">
-          <div className="flex items-center">
-            <h2 className="group-[.sidebar]:hidden flex-1 text-[20px] font-[500] text-newTextColor">
-              {t('channels', 'Channels')}
-            </h2>
-            <button
-              type="button"
-              onClick={() => setCollapseMenu(collapseMenu === '1' ? '0' : '1')}
-              className="group-[.sidebar]:rotate-[180deg] group-[.sidebar]:mx-auto text-btnText bg-btnSimple rounded-[6px] w-[24px] h-[24px] flex items-center justify-center cursor-pointer select-none"
-              aria-label={t('followers_toggle_channels', 'Toggle channels sidebar')}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="7"
-                height="13"
-                viewBox="0 0 7 13"
-                fill="none"
-              >
-                <path
-                  d="M6 11.5L1 6.5L6 1.5"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          </div>
-          {channels.map((channel) => (
-            <button
-              type="button"
-              key={channel.id}
-              onClick={() => handleChannelSelect(channel)}
-              className={clsx(
-                'flex gap-[12px] items-center group/profile justify-center hover:bg-boxHover rounded-e-[8px] text-start',
-                selectedChannel?.id !== channel.id &&
-                'opacity-20 hover:opacity-100 cursor-pointer'
-              )}
-            >
-              <div className="relative rounded-full flex justify-center items-center gap-[6px]">
-                <div className="h-full w-[4px] -ms-[12px] rounded-s-[3px] opacity-0 group-hover/profile:opacity-100 transition-opacity">
-                  <SVGLine />
-                </div>
-                <ImageWithFallback
-                  fallbackSrc={`/icons/platforms/${channel.identifier}.png`}
-                  src={channel.picture || '/no-picture.jpg'}
-                  className="rounded-[8px]"
-                  alt={channel.name}
-                  width={36}
-                  height={36}
-                />
-                <SafeImage
-                  src={`/icons/platforms/${channel.identifier}.png`}
-                  className="rounded-[8px] absolute z-10 bottom-[5px] -end-[5px] border border-fifth"
-                  alt={channel.identifier}
-                  width={18.41}
-                  height={18.41}
-                />
-              </div>
-              <div className="flex-1 min-w-0 whitespace-nowrap text-ellipsis overflow-hidden group-[.sidebar]:hidden text-newTextColor">
-                {channel.name}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
+        {(collapsed) => (
+          <ChannelMenu
+            collapsed={collapsed}
+            integrations={followerIntegrations}
+            selectedIds={selectedIntegrationId ? [selectedIntegrationId] : []}
+            onSelect={(integration) => {
+              const channel = channels.find((item) => item.id === integration.id);
+              if (channel) {
+                handleChannelSelect(channel);
+              }
+            }}
+          />
+        )}
+      </ChannelsSidebar>
 
       <div className="bg-newBgColorInner flex-1 flex-col flex p-[20px] gap-[16px] min-w-0">
         <div className="flex flex-col gap-[12px] md:flex-row md:items-center md:justify-between">

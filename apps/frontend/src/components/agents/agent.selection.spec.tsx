@@ -56,7 +56,44 @@ jest.mock('react-use-cookie', () => ({
 }));
 
 jest.mock('@gitroom/react/translation/get.transation.service.client', () => ({
-  useT: () => (key: string, fallback: string) => fallback,
+  useT: () => (key: string, fallback?: string) => fallback || key,
+}));
+
+jest.mock('@gitroom/frontend/components/layout/user.context', () => ({
+  useUser: () => ({ totalChannels: 10 }),
+}));
+
+jest.mock('@gitroom/react/helpers/variable.context', () => ({
+  useVariables: () => ({ billingEnabled: false }),
+}));
+
+jest.mock('react-dnd', () => ({
+  useDrag: () => [{}, (node: unknown) => node, (node: unknown) => node],
+  useDrop: () => [{ isOver: false }, (node: unknown) => node],
+}));
+
+jest.mock('@gitroom/frontend/components/launches/helpers/dnd.provider', () => ({
+  DNDProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+jest.mock('@gitroom/frontend/components/launches/add.provider.component', () => ({
+  AddProviderButton: () => null,
+}));
+
+jest.mock('@gitroom/frontend/components/launches/generator/generator', () => ({
+  GeneratorComponent: () => null,
+}));
+
+jest.mock('@gitroom/frontend/components/launches/new.post', () => ({
+  NewPost: () => null,
+}));
+
+jest.mock('@gitroom/frontend/components/launches/menu/menu', () => ({
+  Menu: () => null,
+}));
+
+jest.mock('@gitroom/frontend/components/launches/helpers/use.integration.list', () => ({
+  useIntegrationList: jest.fn(),
 }));
 
 jest.mock('@gitroom/react/helpers/image.with.fallback', () => ({
@@ -87,6 +124,9 @@ const useSWR = jest.requireMock('swr').default as jest.Mock;
 const { usePipelineList } = jest.requireMock(
   '@gitroom/frontend/components/pipelines/use.pipeline.list'
 ) as { usePipelineList: jest.Mock };
+const { useIntegrationList } = jest.requireMock(
+  '@gitroom/frontend/components/launches/helpers/use.integration.list'
+) as { useIntegrationList: jest.Mock };
 
 const makeIntegration = (
   id: string,
@@ -204,11 +244,10 @@ describe('applyChannelToggle', () => {
 
 describe('AgentList pipeline sidebar', () => {
   beforeEach(() => {
-    useSWR.mockImplementation((key: string) => {
-      if (key === 'integrations') {
-        return { data: [channelA, channelB, channelC] };
-      }
-      return { data: [] };
+    useSWR.mockReturnValue({ data: [] });
+    useIntegrationList.mockReturnValue({
+      data: [channelA, channelB, channelC],
+      isLoading: false,
     });
 
     usePipelineList.mockReturnValue({
@@ -231,7 +270,7 @@ describe('AgentList pipeline sidebar', () => {
       />
     );
 
-    expect(screen.getByText('Select Channels')).toBeTruthy();
+    expect(screen.getByText('Channels')).toBeTruthy();
     expect(screen.getByText('Pipelines')).toBeTruthy();
     expect(screen.getByRole('radiogroup', { name: 'Pipelines' })).toBeTruthy();
 

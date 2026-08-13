@@ -1,21 +1,44 @@
-import { Global, Injectable, Module, OnModuleInit } from '@nestjs/common';
+import {
+  Global,
+  Injectable,
+  Logger,
+  Module,
+  OnModuleInit,
+} from '@nestjs/common';
 import { TemporalService } from 'nestjs-temporal-core';
 import { Connection } from '@temporalio/client';
 
 @Injectable()
 export class TemporalRegister implements OnModuleInit {
+  private readonly _logger = new Logger(TemporalRegister.name);
+
   constructor(private _client: TemporalService) {}
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     if (process.env.TEMPORAL_TLS === 'true') {
       return;
     }
+
+    void this.registerMissingSearchAttributes().catch((error) => {
+      this._logger.error(
+        `Failed to register Temporal search attributes (address: ${this.getTemporalAddressForLog()}, namespace: ${this.getNamespace()})`,
+        error
+      );
+    });
+  }
+
+  private async registerMissingSearchAttributes(): Promise<void> {
     const connection = this._client?.client?.getRawClient()
       ?.connection as Connection;
+    if (!connection) {
+      throw new Error(
+        'Temporal connection unavailable while registering search attributes'
+      );
+    }
 
     const { customAttributes } =
       await connection.operatorService.listSearchAttributes({
-        namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+        namespace: this.getNamespace(),
       });
 
     const neededAttribute = ['organizationId', 'postId'];
@@ -25,7 +48,7 @@ export class TemporalRegister implements OnModuleInit {
 
     if (missingAttributes.length > 0) {
       await connection.operatorService.addSearchAttributes({
-        namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+        namespace: this.getNamespace(),
         searchAttributes: missingAttributes.reduce((all, current) => {
           // @ts-ignore
           all[current] = 1;
@@ -33,6 +56,16 @@ export class TemporalRegister implements OnModuleInit {
         }, {}),
       });
     }
+  }
+
+  private getNamespace(): string {
+    return process.env.TEMPORAL_NAMESPACE || 'default';
+  }
+
+  private getTemporalAddressForLog(): string {
+    return (process.env.TEMPORAL_ADDRESS || 'localhost:7233')
+      .replace(/\/\/[^@]*@/, '//')
+      .replace(/^[^@]*@/, '');
   }
 }
 

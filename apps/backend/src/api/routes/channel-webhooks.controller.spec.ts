@@ -1,6 +1,11 @@
 import { BadRequestException, HttpException } from '@nestjs/common';
 import { ChannelWebhooksController } from './channel-webhooks.controller';
 
+jest.mock(
+  '@gitroom/nestjs-libraries/integrations/integration.manager',
+  () => ({ IntegrationManager: class IntegrationManager { } })
+);
+
 describe('ChannelWebhooksController', () => {
   const service = {
     handleChallenge: jest.fn(),
@@ -70,5 +75,30 @@ describe('ChannelWebhooksController', () => {
         headers: {},
       } as any)
     ).rejects.toMatchObject<HttpException>({ status: 404 });
+  });
+
+  it('sanitizes oversized request headers instead of rejecting the delivery', async () => {
+    service.handleDelivery.mockResolvedValue({
+      accepted: true,
+      connectedAccountId: 'account-1',
+      events: [],
+    });
+    const headers: Record<string, string> = {};
+    for (let i = 0; i < 80; i++) {
+      headers[`x-forwarded-extra-${i}`] = 'x'.repeat(5000);
+    }
+    headers['x-twitter-webhooks-signature'] = 'sha256=valid';
+
+    await expect(
+      controller.delivery('x', {
+        rawBody: Buffer.from('{}'),
+        headers,
+      } as any)
+    ).resolves.toEqual({ ok: true });
+
+    const passed = service.handleDelivery.mock.calls[0][1].headers;
+    expect(Object.keys(passed)).toHaveLength(64);
+    expect(passed['x-twitter-webhooks-signature']).toBe('sha256=valid');
+    expect(passed['x-forwarded-extra-0']).toHaveLength(4096);
   });
 });
