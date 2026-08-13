@@ -295,27 +295,42 @@ export class ChannelInteractionRepository {
           cleanupPending &&
           subscription.state === 'unconfigured' &&
           !subscription.failureCategory;
-        await tx.channelInteractionSubscription.updateMany({
+        const direction =
+          subscription.direction === 'inbound'
+            ? ChannelInteractionDirection.INBOUND
+            : ChannelInteractionDirection.OUTBOUND;
+        const state = cleanupPending
+          ? cleanupComplete
+            ? ChannelInteractionTrackingState.UNCONFIGURED
+            : ChannelInteractionTrackingState.REMOVING
+          : subscription.state.toUpperCase() as ChannelInteractionTrackingState;
+        const failureCategory = subscription.failureCategory || null;
+        const failureReason = subscription.failureCategory
+          ? this.failureReason(subscription.failureCategory)
+          : null;
+        await tx.channelInteractionSubscription.upsert({
           where: {
+            integrationId_eventKey_direction: {
+              integrationId,
+              eventKey: subscription.eventKey,
+              direction,
+            },
+          },
+          create: {
             organizationId,
             integrationId,
             eventKey: subscription.eventKey,
-            direction:
-              subscription.direction === 'inbound'
-                ? ChannelInteractionDirection.INBOUND
-                : ChannelInteractionDirection.OUTBOUND,
-          },
-          data: {
+            direction,
             remoteIdentifier: subscription.remoteIdentifier,
-            state: cleanupPending
-              ? cleanupComplete
-                ? ChannelInteractionTrackingState.UNCONFIGURED
-                : ChannelInteractionTrackingState.REMOVING
-              : subscription.state.toUpperCase() as ChannelInteractionTrackingState,
-            failureCategory: subscription.failureCategory || null,
-            failureReason: subscription.failureCategory
-              ? this.failureReason(subscription.failureCategory)
-              : null,
+            state,
+            failureCategory,
+            failureReason,
+          },
+          update: {
+            remoteIdentifier: subscription.remoteIdentifier,
+            state,
+            failureCategory,
+            failureReason,
           },
         });
         if (subscription.state === 'active') {

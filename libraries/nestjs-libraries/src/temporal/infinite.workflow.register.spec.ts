@@ -18,6 +18,7 @@ describe('InfiniteWorkflowRegister', () => {
           name: 'WorkflowNotFoundError',
         })
       ),
+      signal: jest.fn().mockResolvedValue(undefined),
     }),
     start: jest.fn().mockResolvedValue(undefined),
   });
@@ -37,6 +38,12 @@ describe('InfiniteWorkflowRegister', () => {
 
     await register.onModuleInit();
 
+    expect(workflow.getHandle).toHaveBeenCalledWith(
+      'channel-interaction-maintenance-workflow-v1'
+    );
+    expect(workflow.getHandle().signal).toHaveBeenCalledWith(
+      'channelInteractionMaintenance'
+    );
     expect(workflow.start).toHaveBeenCalledWith(
       'channelRelationshipGradeWorkflowV1',
       expect.objectContaining({

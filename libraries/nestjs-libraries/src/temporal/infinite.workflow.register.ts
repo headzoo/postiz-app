@@ -79,6 +79,16 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
         throw error;
       }
     }
+    try {
+      await workflow
+        .getHandle('channel-interaction-maintenance-workflow-v1')
+        .signal('channelInteractionMaintenance');
+    } catch (error) {
+      this._logger.warn(
+        'Channel interaction maintenance was not poked after start',
+        error
+      );
+    }
   }
 
   private async startChannelRelationshipGrade() {

@@ -568,6 +568,88 @@ describe('XProvider interaction webhooks', () => {
     ).toBe(true);
   });
 
+  it('continues creating remaining event types after one subscription is rejected', async () => {
+    const provider = new XProvider();
+    const posted: string[] = [];
+    jest.spyOn(global, 'fetch').mockImplementation(async (url, options) => {
+      const value = String(url);
+      const method = options?.method || 'GET';
+      if (value.endsWith('/2/webhooks')) return endpointResponse();
+      if (method === 'GET') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                subscription_id: '1',
+                event_type: 'like.create',
+                filter: { user_id: '42', direction: 'inbound' },
+                webhook_id: '123',
+                tag: 'postiz:42:like.create:inbound',
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (method === 'POST') {
+        const body = JSON.parse(String(options?.body || '{}'));
+        posted.push(body.event_type);
+        if (body.event_type === 'like.create') {
+          return new Response('usage-capped: private detail', { status: 429 });
+        }
+        return new Response(
+          JSON.stringify({ data: { subscription_id: `new-${posted.length}` } }),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ data: { deleted: true } }), {
+        status: 200,
+      });
+    });
+
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret'
+      )
+    ).resolves.toMatchObject({
+      state: 'partial',
+      subscriptions: expect.arrayContaining([
+        expect.objectContaining({
+          eventKey: 'like.create',
+          direction: 'inbound',
+          state: 'active',
+        }),
+        expect.objectContaining({
+          eventKey: 'like.create',
+          direction: 'outbound',
+          state: 'error',
+          failureCategory: 'quota',
+        }),
+        expect.objectContaining({
+          eventKey: 'post.create',
+          state: 'active',
+        }),
+        expect.objectContaining({
+          eventKey: 'post.delete',
+          state: 'active',
+        }),
+        expect.objectContaining({
+          eventKey: 'post.mention.create',
+          state: 'active',
+        }),
+      ]),
+    });
+    expect(posted).toEqual([
+      'like.create',
+      'follow.follow',
+      'follow.unfollow',
+      'post.create',
+      'post.delete',
+      'post.mention.create',
+    ]);
+  });
+
   it('returns a sanitized scope classification', async () => {
     const provider = new XProvider();
     jest

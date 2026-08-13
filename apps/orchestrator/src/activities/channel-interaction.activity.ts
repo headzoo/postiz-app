@@ -55,6 +55,11 @@ export class ChannelInteractionActivity {
     if (!capability) return { supported: false };
 
     const liveIntegration = await this.withRefreshedToken(integration, provider);
+    if (!integration.disabled && !integration.deletedAt) {
+      await this._channelInteractionService.requestReconciliation(
+        liveIntegration
+      );
+    }
     const result = await capability.reconcileSubscriptions(
       liveIntegration,
       liveIntegration.token

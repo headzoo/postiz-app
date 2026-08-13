@@ -963,53 +963,86 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         [];
 
       for (const spec of X_ACTIVITY_SUBSCRIPTIONS) {
-        const matching = current.filter((subscription) =>
-          this.xActivitySubscriptionMatches(
-            subscription,
-            spec,
-            integration.internalId
-          )
-        );
+        try {
+          const matching = current.filter((subscription) =>
+            this.xActivitySubscriptionMatches(
+              subscription,
+              spec,
+              integration.internalId
+            )
+          );
 
-        if (integration.disabled || integration.deletedAt) {
-          for (const subscription of matching) {
+          if (integration.disabled || integration.deletedAt) {
+            for (const subscription of matching) {
+              await this.deleteXActivitySubscription(
+                subscription.subscription_id,
+                accessToken
+              );
+            }
+            reconciled.push({
+              eventKey: spec.eventKey,
+              direction: spec.direction,
+              state: 'unconfigured',
+            });
+            continue;
+          }
+
+          let active = matching[0];
+          for (const duplicate of matching.slice(1)) {
             await this.deleteXActivitySubscription(
-              subscription.subscription_id,
+              duplicate.subscription_id,
               accessToken
             );
           }
-          reconciled.push({
-            eventKey: spec.eventKey,
-            direction: spec.direction,
-            state: 'unconfigured',
-          });
-          continue;
-        }
 
-        let active = matching[0];
-        for (const duplicate of matching.slice(1)) {
-          await this.deleteXActivitySubscription(
-            duplicate.subscription_id,
-            accessToken
-          );
-        }
-
-        const tag = this.xActivitySubscriptionTag(integration, spec);
-        if (active?.subscription_id) {
-          if (
-            active.webhook_id !== endpoint.remoteWebhookId ||
-            active.tag !== tag
-          ) {
-            const updated = await this.xWebhookApi<{
-              data?: XActivitySubscription | { subscription?: XActivitySubscription };
+          const tag = this.xActivitySubscriptionTag(integration, spec);
+          if (active?.subscription_id) {
+            if (
+              active.webhook_id !== endpoint.remoteWebhookId ||
+              active.tag !== tag
+            ) {
+              const updated = await this.xWebhookApi<{
+                data?: XActivitySubscription | { subscription?: XActivitySubscription };
+              }>(
+                `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(
+                  active.subscription_id
+                )}`,
+                {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    webhook_id: endpoint.remoteWebhookId,
+                    tag,
+                  }),
+                },
+                'oauth1',
+                accessToken
+              );
+              active = this.xActivitySubscriptionFromResponse(updated) || {
+                ...active,
+                webhook_id: endpoint.remoteWebhookId,
+                tag,
+              };
+            }
+          } else {
+            const created = await this.xWebhookApi<{
+              data?:
+              | XActivitySubscription
+              | XActivitySubscription[]
+              | { subscription?: XActivitySubscription };
             }>(
-              `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(
-                active.subscription_id
-              )}`,
+              `${X_WEBHOOK_API_BASE}/activity/subscriptions`,
               {
-                method: 'PUT',
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                  event_type: spec.eventType,
+                  filter: {
+                    user_id: integration.internalId,
+                    ...(spec.filterDirection
+                      ? { direction: spec.filterDirection }
+                      : {}),
+                  },
                   webhook_id: endpoint.remoteWebhookId,
                   tag,
                 }),
@@ -1017,51 +1050,40 @@ export class XProvider extends SocialAbstract implements SocialProvider {
               'oauth1',
               accessToken
             );
-            active = this.xActivitySubscriptionFromResponse(updated) || {
-              ...active,
-              webhook_id: endpoint.remoteWebhookId,
-              tag,
-            };
+            active = this.xActivitySubscriptionFromResponse(created);
           }
-        } else {
-          const created = await this.xWebhookApi<{
-            data?:
-            | XActivitySubscription
-            | XActivitySubscription[]
-            | { subscription?: XActivitySubscription };
-          }>(
-            `${X_WEBHOOK_API_BASE}/activity/subscriptions`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                event_type: spec.eventType,
-                filter: {
-                  user_id: integration.internalId,
-                  ...(spec.filterDirection
-                    ? { direction: spec.filterDirection }
-                    : {}),
-                },
-                webhook_id: endpoint.remoteWebhookId,
-                tag,
-              }),
-            },
-            'oauth1',
-            accessToken
-          );
-          active = this.xActivitySubscriptionFromResponse(created);
-        }
 
-        const remoteIdentifier = this.boundedId(active?.subscription_id);
-        if (!remoteIdentifier) {
-          throw new XWebhookApiError('invalid_request');
+          const remoteIdentifier = this.boundedId(active?.subscription_id);
+          if (!remoteIdentifier) {
+            throw new XWebhookApiError('invalid_request');
+          }
+          current.push({
+            ...active,
+            subscription_id: remoteIdentifier,
+            event_type: spec.eventType,
+            filter: {
+              user_id: integration.internalId,
+              ...(spec.filterDirection
+                ? { direction: spec.filterDirection }
+                : {}),
+            },
+            webhook_id: endpoint.remoteWebhookId,
+            tag,
+          });
+          reconciled.push({
+            eventKey: spec.eventKey,
+            direction: spec.direction,
+            remoteIdentifier,
+            state: 'active',
+          });
+        } catch (error) {
+          reconciled.push({
+            eventKey: spec.eventKey,
+            direction: spec.direction,
+            state: 'error',
+            ...this.xWebhookFailure(error),
+          });
         }
-        reconciled.push({
-          eventKey: spec.eventKey,
-          direction: spec.direction,
-          remoteIdentifier,
-          state: 'active',
-        });
       }
 
       if (integration.disabled || integration.deletedAt) {
@@ -1072,7 +1094,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         };
       }
       return {
-        state: 'active',
+        state: this.xReconciledSubscriptionState(reconciled),
         subscriptions: reconciled,
         coverage,
       };
@@ -1088,6 +1110,18 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         coverage,
       };
     }
+  }
+
+  private xReconciledSubscriptionState(
+    subscriptions: ChannelInteractionSubscriptionReconciliationResult['subscriptions']
+  ): ChannelInteractionSubscriptionReconciliationResult['state'] {
+    if (subscriptions.every((subscription) => subscription.state === 'active')) {
+      return 'active';
+    }
+    if (subscriptions.some((subscription) => subscription.state === 'active')) {
+      return 'partial';
+    }
+    return 'error';
   }
 
   private async xActivitySubscriptions(accessToken: string) {

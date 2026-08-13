@@ -54,6 +54,7 @@ const createHarness = () => {
     },
     channelInteractionSubscription: {
       findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     channelRelationshipGradeSnapshot: {
@@ -496,9 +497,9 @@ describe('ChannelInteractionRepository', () => {
       failedCleanup,
       true
     );
-    expect(tx.channelInteractionSubscription.updateMany).toHaveBeenLastCalledWith(
+    expect(tx.channelInteractionSubscription.upsert).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
+        update: expect.objectContaining({
           state: 'REMOVING',
           failureCategory: 'transient',
         }),
@@ -511,9 +512,13 @@ describe('ChannelInteractionRepository', () => {
       completeCleanup,
       true
     );
-    expect(tx.channelInteractionSubscription.updateMany).toHaveBeenLastCalledWith(
+    expect(tx.channelInteractionSubscription.upsert).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({
+        create: expect.objectContaining({
+          eventKey: 'like',
+          state: 'UNCONFIGURED',
+        }),
+        update: expect.objectContaining({
           state: 'UNCONFIGURED',
           failureCategory: null,
         }),
