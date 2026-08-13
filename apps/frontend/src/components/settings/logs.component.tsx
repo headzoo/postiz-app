@@ -265,7 +265,7 @@ const LogTable: FC<{
 
 export const LogsSettings: FC = () => {
   const t = useT();
-  const [kind, setKind] = useState<LogKind>('posts');
+  const [kind, setKind] = useState<LogKind>('webhooks');
   const [page, setPage] = useState(0);
   const [direction, setDirection] = useState<'INBOUND' | 'OUTBOUND' | ''>('');
   const limit = 20;
@@ -278,6 +278,14 @@ export const LogsSettings: FC = () => {
     setKind(next);
     setPage(0);
   }, []);
+
+  const refreshLogs = useCallback(() => {
+    if (kind === 'posts') {
+      posts.mutate();
+      return;
+    }
+    webhooks.mutate();
+  }, [kind, posts, webhooks]);
 
   const subtitle = useMemo(
     () =>
@@ -296,17 +304,17 @@ export const LogsSettings: FC = () => {
         <div className="flex flex-wrap gap-[8px] w-full">
           <Button
             type="button"
-            secondary={kind !== 'posts'}
-            onClick={() => selectKind('posts')}
-          >
-            {t('posts', 'Posts')}
-          </Button>
-          <Button
-            type="button"
             secondary={kind !== 'webhooks'}
             onClick={() => selectKind('webhooks')}
           >
             {t('webhooks', 'Webhooks')}
+          </Button>
+          <Button
+            type="button"
+            secondary={kind !== 'posts'}
+            onClick={() => selectKind('posts')}
+          >
+            {t('posts', 'Posts')}
           </Button>
           {kind === 'webhooks' && (
             <select
@@ -322,6 +330,14 @@ export const LogsSettings: FC = () => {
               <option value="INBOUND">{t('inbound', 'Inbound')}</option>
             </select>
           )}
+          <Button
+            type="button"
+            secondary
+            loading={!!current.isValidating && !current.isLoading}
+            onClick={refreshLogs}
+          >
+            {t('refresh', 'Refresh')}
+          </Button>
         </div>
         <div className="w-full">
           <LogTable

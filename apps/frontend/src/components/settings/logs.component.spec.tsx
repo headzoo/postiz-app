@@ -8,6 +8,8 @@ import { LogsSettings } from './logs.component';
 import { PostHttpLogRow, WebhookHttpLogRow } from './use.logs';
 
 const openModal = jest.fn();
+const mutatePostLogs = jest.fn();
+const mutateWebhookLogs = jest.fn();
 
 jest.mock('@gitroom/react/translation/get.transation.service.client', () => ({
   useT: () => (key: string, fallback: string) => fallback,
@@ -67,6 +69,8 @@ jest.mock('./use.logs', () => ({
       hasMore: false,
     },
     isLoading: false,
+    isValidating: false,
+    mutate: mutatePostLogs,
   }),
   useWebhookLogs: () => ({
     data: {
@@ -77,28 +81,43 @@ jest.mock('./use.logs', () => ({
       hasMore: false,
     },
     isLoading: false,
+    isValidating: false,
+    mutate: mutateWebhookLogs,
   }),
 }));
 
 describe('LogsSettings', () => {
   beforeEach(() => {
     openModal.mockClear();
+    mutatePostLogs.mockClear();
+    mutateWebhookLogs.mockClear();
   });
 
-  it('renders post logs and opens the inspect modal', () => {
+  it('renders webhook logs by default and opens the inspect modal', () => {
     render(<LogsSettings />);
 
-    expect(screen.getByText('https://api.x.com/2/tweets')).toBeTruthy();
+    expect(screen.getByText('https://example.com/hook')).toBeTruthy();
+    expect(screen.getByText('outbound')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'View' }));
     expect(openModal).toHaveBeenCalledTimes(1);
   });
 
-  it('switches to webhook logs', () => {
+  it('switches to post logs', () => {
     render(<LogsSettings />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Webhooks' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Posts' }));
 
-    expect(screen.getByText('https://example.com/hook')).toBeTruthy();
-    expect(screen.getByText('outbound')).toBeTruthy();
+    expect(screen.getByText('https://api.x.com/2/tweets')).toBeTruthy();
+  });
+
+  it('refetches the current logs when refresh is clicked', () => {
+    render(<LogsSettings />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(mutateWebhookLogs).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Posts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(mutatePostLogs).toHaveBeenCalledTimes(1);
   });
 });
