@@ -27,6 +27,7 @@ import {
 import {
   AudienceFollowerSortField,
   FOLLOWER_DATABASE_INTERACTIONS_SORT,
+  FOLLOWER_DATABASE_LIKES_SORT,
   FOLLOWER_DATABASE_NOTES_SORT,
   getAudienceFollowerSortField,
   isPageScopedFollowerSort,
@@ -60,6 +61,7 @@ import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/pr
 import {
   AudienceFollowerCursor,
   ChannelInteractionRepository,
+  LikesCountFollowerCursor,
   NoteCountFollowerCursor,
   RankedFollowerCursor,
 } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
@@ -507,6 +509,7 @@ export class IntegrationService {
         followedAt: Date | null;
         accountCreatedAt: Date | null;
         noteCount: number;
+        likesCount?: number;
       };
       snapshots: Array<{
         snapshotAt: Date;
@@ -597,6 +600,7 @@ export class IntegrationService {
     followedAt: Date | null;
     accountCreatedAt: Date | null;
     noteCount?: number;
+    likesCount?: number;
   }): Follower {
     return this.sanitizeFollower({
       id: member.externalId,
@@ -619,6 +623,9 @@ export class IntegrationService {
         : {}),
       ...(Number.isSafeInteger(member.noteCount) && member.noteCount! >= 0
         ? { noteCount: member.noteCount }
+        : {}),
+      ...(Number.isSafeInteger(member.likesCount) && member.likesCount! >= 0
+        ? { likesCount: member.likesCount }
         : {}),
     });
   }
@@ -709,13 +716,14 @@ export class IntegrationService {
     const isAudienceCursor = !!query.cursor?.startsWith('follower-audience:v1:');
     const isRankCursor = !!query.cursor?.startsWith('follower-rank:v1:');
     const isNotesCursor = !!query.cursor?.startsWith('follower-notes:v1:');
+    const isLikesCursor = !!query.cursor?.startsWith('follower-likes:v1:');
 
     if (isAudienceCursor && !search) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
 
     if (!query.sort && !query.direction) {
-      if (isRankCursor || isNotesCursor) {
+      if (isRankCursor || isNotesCursor || isLikesCursor) {
         throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
       }
       return undefined;
@@ -739,7 +747,7 @@ export class IntegrationService {
       }
       return sort;
     }
-    if (isRankCursor || isNotesCursor) {
+    if (isRankCursor || isNotesCursor || isLikesCursor) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
     return sort;
@@ -754,6 +762,9 @@ export class IntegrationService {
   ): Promise<FollowerPage> {
     if (sort.key === FOLLOWER_DATABASE_NOTES_SORT.key) {
       return this.getNoteCountFollowerPage(organizationId, integration, query, sort);
+    }
+    if (sort.key === FOLLOWER_DATABASE_LIKES_SORT.key) {
+      return this.getLikesCountFollowerPage(organizationId, integration, query, sort);
     }
 
     const direction = query.direction ?? sort.defaultDirection;
@@ -794,7 +805,7 @@ export class IntegrationService {
       return { items: [], hasMore: false, window, tracking };
     }
 
-    const noteCounts =
+    const audienceCounts =
       await this._channelInteractionRepository.getFollowerNoteCounts(
         organizationId,
         integration.id,
@@ -815,7 +826,8 @@ export class IntegrationService {
         interactionCount: row.interactionCount,
         interactionScore: row.interactionScore,
         ...(row.lastInteractionAt ? { lastInteractionAt: row.lastInteractionAt.toISOString() } : {}),
-        noteCount: noteCounts.get(row.counterpartyExternalId) ?? 0,
+        noteCount: audienceCounts.get(row.counterpartyExternalId)?.noteCount ?? 0,
+        likesCount: audienceCounts.get(row.counterpartyExternalId)?.likesCount ?? 0,
       })
     );
     const last = items.at(-1);
@@ -888,6 +900,7 @@ export class IntegrationService {
           ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
           : {}),
         noteCount: row.noteCount,
+        likesCount: row.likesCount,
       })
     );
     const last = ranked.items.at(-1);
@@ -957,6 +970,7 @@ export class IntegrationService {
           ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
           : {}),
         noteCount: row.noteCount,
+        likesCount: row.likesCount,
       })
     );
     const last = items.at(-1);
@@ -970,6 +984,66 @@ export class IntegrationService {
             integrationId: integration.id,
             direction,
             noteCount: last.noteCount!,
+            externalId: last.id,
+          }),
+        }
+        : {}),
+    };
+  }
+
+  private async getLikesCountFollowerPage(
+    organizationId: string,
+    integration: Integration,
+    query: FollowerQuery,
+    sort: FollowerSort
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? sort.defaultDirection;
+    const cursor = query.cursor
+      ? this.decodeLikesCountFollowerCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        direction
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getFollowersByLikesCount({
+      organizationId,
+      integrationId: integration.id,
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+      ...(query.search ? { search: query.search } : {}),
+    });
+
+    const items = ranked.items.map((row) =>
+      this.sanitizeFollower({
+        id: row.externalId,
+        name: row.name || row.username || row.externalId,
+        ...(row.username ? { username: row.username } : {}),
+        ...(row.picture ? { picture: row.picture } : {}),
+        ...(row.profileUrl ? { profileUrl: row.profileUrl } : {}),
+        ...(row.bio ? { bio: row.bio } : {}),
+        ...(row.followersCount !== null ? { followersCount: row.followersCount } : {}),
+        ...(row.followingCount !== null ? { followingCount: row.followingCount } : {}),
+        ...(row.followedAt ? { followedAt: row.followedAt.toISOString() } : {}),
+        ...(row.accountCreatedAt
+          ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
+          : {}),
+        noteCount: row.noteCount,
+        likesCount: row.likesCount,
+      })
+    );
+    const last = items.at(-1);
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeLikesCountFollowerCursor({
+            organizationId,
+            integrationId: integration.id,
+            direction,
+            likesCount: last.likesCount!,
             externalId: last.id,
           }),
         }
@@ -1203,6 +1277,50 @@ export class IntegrationService {
     }
   }
 
+  private encodeLikesCountFollowerCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    direction: 'asc' | 'desc';
+  } & LikesCountFollowerCursor) {
+    return `follower-likes:v1:${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeLikesCountFollowerCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    direction: 'asc' | 'desc'
+  ): LikesCountFollowerCursor {
+    try {
+      if (!value.startsWith('follower-likes:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(
+          value.slice('follower-likes:v1:'.length),
+          'base64url'
+        ).toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.direction !== direction ||
+        !Number.isSafeInteger(cursor.likesCount) ||
+        cursor.likesCount < 0 ||
+        typeof cursor.externalId !== 'string'
+      ) {
+        throw new Error();
+      }
+      return {
+        likesCount: cursor.likesCount,
+        externalId: cursor.externalId,
+      };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+  }
+
   private encodeAudienceFollowerCursor(cursor: {
     organizationId: string;
     integrationId: string;
@@ -1303,7 +1421,7 @@ export class IntegrationService {
     }
 
     const externalIds = page.items.map((item) => item.id);
-    const [metrics, noteCounts] = await Promise.all([
+    const [metrics, audienceCounts] = await Promise.all([
       this._channelInteractionRepository.getFollowerInteractionMetrics(
         organizationId,
         integrationId,
@@ -1320,10 +1438,12 @@ export class IntegrationService {
       ...page,
       items: page.items.map((item) => {
         const metric = metrics.get(item.id);
+        const counts = audienceCounts.get(item.id);
         return this.sanitizeFollower({
           ...item,
           interactionCount: metric?.interactionCount ?? 0,
-          noteCount: noteCounts.get(item.id) ?? 0,
+          noteCount: counts?.noteCount ?? 0,
+          likesCount: counts?.likesCount ?? 0,
           ...(metric
             ? {
               interactionScore: metric.interactionScore,
@@ -1464,6 +1584,9 @@ export class IntegrationService {
       ...(Number.isSafeInteger(follower.noteCount) && follower.noteCount >= 0
         ? { noteCount: follower.noteCount }
         : {}),
+      ...(Number.isSafeInteger(follower.likesCount) && follower.likesCount >= 0
+        ? { likesCount: follower.likesCount }
+        : {}),
     };
   }
 
@@ -1481,6 +1604,9 @@ export class IntegrationService {
     }
     if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_NOTES_SORT.key)) {
       sorts.push(FOLLOWER_DATABASE_NOTES_SORT);
+    }
+    if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_LIKES_SORT.key)) {
+      sorts.push(FOLLOWER_DATABASE_LIKES_SORT);
     }
     return sorts;
   }

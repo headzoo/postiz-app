@@ -1203,6 +1203,7 @@ model ChannelAudienceMember {
   followerSyncGeneration       String?
   membershipEvidenceGeneration String?
   noteCount                    Int                                @default(0)
+  likesCount                   Int                                @default(0)
   createdAt                    DateTime                           @default(now())
   updatedAt                    DateTime                           @updatedAt
   organization                 Organization                       @relation(fields: [organizationId], references: [id])
@@ -1216,6 +1217,7 @@ model ChannelAudienceMember {
   @@index([integrationId, followerSyncGeneration])
   @@index([integrationId, membershipEvidenceGeneration])
   @@index([integrationId, membershipState, noteCount, externalId])
+  @@index([integrationId, membershipState, likesCount, externalId])
   @@index([integrationId])
   @@index([organizationId])
 }

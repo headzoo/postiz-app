@@ -78,6 +78,25 @@ export type NoteCountFollowersQuery = {
   search?: string;
 };
 
+export type LikesCountFollowerCursor = {
+  likesCount: number;
+  externalId: string;
+};
+
+export type LikesCountFollowersQuery = {
+  organizationId: string;
+  integrationId: string;
+  direction: 'asc' | 'desc';
+  limit: number;
+  cursor?: LikesCountFollowerCursor;
+  search?: string;
+};
+
+export type FollowerAudienceCounts = {
+  noteCount: number;
+  likesCount: number;
+};
+
 export type AudienceFollowerCursor = {
   sortField: AudienceFollowerSortField;
   sortValue: string | number | null;
@@ -166,6 +185,19 @@ export class ChannelInteractionRepository {
         event.counterparty,
         event.membershipUpdate
       );
+      if (
+        event.kind === ChannelInteractionKind.LIKE &&
+        event.direction === ChannelInteractionDirection.INBOUND
+      ) {
+        await tx.channelAudienceMember.updateMany({
+          where: {
+            organizationId,
+            integrationId,
+            externalId: event.counterparty.externalId,
+          },
+          data: { likesCount: { increment: 1 } },
+        });
+      }
 
       const day = new Date(Date.UTC(
         event.eventAt.getUTCFullYear(),
@@ -1136,6 +1168,53 @@ export class ChannelInteractionRepository {
           followedAt: true,
           accountCreatedAt: true,
           noteCount: true,
+          likesCount: true,
+        },
+      });
+
+      return {
+        items: rows.slice(0, query.limit),
+        hasMore: rows.length > query.limit,
+      };
+    });
+  }
+
+  async getFollowersByLikesCount(query: LikesCountFollowersQuery) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+
+      const rows = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          ...this.audienceListFilters(
+            this.audienceSearchFilter(query.search),
+            this.likesCountFollowerKeyset(query.cursor, query.direction)
+          ),
+        },
+        orderBy: [
+          { likesCount: query.direction },
+          { externalId: query.direction },
+        ],
+        take: query.limit + 1,
+        select: {
+          externalId: true,
+          name: true,
+          username: true,
+          picture: true,
+          profileUrl: true,
+          bio: true,
+          followersCount: true,
+          followingCount: true,
+          followedAt: true,
+          accountCreatedAt: true,
+          noteCount: true,
+          likesCount: true,
         },
       });
 
@@ -1181,6 +1260,7 @@ export class ChannelInteractionRepository {
           followedAt: true,
           accountCreatedAt: true,
           noteCount: true,
+          likesCount: true,
         },
       });
 
@@ -1195,7 +1275,7 @@ export class ChannelInteractionRepository {
     organizationId: string,
     integrationId: string,
     externalIds: string[]
-  ): Promise<Map<string, number>> {
+  ): Promise<Map<string, FollowerAudienceCounts>> {
     const uniqueIds = [...new Set(externalIds.filter(Boolean))];
     if (!uniqueIds.length) {
       return new Map();
@@ -1210,10 +1290,16 @@ export class ChannelInteractionRepository {
       select: {
         externalId: true,
         noteCount: true,
+        likesCount: true,
       },
     });
 
-    return new Map(rows.map((row) => [row.externalId, row.noteCount]));
+    return new Map(
+      rows.map((row) => [
+        row.externalId,
+        { noteCount: row.noteCount, likesCount: row.likesCount },
+      ])
+    );
   }
 
   private rankedFollowerKeyset(
@@ -1355,6 +1441,26 @@ export class ChannelInteractionRepository {
         { noteCount: { [comparison]: cursor.noteCount } },
         {
           noteCount: cursor.noteCount,
+          externalId: { [comparison]: cursor.externalId },
+        },
+      ],
+    };
+  }
+
+  private likesCountFollowerKeyset(
+    cursor: LikesCountFollowerCursor | undefined,
+    direction: 'asc' | 'desc'
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (!cursor) {
+      return {};
+    }
+
+    const comparison = direction === 'desc' ? 'lt' : 'gt';
+    return {
+      OR: [
+        { likesCount: { [comparison]: cursor.likesCount } },
+        {
+          likesCount: cursor.likesCount,
           externalId: { [comparison]: cursor.externalId },
         },
       ],

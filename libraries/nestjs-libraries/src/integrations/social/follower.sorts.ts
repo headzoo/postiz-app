@@ -29,6 +29,14 @@ export const FOLLOWER_DATABASE_NOTES_SORT: FollowerSort = {
   scope: 'database',
 };
 
+export const FOLLOWER_DATABASE_LIKES_SORT: FollowerSort = {
+  key: 'likes',
+  label: 'Likes',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+};
+
 export const FOLLOWER_PAGE_SORTS: FollowerSort[] = [
   {
     key: 'followers_count',
@@ -94,7 +102,7 @@ export const getAudienceFollowerSortField = (
 
   return (
     AUDIENCE_FOLLOWER_SORT_FIELDS[
-      sortKey as keyof typeof AUDIENCE_FOLLOWER_SORT_FIELDS
+    sortKey as keyof typeof AUDIENCE_FOLLOWER_SORT_FIELDS
     ] ?? AUDIENCE_FOLLOWER_SORT_FIELDS.recent
   );
 };

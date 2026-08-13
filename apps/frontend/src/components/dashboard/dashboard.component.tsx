@@ -9,6 +9,10 @@ import {
   groupChannelsByCustomer,
 } from '@gitroom/frontend/components/launches/channels.sidebar';
 import {
+  resolveChannelId,
+  setLastChannelId,
+} from '@gitroom/frontend/components/launches/helpers/last-channel';
+import {
   IntegrationListItem,
   useIntegrationList,
 } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
@@ -75,19 +79,15 @@ export const Dashboard = () => {
   );
 
   useEffect(() => {
-    if (!integrations.length) {
-      setSelectedIntegrationId(undefined);
+    const nextId = resolveChannelId({
+      eligibleIds: integrations.map((integration) => integration.id),
+      currentId: selectedIntegrationId,
+      fallbackId: groupedIntegrations[0]?.values[0]?.id,
+    });
+    if (nextId === selectedIntegrationId) {
       return;
     }
-
-    if (
-      selectedIntegrationId &&
-      integrations.some((integration) => integration.id === selectedIntegrationId)
-    ) {
-      return;
-    }
-
-    setSelectedIntegrationId(groupedIntegrations[0]?.values[0]?.id);
+    setSelectedIntegrationId(nextId);
   }, [groupedIntegrations, integrations, selectedIntegrationId]);
 
   const {
@@ -179,9 +179,10 @@ export const Dashboard = () => {
               collapsed={collapsed}
               integrations={integrations}
               selectedIds={selectedIntegrationId ? [selectedIntegrationId] : []}
-              onSelect={(integration) =>
-                setSelectedIntegrationId(integration.id)
-              }
+              onSelect={(integration) => {
+                setLastChannelId(integration.id);
+                setSelectedIntegrationId(integration.id);
+              }}
               mutate={() => void mutateIntegrations()}
               onUpdate={() => void mutateIntegrations()}
               onGroupChange={(id, group) => void changeItemGroup(id, group)}

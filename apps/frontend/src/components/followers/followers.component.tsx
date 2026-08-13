@@ -17,6 +17,10 @@ import {
   ChannelsSidebar,
   groupChannelsByCustomer,
 } from '@gitroom/frontend/components/launches/channels.sidebar';
+import {
+  resolveChannelId,
+  setLastChannelId,
+} from '@gitroom/frontend/components/launches/helpers/last-channel';
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import {
   ChannelInteractionKindCoverage,
@@ -252,24 +256,19 @@ export const FollowersComponent: FC = () => {
   );
 
   useEffect(() => {
-    if (!channels.length) {
-      setSelectedIntegrationId(undefined);
+    const nextId = resolveChannelId({
+      eligibleIds: channels.map((channel) => channel.id),
+      currentId: selectedIntegrationId,
+      fallbackId:
+        groupedFollowerIntegrations[0]?.values[0]?.id || channels[0]?.id,
+    });
+    if (nextId === selectedIntegrationId) {
       return;
     }
 
-    if (
-      selectedIntegrationId &&
-      channels.some((channel) => channel.id === selectedIntegrationId)
-    ) {
-      return;
-    }
-
-    const firstChannelId =
-      groupedFollowerIntegrations[0]?.values[0]?.id || channels[0].id;
-    const firstChannel =
-      channels.find((channel) => channel.id === firstChannelId) || channels[0];
-    setSelectedIntegrationId(firstChannel.id);
-    const defaultSort = firstChannel.sorts[0];
+    setSelectedIntegrationId(nextId);
+    const nextChannel = channels.find((channel) => channel.id === nextId);
+    const defaultSort = nextChannel?.sorts[0];
     setSort(defaultSort?.key);
     setDirection(defaultSort?.defaultDirection);
     setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
@@ -300,6 +299,7 @@ export const FollowersComponent: FC = () => {
 
   const handleChannelSelect = useCallback(
     (channel: FollowerChannel) => {
+      setLastChannelId(channel.id);
       setSelectedIntegrationId(channel.id);
       const defaultSort = channel.sorts[0];
       setSort(defaultSort?.key);

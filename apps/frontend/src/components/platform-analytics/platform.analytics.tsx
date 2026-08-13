@@ -16,6 +16,10 @@ import {
   groupChannelsByCustomer,
 } from '@gitroom/frontend/components/launches/channels.sidebar';
 import {
+  resolveChannelId,
+  setLastChannelId,
+} from '@gitroom/frontend/components/launches/helpers/last-channel';
+import {
   IntegrationListItem,
   useIntegrationList,
 } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
@@ -58,17 +62,15 @@ export const PlatformAnalytics = () => {
   );
 
   useEffect(() => {
-    if (!analyticsIntegrations.length) {
-      setSelectedId(undefined);
+    const nextId = resolveChannelId({
+      eligibleIds: analyticsIntegrations.map((integration) => integration.id),
+      currentId: selectedId,
+      fallbackId: groupedIntegrations[0]?.values[0]?.id,
+    });
+    if (nextId === selectedId) {
       return;
     }
-    if (
-      selectedId &&
-      analyticsIntegrations.some((integration) => integration.id === selectedId)
-    ) {
-      return;
-    }
-    setSelectedId(groupedIntegrations[0]?.values[0]?.id);
+    setSelectedId(nextId);
   }, [analyticsIntegrations, groupedIntegrations, selectedId]);
 
   const currentIntegration = useMemo(
@@ -153,6 +155,7 @@ export const PlatformAnalytics = () => {
     setTimeout(() => {
       setRefresh(false);
     }, 10);
+    setLastChannelId(integration.id);
     setSelectedId(integration.id);
   };
 

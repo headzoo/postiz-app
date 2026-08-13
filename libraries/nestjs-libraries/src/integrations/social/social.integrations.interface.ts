@@ -196,6 +196,7 @@ export type Follower = {
   interactionScore?: number;
   lastInteractionAt?: string;
   noteCount?: number;
+  likesCount?: number;
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';

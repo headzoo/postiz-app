@@ -48,6 +48,7 @@ describe('IntegrationService followers', () => {
       getInteractionTracking: jest.fn(),
       getRankedFollowers: jest.fn(),
       getFollowersByNoteCount: jest.fn(),
+      getFollowersByLikesCount: jest.fn(),
       getAudienceFollowers: jest.fn(),
       getFollowerInteractionMetrics: jest.fn().mockResolvedValue(new Map()),
       getFollowerNoteCounts: jest.fn().mockResolvedValue(new Map()),
@@ -246,12 +247,14 @@ describe('IntegrationService followers', () => {
           interactionScore: 40,
           lastInteractionAt: '2026-08-12T12:00:00.000Z',
           noteCount: 0,
+          likesCount: 0,
         },
         {
           id: 'follower-b',
           name: 'Follower B',
           interactionCount: 0,
           noteCount: 0,
+          likesCount: 0,
         },
       ],
       hasMore: false,
@@ -443,6 +446,7 @@ describe('IntegrationService followers', () => {
           followedAt: null,
           accountCreatedAt: null,
           noteCount: 3,
+          likesCount: 0,
         },
       ],
       hasMore: false,
@@ -455,7 +459,7 @@ describe('IntegrationService followers', () => {
         direction: 'desc',
       })
     ).resolves.toMatchObject({
-      items: [{ id: 'follower-a', noteCount: 3 }],
+      items: [{ id: 'follower-a', noteCount: 3, likesCount: 0 }],
       hasMore: false,
     });
     expect(followers).not.toHaveBeenCalled();
@@ -506,6 +510,7 @@ describe('IntegrationService followers', () => {
         id: 'channel-a',
         sorts: expect.arrayContaining([
           expect.objectContaining({ key: 'notes', scope: 'database' }),
+          expect.objectContaining({ key: 'likes', scope: 'database' }),
           expect.objectContaining({ key: 'interactions', scope: 'database' }),
         ]),
       }),
@@ -1204,6 +1209,106 @@ describe('IntegrationService followers', () => {
     expect(followers).not.toHaveBeenCalled();
     expect(
       (service as any)._channelInteractionRepository.getFollowersByNoteCount
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        search: 'alice',
+      })
+    );
+    expect(
+      (service as any)._channelInteractionRepository.getAudienceFollowers
+    ).not.toHaveBeenCalled();
+  });
+
+  it('uses the database like-count path for likes sorting without a window', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowersByLikesCount.mockResolvedValue({
+      items: [
+        {
+          externalId: 'follower-a',
+          name: 'Follower A',
+          username: null,
+          picture: null,
+          profileUrl: null,
+          bio: null,
+          followersCount: null,
+          followingCount: null,
+          followedAt: null,
+          accountCreatedAt: null,
+          noteCount: 0,
+          likesCount: 5,
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      service.getFollowers(org, 'channel-a', {
+        limit: 24,
+        sort: 'likes',
+        direction: 'desc',
+      })
+    ).resolves.toMatchObject({
+      items: [{ id: 'follower-a', likesCount: 5, noteCount: 0 }],
+      hasMore: false,
+    });
+    expect(followers).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getFollowersByLikesCount
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        integrationId: 'channel-a',
+        direction: 'desc',
+        limit: 24,
+      })
+    );
+    expect(
+      (service as any)._channelInteractionRepository.getRankedFollowers
+    ).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getFollowersByNoteCount
+    ).not.toHaveBeenCalled();
+  });
+
+  it('passes search through the likes database sort', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowersByLikesCount.mockResolvedValue({
+      items: [],
+      hasMore: false,
+    });
+
+    await service.getFollowers(org, 'channel-a', {
+      limit: 24,
+      sort: 'likes',
+      direction: 'desc',
+      search: '@alice',
+    });
+
+    expect(followers).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getFollowersByLikesCount
     ).toHaveBeenCalledWith(
       expect.objectContaining({
         search: 'alice',

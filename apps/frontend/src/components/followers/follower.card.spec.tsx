@@ -116,6 +116,18 @@ describe('FollowerCard', () => {
     expect(screen.getByText('notes')).toBeTruthy();
   });
 
+  it('shows like count next to the username', () => {
+    render(
+      <FollowerCard
+        follower={{ ...baseFollower, likesCount: 4 }}
+        onOpen={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('4')).toBeTruthy();
+    expect(screen.getByText('likes')).toBeTruthy();
+  });
+
   it('opens the modal when avatar has no profile link', () => {
     const onOpen = jest.fn();
     const follower = { ...baseFollower, profileUrl: undefined };

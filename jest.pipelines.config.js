@@ -26,6 +26,7 @@ module.exports = {
     '<rootDir>/apps/frontend/src/components/agents/**/*.spec.tsx',
     '<rootDir>/apps/frontend/src/components/agents/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/launches/channels.sidebar.spec.tsx',
+    '<rootDir>/apps/frontend/src/components/launches/helpers/last-channel.spec.ts',
   ],
   transform: {
     '^.+\\.tsx?$': [

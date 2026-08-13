@@ -205,6 +205,15 @@ describe('ChannelInteractionRepository', () => {
       expect.arrayContaining([{ created: true }, { created: false }])
     );
     expect(tx.channelInteractionDailyAggregate.upsert).toHaveBeenCalledTimes(1);
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      data: { likesCount: { increment: 1 } },
+    });
     expect(tx.channelInteractionDailyAggregate.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
@@ -851,6 +860,55 @@ describe('ChannelInteractionRepository', () => {
     });
   });
 
+  it('increments likesCount for inbound likes', async () => {
+    const { repository, tx } = createHarness();
+
+    await repository.recordNormalizedEvent('org', 'integration', event());
+
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      data: { likesCount: { increment: 1 } },
+    });
+  });
+
+  it('does not increment likesCount for outbound likes or non-like events', async () => {
+    const { repository, tx } = createHarness();
+
+    await repository.recordNormalizedEvent(
+      'org',
+      'integration',
+      event({
+        providerEventKey: 'outbound-like',
+        direction: ChannelInteractionDirection.OUTBOUND,
+      })
+    );
+    await repository.recordNormalizedEvent(
+      'org',
+      'integration',
+      event({
+        providerEventKey: 'reply',
+        kind: ChannelInteractionKind.REPLY,
+      })
+    );
+
+    expect(tx.channelAudienceMember.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not increment likesCount when a duplicate like is skipped', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelInteractionEvent.createMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      repository.recordNormalizedEvent('org', 'integration', event())
+    ).resolves.toEqual({ created: false });
+
+    expect(tx.channelAudienceMember.updateMany).not.toHaveBeenCalled();
+  });
+
   it('increments noteCount when creating an audience note', async () => {
     const { repository, tx } = createHarness();
     tx.channelAudienceMember.findFirst.mockResolvedValue({ id: 'member-1' });
@@ -1000,6 +1058,86 @@ describe('ChannelInteractionRepository', () => {
             },
           },
         }),
+      })
+    );
+  });
+
+  it('ranks followers by likesCount with keyset pagination', async () => {
+    const { repository, tx, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      { externalId: 'person-2', name: 'Two', likesCount: 4 },
+      { externalId: 'person-1', name: 'One', likesCount: 2 },
+      { externalId: 'person-0', name: 'Zero', likesCount: 0 },
+    ]);
+
+    await expect(
+      repository.getFollowersByLikesCount({
+        organizationId: 'org',
+        integrationId: 'integration',
+        direction: 'desc',
+        limit: 2,
+      })
+    ).resolves.toEqual({
+      items: [
+        { externalId: 'person-2', name: 'Two', likesCount: 4 },
+        { externalId: 'person-1', name: 'One', likesCount: 2 },
+      ],
+      hasMore: true,
+    });
+
+    expect(tx.integration.findFirst).toHaveBeenCalled();
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+        },
+        orderBy: [{ likesCount: 'desc' }, { externalId: 'desc' }],
+        take: 3,
+      })
+    );
+
+    expect(
+      (repository as any).likesCountFollowerKeyset(
+        { likesCount: 2, externalId: 'person-1' },
+        'desc'
+      )
+    ).toEqual({
+      OR: [
+        { likesCount: { lt: 2 } },
+        { likesCount: 2, externalId: { lt: 'person-1' } },
+      ],
+    });
+  });
+
+  it('filters like-count followers by username or name when search is set', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getFollowersByLikesCount({
+      organizationId: 'org',
+      integrationId: 'integration',
+      direction: 'desc',
+      limit: 24,
+      search: 'alice',
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          AND: [
+            {
+              OR: [
+                { username: { contains: 'alice', mode: 'insensitive' } },
+                { name: { contains: 'alice', mode: 'insensitive' } },
+              ],
+            },
+          ],
+        },
       })
     );
   });

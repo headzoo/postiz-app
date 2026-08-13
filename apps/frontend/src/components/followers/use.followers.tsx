@@ -93,6 +93,7 @@ export type Follower = {
   interactionScore?: number;
   lastInteractionAt?: string;
   noteCount?: number;
+  likesCount?: number;
 };
 
 export type ChannelInteractionDirection = 'inbound' | 'outbound';
@@ -159,15 +160,15 @@ export const FOLLOWER_INTERACTION_WINDOWS: {
   labelKey: string;
   defaultLabel: string;
 }[] = [
-  { value: 'week', labelKey: 'followers_window_week', defaultLabel: 'Week' },
-  { value: 'month', labelKey: 'followers_window_month', defaultLabel: 'Month' },
-  {
-    value: '90_day',
-    labelKey: 'followers_window_90_day',
-    defaultLabel: '90 Day',
-  },
-  { value: 'year', labelKey: 'followers_window_year', defaultLabel: 'Year' },
-];
+    { value: 'week', labelKey: 'followers_window_week', defaultLabel: 'Week' },
+    { value: 'month', labelKey: 'followers_window_month', defaultLabel: 'Month' },
+    {
+      value: '90_day',
+      labelKey: 'followers_window_90_day',
+      defaultLabel: '90 Day',
+    },
+    { value: 'year', labelKey: 'followers_window_year', defaultLabel: 'Year' },
+  ];
 
 export const DEFAULT_FOLLOWER_INTERACTION_WINDOW: ChannelInteractionWindow =
   'month';

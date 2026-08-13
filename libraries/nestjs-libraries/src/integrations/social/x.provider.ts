@@ -996,35 +996,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           }
 
           const tag = this.xActivitySubscriptionTag(integration, spec);
-          if (active?.subscription_id) {
-            if (
-              active.webhook_id !== endpoint.remoteWebhookId ||
-              active.tag !== tag
-            ) {
-              const updated = await this.xWebhookApi<{
-                data?: XActivitySubscription | { subscription?: XActivitySubscription };
-              }>(
-                `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(
-                  active.subscription_id
-                )}`,
-                {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    webhook_id: endpoint.remoteWebhookId,
-                    tag,
-                  }),
-                },
-                'oauth1',
-                accessToken
-              );
-              active = this.xActivitySubscriptionFromResponse(updated) || {
-                ...active,
-                webhook_id: endpoint.remoteWebhookId,
-                tag,
-              };
-            }
-          } else {
+          if (!this.boundedId(active?.subscription_id)) {
             const created = await this.xWebhookApi<{
               data?:
               | XActivitySubscription
@@ -1056,6 +1028,18 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           const remoteIdentifier = this.boundedId(active?.subscription_id);
           if (!remoteIdentifier) {
             throw new XWebhookApiError('invalid_request');
+          }
+          // User-context creates may ignore webhook_id (X console: "Stream only").
+          // Delivery-method updates are bearer-authenticated.
+          if (
+            this.boundedId(active?.webhook_id) !== endpoint.remoteWebhookId ||
+            active?.tag !== tag
+          ) {
+            active = await this.attachXActivityWebhook(
+              { ...active, subscription_id: remoteIdentifier },
+              endpoint.remoteWebhookId,
+              tag
+            );
           }
           current.push({
             ...active,
@@ -1178,6 +1162,40 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return data as XActivitySubscription | undefined;
   }
 
+  private async attachXActivityWebhook(
+    subscription: XActivitySubscription,
+    webhookId: string,
+    tag: string
+  ) {
+    const subscriptionId = this.boundedId(subscription.subscription_id);
+    if (!subscriptionId) {
+      throw new XWebhookApiError('invalid_request');
+    }
+    const updated = await this.xWebhookApi<{
+      data?: XActivitySubscription | { subscription?: XActivitySubscription };
+    }>(
+      `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(
+        subscriptionId
+      )}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webhook_id: webhookId,
+          tag,
+        }),
+      },
+      'bearer'
+    );
+    return {
+      ...subscription,
+      ...this.xActivitySubscriptionFromResponse(updated),
+      subscription_id: subscriptionId,
+      webhook_id: webhookId,
+      tag,
+    };
+  }
+
   private async deleteXActivitySubscription(
     subscriptionId: string | undefined,
     accessToken: string
@@ -1218,7 +1236,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     });
     if (response.ok) {
       if (response.status === 204) return {} as T;
-      return (await response.json()) as T;
+      return this.parseXWebhookJson<T>(response);
     }
     let problem = '';
     try {
@@ -1229,6 +1247,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     throw new XWebhookApiError(
       this.classifyXWebhookApiError(response.status, problem)
     );
+  }
+
+  private async parseXWebhookJson<T>(response: Response): Promise<T> {
+    const text = await response.text();
+    if (!text) return {} as T;
+    return JSON.parse(
+      text.replace(
+        /"(id|webhook_id|subscription_id)"\s*:\s*(\d{16,})/g,
+        '"$1":"$2"'
+      )
+    ) as T;
   }
 
   private classifyXWebhookApiError(

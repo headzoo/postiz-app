@@ -47,6 +47,7 @@ export const FollowerCard: FC<{
   const handle = follower.username ? `@${follower.username}` : undefined;
   const hasInteractionCount = Number.isFinite(follower.interactionCount);
   const hasNoteCount = Number.isFinite(follower.noteCount);
+  const hasLikesCount = Number.isFinite(follower.likesCount);
   const hasSecondaryInteractionMetrics =
     Number.isFinite(follower.interactionScore) || !!lastInteractionAt;
 
@@ -133,7 +134,7 @@ export const FollowerCard: FC<{
               <h3 className="text-[15px] font-[600] text-newTextColor truncate">
                 {follower.name}
               </h3>
-              {(handle || hasInteractionCount || hasNoteCount) && (
+              {(handle || hasInteractionCount || hasLikesCount || hasNoteCount) && (
                 <div className="flex flex-wrap items-baseline gap-x-[8px] gap-y-[2px] text-[13px] min-w-0">
                   {handle &&
                     (follower.profileUrl ? (
@@ -157,6 +158,16 @@ export const FollowerCard: FC<{
                       </span>{' '}
                       <span className="text-textItemBlur">
                         {t('followers_interaction_count', 'interactions')}
+                      </span>
+                    </span>
+                  )}
+                  {hasLikesCount && (
+                    <span className="shrink-0">
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.likesCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_like_count', 'likes')}
                       </span>
                     </span>
                   )}

@@ -450,10 +450,10 @@ describe('XProvider interaction webhooks', () => {
       filter: { user_id: '42', ...(direction ? { direction } : {}) },
       webhook_id: '123',
       tag: `postiz:42:${eventType}:${eventType === 'post.create' ||
-          eventType === 'post.delete' ||
-          direction === 'outbound'
-          ? 'outbound'
-          : 'inbound'
+        eventType === 'post.delete' ||
+        direction === 'outbound'
+        ? 'outbound'
+        : 'inbound'
         }`,
     }));
     const fetchMock = jest
@@ -549,7 +549,16 @@ describe('XProvider interaction webhooks', () => {
     );
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/activity\/subscriptions\/duplicate-a$/),
-      expect.objectContaining({ method: 'PUT' })
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer app-bearer',
+        }),
+        body: JSON.stringify({
+          webhook_id: '123',
+          tag: 'postiz:42:follow.follow:inbound',
+        }),
+      })
     );
 
     fetchMock.mockClear();
@@ -648,6 +657,61 @@ describe('XProvider interaction webhooks', () => {
       'post.delete',
       'post.mention.create',
     ]);
+  });
+
+  it('attaches the Postiz webhook with app bearer after a stream-only create', async () => {
+    const provider = new XProvider();
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(
+      async (url, options) => {
+        const value = String(url);
+        const method = options?.method || 'GET';
+        if (value.endsWith('/2/webhooks')) return endpointResponse();
+        if (method === 'GET') {
+          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        }
+        if (method === 'POST') {
+          return new Response(
+            JSON.stringify({ data: { subscription_id: '2087621151899975680' } }),
+            { status: 200 }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: {
+              subscription_id: '2087621151899975680',
+              webhook_id: '123',
+              tag: 'postiz:42:like.create:inbound',
+            },
+          }),
+          { status: 200 }
+        );
+      }
+    );
+
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret'
+      )
+    ).resolves.toMatchObject({ state: 'active' });
+
+    const attach = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).includes('/activity/subscriptions/2087621151899975680') &&
+        options?.method === 'PUT'
+    );
+    expect(attach?.[1]).toEqual(
+      expect.objectContaining({
+        method: 'PUT',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer app-bearer',
+        }),
+        body: JSON.stringify({
+          webhook_id: '123',
+          tag: 'postiz:42:like.create:inbound',
+        }),
+      })
+    );
   });
 
   it('returns a sanitized scope classification', async () => {

@@ -25,6 +25,7 @@ import {
   ChannelMenu,
   ChannelsSidebar,
 } from '@gitroom/frontend/components/launches/channels.sidebar';
+import { setLastChannelId } from '@gitroom/frontend/components/launches/helpers/last-channel';
 import {
   IntegrationListItem,
   useIntegrationList,
@@ -69,11 +70,17 @@ export const Pipelines: FC = () => {
     [data, selectedChannelId]
   );
 
-  const handleChannelSelect = useCallback((integration: IntegrationListItem) => {
-    setSelectedChannelId((current) =>
-      current === integration.id ? undefined : integration.id
-    );
-  }, []);
+  const handleChannelSelect = useCallback(
+    (integration: IntegrationListItem) => {
+      const nextId =
+        selectedChannelId === integration.id ? undefined : integration.id;
+      if (nextId) {
+        setLastChannelId(nextId);
+      }
+      setSelectedChannelId(nextId);
+    },
+    [selectedChannelId]
+  );
 
   const openCreate = useCallback(() => {
     modal.openModal({
