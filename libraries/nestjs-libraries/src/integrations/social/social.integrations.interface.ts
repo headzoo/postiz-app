@@ -357,6 +357,20 @@ export type NormalizedChannelInteractionEvent = {
   membershipUpdate?: ChannelAudienceMembership;
 };
 
+export type NormalizedChannelContentEvent =
+  | {
+    type: 'post.upsert';
+    externalId: string;
+    url: string;
+    content: string;
+    publishedAt: string;
+  }
+  | {
+    type: 'post.delete';
+    externalId: string;
+    deletedAt: string;
+  };
+
 export type ChannelWebhookChallengeRequest = {
   query: Record<string, string | string[] | undefined>;
 };
@@ -372,10 +386,11 @@ export type ChannelWebhookDeliveryRequest = {
 
 export type ChannelWebhookDeliveryResult =
   | {
-      accepted: true;
-      connectedAccountId: string;
-      events: NormalizedChannelInteractionEvent[];
-    }
+    accepted: true;
+    connectedAccountId: string;
+    events: NormalizedChannelInteractionEvent[];
+    contentEvents?: NormalizedChannelContentEvent[];
+  }
   | { accepted: false; statusCode?: number };
 
 export type DesiredChannelInteractionSubscription = {

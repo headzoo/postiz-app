@@ -3,6 +3,8 @@ name: Build
 
 on:
   push:
+    branches:
+      - '**'
   merge_group:
   pull_request:
 

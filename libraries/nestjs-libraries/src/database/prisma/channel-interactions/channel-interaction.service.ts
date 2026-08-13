@@ -18,12 +18,14 @@ import {
   ChannelWebhookChallengeRequest,
   ChannelWebhookDeliveryRequest,
   Follower,
+  NormalizedChannelContentEvent,
   NormalizedChannelInteractionEvent,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
 import { Integration } from '@prisma/client';
 import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
+import { PostsRepository } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.repository';
 import {
   AudienceProfile,
   ChannelInteractionRepository,
@@ -46,6 +48,7 @@ const MAX_ID_LENGTH = 512;
 const MAX_PROFILE_TEXT_LENGTH = 4096;
 const MAX_METADATA_VALUE_LENGTH = 2048;
 const MAX_AUDIENCE_NOTE_LENGTH = 4096;
+const MAX_POST_CONTENT_LENGTH = 100000;
 
 const KIND_MAP: Record<ChannelInteractionKind, PrismaInteractionKind> = {
   like: PrismaInteractionKind.LIKE,
@@ -84,7 +87,8 @@ export class ChannelInteractionService {
   constructor(
     private _repository: ChannelInteractionRepository,
     private _integrationManager?: IntegrationManager,
-    private _logsService?: LogsService
+    private _logsService?: LogsService,
+    private _postsRepository?: PostsRepository
   ) { }
 
   async handleChallenge(
@@ -136,6 +140,20 @@ export class ChannelInteractionService {
         );
       } catch {
         /** persist the inspectable log even if event recording fails */
+      }
+      try {
+        await Promise.all(
+          matchedIntegrations.map((integration) =>
+            this.applyContentEvents(
+              integration.organizationId,
+              integration.id,
+              providerIdentifier,
+              delivery.contentEvents || []
+            )
+          )
+        );
+      } catch {
+        /** persist the inspectable log even if calendar import fails */
       }
     }
 
@@ -597,6 +615,91 @@ export class ChannelInteractionService {
       membershipUpdate,
       score: getChannelInteractionScore(event.kind, event.direction),
     };
+  }
+
+  private async applyContentEvents(
+    organizationId: string,
+    integrationId: string,
+    providerIdentifier: string,
+    events: NormalizedChannelContentEvent[]
+  ) {
+    if (!this._postsRepository || !Array.isArray(events) || !events.length) {
+      return { imported: 0, deleted: 0, skipped: 0 };
+    }
+    if (events.length > MAX_DELIVERY_EVENTS) {
+      throw new BadRequestException(
+        `A delivery may contain at most ${MAX_DELIVERY_EVENTS} events`
+      );
+    }
+    let imported = 0;
+    let deleted = 0;
+    let skipped = 0;
+    for (const event of events) {
+      const normalized = this.validateContentEvent(event);
+      if (normalized.type === 'post.upsert') {
+        const result = await this._postsRepository.importPlatformPost({
+          organizationId,
+          integrationId,
+          providerIdentifier,
+          externalId: normalized.externalId,
+          url: normalized.url,
+          content: normalized.content,
+          publishedAt: normalized.publishedAt,
+        });
+        result.created ? imported++ : skipped++;
+        continue;
+      }
+      const result = await this._postsRepository.markPlatformDeleted(
+        organizationId,
+        integrationId,
+        normalized.externalId,
+        normalized.deletedAt
+      );
+      result.updated ? deleted++ : skipped++;
+    }
+    return { imported, deleted, skipped };
+  }
+
+  private validateContentEvent(event: NormalizedChannelContentEvent) {
+    if (!event || typeof event !== 'object') {
+      throw new BadRequestException('Content event must be an object');
+    }
+    this.validateBoundedString(event.externalId, 'externalId', MAX_ID_LENGTH);
+    if (event.type === 'post.upsert') {
+      this.validateBoundedString(event.url, 'url', MAX_PROFILE_TEXT_LENGTH);
+      this.optionalUrl(event.url, 'url');
+      if (
+        typeof event.content !== 'string' ||
+        event.content.length > MAX_POST_CONTENT_LENGTH
+      ) {
+        throw new BadRequestException(
+          `content must be at most ${MAX_POST_CONTENT_LENGTH} characters`
+        );
+      }
+      const publishedAt = this.parseDate(event.publishedAt, 'publishedAt');
+      if (publishedAt.getTime() > Date.now() + MAX_FUTURE_SKEW_MS) {
+        throw new BadRequestException('publishedAt is too far in the future');
+      }
+      return {
+        type: 'post.upsert' as const,
+        externalId: event.externalId,
+        url: event.url,
+        content: event.content,
+        publishedAt,
+      };
+    }
+    if (event.type === 'post.delete') {
+      const deletedAt = this.parseDate(event.deletedAt, 'deletedAt');
+      if (deletedAt.getTime() > Date.now() + MAX_FUTURE_SKEW_MS) {
+        throw new BadRequestException('deletedAt is too far in the future');
+      }
+      return {
+        type: 'post.delete' as const,
+        externalId: event.externalId,
+        deletedAt,
+      };
+    }
+    throw new BadRequestException('Unsupported content event type');
   }
 
   private getWebhookCapability(providerIdentifier: string) {

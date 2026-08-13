@@ -223,6 +223,135 @@ describe('XProvider interaction webhooks', () => {
     });
   });
 
+  it('imports standalone outbound posts and marks platform deletes', async () => {
+    const capability = new XProvider().channelInteractionWebhooks;
+    const created = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.create',
+          {
+            id: 'original-out',
+            author_id: '42',
+            text: 'Posted on X',
+            created_at: '2024-01-01T00:00:00.000Z',
+          },
+          {
+            eventUuid: 'event-original',
+            includes: { users: [user('42', 'connected')] },
+          }
+        )
+      )
+    );
+    expect(created).toMatchObject({
+      accepted: true,
+      events: [],
+      contentEvents: [
+        {
+          type: 'post.upsert',
+          externalId: 'original-out',
+          url: 'https://twitter.com/connected/status/original-out',
+          content: 'Posted on X',
+          publishedAt: '2024-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+
+    const mentioned = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.create',
+          {
+            id: 'mention-out',
+            author_id: '42',
+            text: 'Hello @other',
+            created_at: '2024-01-01T00:00:02.000Z',
+            entities: { mentions: [{ id: '7', username: 'other' }] },
+          },
+          {
+            eventUuid: 'event-mention-out',
+            includes: { users: [user('42', 'connected'), user('7', 'other')] },
+          }
+        )
+      )
+    );
+    expect(mentioned).toMatchObject({
+      accepted: true,
+      events: [{ kind: 'mention', direction: 'outbound', counterparty: { externalId: '7' } }],
+      contentEvents: [{ type: 'post.upsert', externalId: 'mention-out' }],
+    });
+
+    const deleted = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.delete',
+          {
+            id: 'original-out',
+            author_id: '42',
+            timestamp_ms: '1704067200000',
+          },
+          { eventUuid: 'event-delete' }
+        )
+      )
+    );
+    expect(deleted).toMatchObject({
+      accepted: true,
+      events: [],
+      contentEvents: [
+        {
+          type: 'post.delete',
+          externalId: 'original-out',
+          deletedAt: '2024-01-01T00:00:00.000Z',
+        },
+      ],
+    });
+  });
+
+  it('does not import replies, reposts, or quotes onto the calendar', async () => {
+    const capability = new XProvider().channelInteractionWebhooks;
+    const reply = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.create',
+          {
+            id: 'reply-out',
+            author_id: '42',
+            text: 'A reply',
+            created_at: '2024-01-01T00:00:00.000Z',
+            referenced_tweets: [{ type: 'replied_to', id: 'parent' }],
+          },
+          {
+            eventUuid: 'event-reply-out',
+            includes: {
+              users: [user('42'), user('8')],
+              tweets: [{ id: 'parent', author_id: '8' }],
+            },
+          }
+        )
+      )
+    );
+    expect(reply.accepted && reply.contentEvents).toEqual([]);
+
+    const quote = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.create',
+          {
+            id: 'quote-out',
+            author_id: '42',
+            text: 'A quote',
+            created_at: '2024-01-01T00:00:00.000Z',
+            referenced_tweets: [{ type: 'quoted', id: 'quoted' }],
+          },
+          {
+            eventUuid: 'event-quote-out',
+            includes: { users: [user('42')] },
+          }
+        )
+      )
+    );
+    expect(quote.accepted && quote.contentEvents).toEqual([]);
+  });
+
   it('normalizes mentions, ignores quotes as reposts, and keys by event_uuid', async () => {
     const capability = new XProvider().channelInteractionWebhooks;
     const envelope = activity(
@@ -248,6 +377,7 @@ describe('XProvider interaction webhooks', () => {
     expect(first).toMatchObject({
       accepted: true,
       events: [{ kind: 'mention', direction: 'inbound' }],
+      contentEvents: [],
     });
     expect(first.accepted && first.events[0].providerEventKey).toBe(
       duplicate.accepted && duplicate.events[0].providerEventKey
@@ -290,6 +420,7 @@ describe('XProvider interaction webhooks', () => {
       { eventKey: 'follow.follow', direction: 'inbound' },
       { eventKey: 'follow.unfollow', direction: 'inbound' },
       { eventKey: 'post.create', direction: 'outbound' },
+      { eventKey: 'post.delete', direction: 'outbound' },
       { eventKey: 'post.mention.create', direction: 'inbound' },
     ]);
     expect(capability.getInteractionCoverage()).toEqual(
@@ -311,17 +442,19 @@ describe('XProvider interaction webhooks', () => {
       ['follow.follow', undefined],
       ['follow.unfollow', undefined],
       ['post.create', undefined],
+      ['post.delete', undefined],
       ['post.mention.create', undefined],
     ].map(([eventType, direction], index) => ({
       subscription_id: String(index + 1),
       event_type: eventType,
       filter: { user_id: '42', ...(direction ? { direction } : {}) },
       webhook_id: '123',
-      tag: `postiz:42:${eventType}:${
-        eventType === 'post.create' || direction === 'outbound'
+      tag: `postiz:42:${eventType}:${eventType === 'post.create' ||
+          eventType === 'post.delete' ||
+          direction === 'outbound'
           ? 'outbound'
           : 'inbound'
-      }`,
+        }`,
     }));
     const fetchMock = jest
       .spyOn(global, 'fetch')
@@ -329,8 +462,8 @@ describe('XProvider interaction webhooks', () => {
         String(url).endsWith('/2/webhooks')
           ? endpointResponse()
           : new Response(JSON.stringify({ data: subscriptions, meta: {} }), {
-              status: 200,
-            })
+            status: 200,
+          })
       );
 
     await expect(

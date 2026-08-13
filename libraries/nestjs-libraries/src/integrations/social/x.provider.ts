@@ -15,6 +15,7 @@ import {
   FollowerPage,
   FollowerQuery,
   FollowerSort,
+  NormalizedChannelContentEvent,
   NormalizedChannelInteractionEvent,
   PendingCheckResponse,
   PostDetails,
@@ -94,6 +95,7 @@ type XActivitySubscriptionSpec = DesiredChannelInteractionSubscription & {
   | 'follow.follow'
   | 'follow.unfollow'
   | 'post.create'
+  | 'post.delete'
   | 'post.mention.create';
   filterDirection?: ChannelInteractionDirection;
 };
@@ -154,6 +156,11 @@ const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
   {
     eventKey: 'post.create',
     eventType: 'post.create',
+    direction: 'outbound',
+  },
+  {
+    eventKey: 'post.delete',
+    eventType: 'post.delete',
     direction: 'outbound',
   },
   {
@@ -303,12 +310,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     }
 
     try {
-      const events = this.normalizeInteractionPayload(
+      const { events, contentEvents } = this.normalizeInteractionPayload(
         envelope,
         connectedAccountId,
         new Date().toISOString()
       );
-      return { accepted: true, connectedAccountId, events };
+      return { accepted: true, connectedAccountId, events, contentEvents };
     } catch {
       return { accepted: false, statusCode: 400 };
     }
@@ -341,11 +348,21 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return timingSafeEqual(expected, supplied);
   }
 
+  private emptyNormalizedActivity(): {
+    events: NormalizedChannelInteractionEvent[];
+    contentEvents: NormalizedChannelContentEvent[];
+  } {
+    return { events: [], contentEvents: [] };
+  }
+
   private normalizeInteractionPayload(
     envelope: any,
     connectedAccountId: string,
     receivedAt: string
-  ): NormalizedChannelInteractionEvent[] {
+  ): {
+    events: NormalizedChannelInteractionEvent[];
+    contentEvents: NormalizedChannelContentEvent[];
+  } {
     const eventType = envelope.event_type;
     const eventUuid = this.boundedId(envelope.event_uuid);
     const payload = envelope.payload;
@@ -365,20 +382,23 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           )?.externalId;
       const counterparty = this.xIncludedProfile(includes, counterpartyId);
       const relatedObjectId = this.boundedId(payload.liked_tweet_id);
-      if (!counterparty || !relatedObjectId) return [];
-      return [
-        this.xInteractionEvent({
-          eventUuid,
-          sourceType: eventType,
-          sourceId: this.boundedId(payload.id),
-          kind: 'like',
-          direction,
-          eventAt: this.xEventTimestamp(payload, receivedAt),
-          counterparty,
-          connectedAccountId,
-          relatedObjectId,
-        }),
-      ];
+      if (!counterparty || !relatedObjectId) return this.emptyNormalizedActivity();
+      return {
+        events: [
+          this.xInteractionEvent({
+            eventUuid,
+            sourceType: eventType,
+            sourceId: this.boundedId(payload.id),
+            kind: 'like',
+            direction,
+            eventAt: this.xEventTimestamp(payload, receivedAt),
+            counterparty,
+            connectedAccountId,
+            relatedObjectId,
+          }),
+        ],
+        contentEvents: [],
+      };
     }
 
     if (eventType === 'follow.follow' || eventType === 'follow.unfollow') {
@@ -388,27 +408,34 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         source?.externalId === connectedAccountId
           ? 'outbound'
           : target?.externalId === connectedAccountId
-          ? 'inbound'
-          : undefined;
+            ? 'inbound'
+            : undefined;
       const counterparty = direction === 'outbound' ? target : source;
-      if (!direction || !counterparty) return [];
-      return [
-        this.xInteractionEvent({
-          eventUuid,
-          sourceType: eventType,
-          kind: 'follow',
-          direction,
-          eventAt: this.xEventTimestamp(payload, receivedAt),
-          counterparty,
-          connectedAccountId,
-          membershipUpdate:
-            direction === 'inbound'
-              ? eventType === 'follow.unfollow'
-                ? 'not_follower'
-                : 'follower'
-              : undefined,
-        }),
-      ];
+      if (!direction || !counterparty) return this.emptyNormalizedActivity();
+      return {
+        events: [
+          this.xInteractionEvent({
+            eventUuid,
+            sourceType: eventType,
+            kind: 'follow',
+            direction,
+            eventAt: this.xEventTimestamp(payload, receivedAt),
+            counterparty,
+            connectedAccountId,
+            membershipUpdate:
+              direction === 'inbound'
+                ? eventType === 'follow.unfollow'
+                  ? 'not_follower'
+                  : 'follower'
+                : undefined,
+          }),
+        ],
+        contentEvents: [],
+      };
+    }
+
+    if (eventType === 'post.delete') {
+      return this.normalizePostDelete(payload, connectedAccountId, receivedAt);
     }
 
     if (eventType === 'post.create' || eventType === 'post.mention.create') {
@@ -422,7 +449,35 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       );
     }
 
-    return [];
+    return this.emptyNormalizedActivity();
+  }
+
+  private normalizePostDelete(
+    payload: any,
+    connectedAccountId: string,
+    receivedAt: string
+  ): {
+    events: NormalizedChannelInteractionEvent[];
+    contentEvents: NormalizedChannelContentEvent[];
+  } {
+    const tweetId = this.boundedId(payload?.id_str ?? payload?.id);
+    const authorId = this.boundedId(payload?.author_id);
+    if (!tweetId) {
+      throw new Error('Malformed X post delete activity');
+    }
+    if (authorId && authorId !== connectedAccountId) {
+      return this.emptyNormalizedActivity();
+    }
+    return {
+      events: [],
+      contentEvents: [
+        {
+          type: 'post.delete',
+          externalId: tweetId,
+          deletedAt: this.xEventTimestamp(payload, receivedAt),
+        },
+      ],
+    };
   }
 
   private normalizeTweetInteraction(
@@ -432,7 +487,10 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     eventType: 'post.create' | 'post.mention.create',
     eventUuid: string | undefined,
     receivedAt: string
-  ): NormalizedChannelInteractionEvent[] {
+  ): {
+    events: NormalizedChannelInteractionEvent[];
+    contentEvents: NormalizedChannelContentEvent[];
+  } {
     const actor = this.xIncludedProfile(includes, tweet?.author_id);
     const tweetId = this.boundedId(tweet?.id_str ?? tweet?.id);
     if (!actor || !tweetId) {
@@ -547,7 +605,50 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         }
       }
     }
-    return events;
+    const contentEvents: NormalizedChannelContentEvent[] = [];
+    if (this.isStandaloneOutboundPost(tweet, outbound)) {
+      contentEvents.push({
+        type: 'post.upsert',
+        externalId: tweetId,
+        url: this.xStatusUrl(actor.username, tweetId),
+        content: this.xPostText(tweet),
+        publishedAt: eventAt,
+      });
+    }
+    return { events, contentEvents };
+  }
+
+  private isStandaloneOutboundPost(tweet: any, outbound: boolean) {
+    if (!outbound) return false;
+    const references = Array.isArray(tweet?.referenced_tweets)
+      ? tweet.referenced_tweets
+      : [];
+    if (
+      references.some((reference: any) =>
+        ['replied_to', 'retweeted', 'quoted'].includes(reference?.type)
+      )
+    ) {
+      return false;
+    }
+    return !(
+      this.boundedId(tweet?.in_reply_to_tweet_id) ||
+      this.boundedId(tweet?.in_reply_to_status_id)
+    );
+  }
+
+  private xPostText(tweet: any) {
+    return (
+      this.boundedText(
+        tweet?.extended_tweet?.full_text ?? tweet?.full_text ?? tweet?.text,
+        100000
+      ) || ''
+    );
+  }
+
+  private xStatusUrl(username: string | undefined, tweetId: string) {
+    return username
+      ? `https://twitter.com/${encodeURIComponent(username)}/status/${tweetId}`
+      : `https://x.com/i/status/${tweetId}`;
   }
 
   private xMentionProfiles(tweet: any) {
@@ -585,9 +686,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         : {}),
       ...(username
         ? {
-            username,
-            profileUrl: `https://x.com/${encodeURIComponent(username)}`,
-          }
+          username,
+          profileUrl: `https://x.com/${encodeURIComponent(username)}`,
+        }
         : {}),
       ...(picture ? { picture } : {}),
     };
@@ -627,7 +728,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   private xTimestamp(primary: unknown, fallback?: unknown) {
     const value =
       typeof primary === 'number' ||
-      (typeof primary === 'string' && /^\d+$/.test(primary))
+        (typeof primary === 'string' && /^\d+$/.test(primary))
         ? new Date(Number(primary))
         : new Date(String(primary ?? fallback ?? ''));
     if (Number.isNaN(value.getTime())) {
@@ -695,18 +796,18 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     ].join('\n');
     const canonical = input.eventUuid
       ? [
-          X_WEBHOOK_NORMALIZATION_VERSION,
-          'event_uuid',
-          input.eventUuid,
-          semanticIdentity,
-        ].join('\n')
+        X_WEBHOOK_NORMALIZATION_VERSION,
+        'event_uuid',
+        input.eventUuid,
+        semanticIdentity,
+      ].join('\n')
       : [
-          X_WEBHOOK_NORMALIZATION_VERSION,
-          input.sourceType,
-          input.sourceId || '',
-          semanticIdentity,
-          input.eventAt,
-        ].join('\n');
+        X_WEBHOOK_NORMALIZATION_VERSION,
+        input.sourceType,
+        input.sourceId || '',
+        semanticIdentity,
+        input.eventAt,
+      ].join('\n');
     const providerEventKey = `x:v${X_WEBHOOK_NORMALIZATION_VERSION}:sha256:${createHash(
       'sha256'
     )
@@ -820,11 +921,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       return id && created.data?.valid
         ? { state: 'active', remoteWebhookId: id }
         : {
-            state: 'error',
-            ...(id ? { remoteWebhookId: id } : {}),
-            failureCategory: 'configuration',
-            reason: 'The tracking callback could not be validated.',
-          };
+          state: 'error',
+          ...(id ? { remoteWebhookId: id } : {}),
+          failureCategory: 'configuration',
+          reason: 'The tracking callback could not be validated.',
+        };
     } catch (error) {
       return {
         state: 'error',
@@ -848,9 +949,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           state: endpoint.state,
           ...(endpoint.failureCategory
             ? {
-                failureCategory: endpoint.failureCategory,
-                reason: endpoint.reason,
-              }
+              failureCategory: endpoint.failureCategory,
+              reason: endpoint.reason,
+            }
             : {}),
         })),
         coverage,

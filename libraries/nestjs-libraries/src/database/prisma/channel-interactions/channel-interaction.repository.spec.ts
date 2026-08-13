@@ -145,6 +145,50 @@ describe('ChannelInteractionRepository', () => {
     expect(metrics.has('person-2')).toBe(false);
   });
 
+  it('adds inbound mention score to follower interaction metrics', async () => {
+    const { repository, tx, dailyAggregateGroupBy } = createHarness();
+    await repository.recordNormalizedEvent(
+      'org',
+      'integration',
+      event({
+        kind: ChannelInteractionKind.MENTION,
+        score: 4,
+        counterparty: { externalId: 'follower-1', name: 'Follower' },
+      })
+    );
+
+    expect(tx.channelInteractionDailyAggregate.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          counterpartyExternalId: 'follower-1',
+          interactionScore: 4,
+        }),
+        update: {
+          interactionCount: { increment: 1 },
+          interactionScore: { increment: 4 },
+        },
+      })
+    );
+
+    dailyAggregateGroupBy.mockResolvedValue([
+      {
+        counterpartyExternalId: 'follower-1',
+        _sum: { interactionCount: 1, interactionScore: 4 },
+        _max: { lastInteractionAt: new Date('2026-08-12T23:30:00.000Z') },
+      },
+    ]);
+    const metrics = await repository.getFollowerInteractionMetrics(
+      'org',
+      'integration',
+      ['follower-1']
+    );
+    expect(metrics.get('follower-1')).toEqual({
+      interactionCount: 1,
+      interactionScore: 4,
+      lastInteractionAt: new Date('2026-08-12T23:30:00.000Z'),
+    });
+  });
+
   it('increments the UTC daily aggregate once under concurrent duplicate delivery', async () => {
     const { repository, tx } = createHarness();
     tx.channelInteractionEvent.createMany

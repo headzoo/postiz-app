@@ -29,7 +29,7 @@ export class PostsRepository {
     private _tags: PrismaRepository<'tags'>,
     private _tagsPosts: PrismaRepository<'tagsPosts'>,
     private _errors: PrismaRepository<'errors'>
-  ) {}
+  ) { }
 
   searchForMissingThreeHoursPosts() {
     return this._post.model.post.findMany({
@@ -163,8 +163,8 @@ export class PostsRepository {
           organizationId: orgId,
           ...(query.customer
             ? {
-                customerId: query.customer,
-              }
+              customerId: query.customer,
+            }
             : {}),
         },
         deletedAt: null,
@@ -184,6 +184,7 @@ export class PostsRepository {
         intervalInDays: true,
         group: true,
         creationMethod: true,
+        platformDeletedAt: true,
         tags: {
           select: {
             tag: true,
@@ -246,17 +247,17 @@ export class PostsRepository {
     const stateAndDate =
       stateFilter === 'scheduled'
         ? {
-            state: State.QUEUE,
-          }
+          state: State.QUEUE,
+        }
         : stateFilter === 'draft'
-        ? { state: State.DRAFT }
-        : stateFilter === 'published'
-        ? { state: State.PUBLISHED }
-        : {
-            state: {
-              in: [State.QUEUE, State.DRAFT, State.PUBLISHED, State.ERROR],
-            },
-          };
+          ? { state: State.DRAFT }
+          : stateFilter === 'published'
+            ? { state: State.PUBLISHED }
+            : {
+              state: {
+                in: [State.QUEUE, State.DRAFT, State.PUBLISHED, State.ERROR],
+              },
+            };
 
     const orderDirection: 'asc' | 'desc' =
       stateFilter === 'published' ? 'desc' : 'asc';
@@ -290,8 +291,8 @@ export class PostsRepository {
         organizationId: orgId,
         ...(query.customer
           ? {
-              customerId: query.customer,
-            }
+            customerId: query.customer,
+          }
           : {}),
       },
     };
@@ -314,6 +315,7 @@ export class PostsRepository {
           intervalInDays: true,
           group: true,
           creationMethod: true,
+          platformDeletedAt: true,
           tags: {
             select: {
               tag: true,
@@ -413,21 +415,21 @@ export class PostsRepository {
       include: {
         ...(includeIntegration
           ? {
-              integration: true,
-              tags: {
-                select: {
-                  tag: true,
-                },
+            integration: true,
+            tags: {
+              select: {
+                tag: true,
               },
-            }
+            },
+          }
           : {}),
         childrenPost: true,
       },
     });
   }
 
-  updatePost(id: string, postId: string, releaseURL: string) {
-    return this._post.model.post.update({
+  async updatePost(id: string, postId: string, releaseURL: string) {
+    const updated = await this._post.model.post.update({
       where: {
         id,
       },
@@ -437,6 +439,79 @@ export class PostsRepository {
         releaseId: postId,
       },
     });
+    await this._post.model.post.updateMany({
+      where: {
+        organizationId: updated.organizationId,
+        integrationId: updated.integrationId,
+        releaseId: String(postId),
+        creationMethod: CreationMethod.PLATFORM,
+        id: { not: id },
+        deletedAt: null,
+      },
+      data: {
+        deletedAt: new Date(),
+      },
+    });
+    return updated;
+  }
+
+  async importPlatformPost(input: {
+    organizationId: string;
+    integrationId: string;
+    providerIdentifier: string;
+    externalId: string;
+    url: string;
+    content: string;
+    publishedAt: Date;
+  }) {
+    const existing = await this._post.model.post.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        integrationId: input.integrationId,
+        releaseId: input.externalId,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return { created: false };
+    }
+    await this._post.model.post.create({
+      data: {
+        organizationId: input.organizationId,
+        integrationId: input.integrationId,
+        content: input.content,
+        publishDate: input.publishedAt,
+        state: State.PUBLISHED,
+        creationMethod: CreationMethod.PLATFORM,
+        releaseId: input.externalId,
+        releaseURL: input.url,
+        group: uuidv4(),
+        settings: JSON.stringify({ __type: input.providerIdentifier }),
+        image: JSON.stringify([]),
+      },
+    });
+    return { created: true };
+  }
+
+  async markPlatformDeleted(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    deletedAt: Date
+  ) {
+    const result = await this._post.model.post.updateMany({
+      where: {
+        organizationId,
+        integrationId,
+        releaseId: externalId,
+        deletedAt: null,
+        platformDeletedAt: null,
+      },
+      data: {
+        platformDeletedAt: deletedAt,
+      },
+    });
+    return { updated: result.count > 0 };
   }
 
   updateReleaseId(id: string, orgId: string, releaseId: string) {
@@ -483,7 +558,7 @@ export class PostsRepository {
             body: typeof body === 'string' ? body : JSON.stringify(body),
           },
         });
-      } catch (err) {}
+      } catch (err) { }
     }
 
     return update;
@@ -516,10 +591,10 @@ export class PostsRepository {
         // update: don't change the state
         ...(action === 'schedule'
           ? {
-              state: isDraft ? 'DRAFT' : 'QUEUE',
-              releaseId: null,
-              releaseURL: null,
-            }
+            state: isDraft ? 'DRAFT' : 'QUEUE',
+            releaseId: null,
+            releaseURL: null,
+          }
           : {}),
       },
     });
@@ -576,19 +651,19 @@ export class PostsRepository {
         },
         ...(posts?.[posts.length - 1]?.id
           ? {
-              parentPost: {
-                connect: {
-                  id: posts[posts.length - 1]?.id,
-                },
+            parentPost: {
+              connect: {
+                id: posts[posts.length - 1]?.id,
               },
-            }
+            },
+          }
           : type === 'update'
-          ? {
+            ? {
               parentPost: {
                 disconnect: true,
               },
             }
-          : {}),
+            : {}),
         content: value.content,
         delay: value.delay || 0,
         group,
@@ -598,9 +673,9 @@ export class PostsRepository {
         ...(state === 'update'
           ? {}
           : {
-              state:
-                state === 'draft' ? ('DRAFT' as const) : ('QUEUE' as const),
-            }),
+            state:
+              state === 'draft' ? ('DRAFT' as const) : ('QUEUE' as const),
+          }),
         image: JSON.stringify(value.image),
         settings: JSON.stringify(body.settings),
         organization: {
@@ -610,10 +685,10 @@ export class PostsRepository {
         },
         ...(pipelineQueueItemId
           ? {
-              pipelineQueueItem: {
-                connect: { id: pipelineQueueItemId },
-              },
-            }
+            pipelineQueueItem: {
+              connect: { id: pipelineQueueItemId },
+            },
+          }
           : {}),
       });
 
@@ -676,17 +751,17 @@ export class PostsRepository {
 
     const previousPost = body.group
       ? (
-          await this._post.model.post.findFirst({
-            where: {
-              group: body.group,
-              deletedAt: null,
-              parentPostId: null,
-            },
-            select: {
-              id: true,
-            },
-          })
-        )?.id!
+        await this._post.model.post.findFirst({
+          where: {
+            group: body.group,
+            deletedAt: null,
+            parentPostId: null,
+          },
+          select: {
+            id: true,
+          },
+        })
+      )?.id!
       : undefined;
 
     if (body.group && !keepGroup) {

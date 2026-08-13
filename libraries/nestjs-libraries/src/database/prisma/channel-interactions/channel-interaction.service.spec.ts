@@ -282,6 +282,98 @@ describe('ChannelInteractionService', () => {
     expect(record).toHaveBeenCalledWith('org-b', 'integration-b', [interaction()]);
   });
 
+  it('imports calendar content events after recording interactions', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([
+      { id: 'integration-a', organizationId: 'org-a' },
+    ]);
+    const postsRepository = {
+      importPlatformPost: jest.fn().mockResolvedValue({ created: true }),
+      markPlatformDeleted: jest.fn().mockResolvedValue({ updated: true }),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyAndNormalizeDelivery: jest.fn().mockResolvedValue({
+            accepted: true,
+            connectedAccountId: 'account-1',
+            events: [interaction()],
+            contentEvents: [
+              {
+                type: 'post.upsert',
+                externalId: 'tweet-1',
+                url: 'https://x.com/i/status/tweet-1',
+                content: 'Hello from X',
+                publishedAt: '2026-08-12T12:00:00.000Z',
+              },
+              {
+                type: 'post.delete',
+                externalId: 'tweet-2',
+                deletedAt: '2026-08-12T12:01:00.000Z',
+              },
+            ],
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      undefined,
+      postsRepository as any
+    );
+    jest.spyOn(service, 'recordNormalizedDelivery').mockResolvedValue({
+      created: 1,
+      duplicates: 0,
+      membershipOnly: 0,
+    });
+
+    await service.handleDelivery('x', {
+      rawBody: Buffer.from('{}'),
+      headers: {},
+    });
+
+    expect(postsRepository.importPlatformPost).toHaveBeenCalledWith({
+      organizationId: 'org-a',
+      integrationId: 'integration-a',
+      providerIdentifier: 'x',
+      externalId: 'tweet-1',
+      url: 'https://x.com/i/status/tweet-1',
+      content: 'Hello from X',
+      publishedAt: new Date('2026-08-12T12:00:00.000Z'),
+    });
+    expect(postsRepository.markPlatformDeleted).toHaveBeenCalledWith(
+      'org-a',
+      'integration-a',
+      'tweet-2',
+      new Date('2026-08-12T12:01:00.000Z')
+    );
+  });
+
+  it('scores inbound follower mentions without changing the score matrix', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await service.recordNormalizedDelivery('org', 'integration', [
+      interaction({
+        kind: 'mention',
+        direction: 'inbound',
+        counterparty: { externalId: 'follower-1', name: 'Follower' },
+      }),
+    ] as any);
+
+    expect(repository.recordNormalizedEvent).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      expect.objectContaining({
+        kind: 'MENTION',
+        direction: 'INBOUND',
+        score: 4,
+        counterparty: expect.objectContaining({ externalId: 'follower-1' }),
+      })
+    );
+  });
+
   it('writes an inbound webhook log for each resolved organization', async () => {
     const repository = createRepository();
     repository.getActiveIntegrationsForAccount.mockResolvedValue([

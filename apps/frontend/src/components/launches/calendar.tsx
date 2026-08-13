@@ -1248,6 +1248,7 @@ const StackedCalendarItem: FC<{
   showTime?: boolean;
   posts: CalendarItemPost[];
 }> = memo((props) => {
+  const t = useT();
   const {
     posts,
     date,
@@ -1296,6 +1297,7 @@ const StackedCalendarItem: FC<{
     .filter((item) => item.state === 'ERROR' && item.error)
     .map((item) => item.error)
     .join('\n');
+  const hasPlatformDeleted = posts.some((item) => !!item.platformDeletedAt);
 
   const [{ opacity }, dragRef] = useDrag(
     () => ({
@@ -1345,6 +1347,18 @@ const StackedCalendarItem: FC<{
             }
           >
             !
+          </div>
+        )}
+        {hasPlatformDeleted && !expanded && (
+          <div
+            className="absolute -top-[6px] -right-[6px] z-30 w-[18px] h-[18px] rounded-full bg-menuDots flex items-center justify-center text-white text-[11px] font-bold cursor-pointer"
+            data-tooltip-id="tooltip"
+            data-tooltip-content={t(
+              'deleted_on_platform',
+              'This post was deleted on the platform'
+            )}
+          >
+            ×
           </div>
         )}
         {ordered.map((post, index) => {
@@ -1448,6 +1462,9 @@ const CalendarItem: FC<{
     .filter((item) => item.state === 'ERROR' && item.error)
     .map((item) => item.error)
     .join('\n');
+  const hasPlatformDeleted = stackedPosts.some(
+    (item) => !!item.platformDeletedAt
+  );
   const { disableXAnalytics } = useVariables();
   const user = useUser();
   const showCreationMethodBadge =
@@ -1517,6 +1534,18 @@ const CalendarItem: FC<{
           }
         >
           !
+        </div>
+      )}
+      {hasPlatformDeleted && !stackPosts && (
+        <div
+          className="absolute -top-[6px] -right-[6px] z-20 w-[18px] h-[18px] rounded-full bg-menuDots flex items-center justify-center text-white text-[11px] font-bold cursor-pointer"
+          data-tooltip-id="tooltip"
+          data-tooltip-content={t(
+            'deleted_on_platform',
+            'This post was deleted on the platform'
+          )}
+        >
+          ×
         </div>
       )}
       {showCreationMethodBadge && (

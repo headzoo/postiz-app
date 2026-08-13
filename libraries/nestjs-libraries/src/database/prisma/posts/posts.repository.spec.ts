@@ -163,6 +163,99 @@ describe('Posts repository scheduling regressions', () => {
     });
   });
 
+  it('imports platform posts once per release id and marks platform deletes', async () => {
+    const findFirst = jest.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'existing' });
+    const create = jest.fn().mockResolvedValue({ id: 'imported' });
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const posts = repository({ findFirst, create, updateMany });
+
+    await expect(
+      posts.importPlatformPost({
+        organizationId: 'org',
+        integrationId: 'channel-a',
+        providerIdentifier: 'x',
+        externalId: 'tweet-1',
+        url: 'https://x.com/i/status/tweet-1',
+        content: 'Hello',
+        publishedAt: new Date('2026-08-12T12:00:00.000Z'),
+      })
+    ).resolves.toEqual({ created: true });
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        state: 'PUBLISHED',
+        creationMethod: 'PLATFORM',
+        releaseId: 'tweet-1',
+        settings: JSON.stringify({ __type: 'x' }),
+      }),
+    });
+
+    await expect(
+      posts.importPlatformPost({
+        organizationId: 'org',
+        integrationId: 'channel-a',
+        providerIdentifier: 'x',
+        externalId: 'tweet-1',
+        url: 'https://x.com/i/status/tweet-1',
+        content: 'Hello',
+        publishedAt: new Date('2026-08-12T12:00:00.000Z'),
+      })
+    ).resolves.toEqual({ created: false });
+    expect(create).toHaveBeenCalledTimes(1);
+
+    await expect(
+      posts.markPlatformDeleted(
+        'org',
+        'channel-a',
+        'tweet-1',
+        new Date('2026-08-12T13:00:00.000Z')
+      )
+    ).resolves.toEqual({ updated: true });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'channel-a',
+        releaseId: 'tweet-1',
+        deletedAt: null,
+        platformDeletedAt: null,
+      },
+      data: { platformDeletedAt: new Date('2026-08-12T13:00:00.000Z') },
+    });
+  });
+
+  it('removes a platform import when a local publish claims the same release', async () => {
+    const update = jest.fn().mockResolvedValue({
+      id: 'local',
+      organizationId: 'org',
+      integrationId: 'channel-a',
+    });
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const posts = repository({ update, updateMany });
+
+    await posts.updatePost('local', 'tweet-1', 'https://x.com/i/status/tweet-1');
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'local' },
+      data: {
+        state: 'PUBLISHED',
+        releaseURL: 'https://x.com/i/status/tweet-1',
+        releaseId: 'tweet-1',
+      },
+    });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'channel-a',
+        releaseId: 'tweet-1',
+        creationMethod: 'PLATFORM',
+        id: { not: 'local' },
+        deletedAt: null,
+      },
+      data: { deletedAt: expect.any(Date) },
+    });
+  });
+
   it('keeps replacement roots and comments linked to a queued Pipeline item', async () => {
     const upsert = jest
       .fn()
