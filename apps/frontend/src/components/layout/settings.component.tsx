@@ -20,7 +20,7 @@ import clsx from 'clsx';
 import { TeamsComponent } from '@gitroom/frontend/components/settings/teams.component';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { LogoutComponent } from '@gitroom/frontend/components/layout/logout.component';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { PublicComponent } from '@gitroom/frontend/components/public-api/public.component';
 import Link from 'next/link';
@@ -33,6 +33,7 @@ import { SVGLine } from '@gitroom/frontend/components/launches/launches.componen
 import { GlobalSettings } from '@gitroom/frontend/components/settings/global.settings';
 import { ApprovedAppsComponent } from '@gitroom/frontend/components/approved-apps/approved-apps.component';
 import { ThirdPartyComponent } from '@gitroom/frontend/components/third-parties/third-party.component';
+import { LogsSettings } from '@gitroom/frontend/components/settings/logs.component';
 export const SettingsPopup: FC<{
   getRef?: Ref<any>;
 }> = (props) => {
@@ -54,7 +55,10 @@ export const SettingsPopup: FC<{
     return modal.closeAll();
   }, []);
   const url = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const showLogout = !url.get('onboarding') || user?.tier?.current === 'FREE';
+  const isLogsPath = pathname === '/settings/logs';
   const loadProfile = useCallback(async () => {
     const personal = await (await fetch('/user/personal')).json();
     form.setValue('fullname', personal.name || '');
@@ -82,7 +86,9 @@ export const SettingsPopup: FC<{
     close();
   }, []);
 
-  const [tab, setTab] = useState(url.get('tab') || 'global_settings');
+  const [tab, setTab] = useState(
+    isLogsPath ? 'logs' : url.get('tab') || 'global_settings'
+  );
 
   const t = useT();
   const list = useMemo(() => {
@@ -109,6 +115,7 @@ export const SettingsPopup: FC<{
     }
     arr.push({ tab: 'integrations', label: t('integrations', 'Integrations') });
     arr.push({ tab: 'approved_apps', label: t('approved_apps', 'Approved Apps') });
+    arr.push({ tab: 'logs', label: t('logs', 'Logs') });
 
     return arr;
   }, [user, isGeneral, showLogout, t]);
@@ -116,6 +123,27 @@ export const SettingsPopup: FC<{
   useEffect(() => {
     loadProfile();
   }, []);
+
+  useEffect(() => {
+    if (isLogsPath) {
+      setTab('logs');
+    }
+  }, [isLogsPath]);
+
+  const selectTab = useCallback(
+    (tabKey: string) => {
+      if (tabKey === 'logs') {
+        setTab('logs');
+        router.push('/settings/logs');
+        return;
+      }
+      setTab(tabKey);
+      if (isLogsPath) {
+        router.push(`/settings?tab=${tabKey}`);
+      }
+    },
+    [isLogsPath, router]
+  );
 
   return (
     <>
@@ -128,7 +156,7 @@ export const SettingsPopup: FC<{
                 'cursor-pointer flex items-center gap-[12px] group/profile hover:bg-boxHover rounded-e-[8px]',
                 tabKey === tab && 'bg-boxHover'
               )}
-              onClick={() => setTab(tabKey)}
+              onClick={() => selectTab(tabKey)}
             >
               <div
                 className={clsx(
@@ -215,6 +243,12 @@ export const SettingsPopup: FC<{
               {tab === 'approved_apps' && (
                 <div>
                   <ApprovedAppsComponent />
+                </div>
+              )}
+
+              {tab === 'logs' && (
+                <div>
+                  <LogsSettings />
                 </div>
               )}
             </div>

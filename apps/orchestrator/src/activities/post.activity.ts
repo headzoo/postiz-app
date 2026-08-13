@@ -17,6 +17,9 @@ import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integration
 import { timer } from '@gitroom/helpers/utils/timer';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import { WebhooksService } from '@gitroom/nestjs-libraries/database/prisma/webhooks/webhooks.service';
+import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
+import { runWithPostHttpLogContext } from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.context';
+import { WebhookHttpLogSource } from '@prisma/client';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { TypedSearchAttributes } from '@temporalio/common';
 import {
@@ -67,6 +70,7 @@ export class PostActivity {
     private _integrationService: IntegrationService,
     private _refreshIntegrationService: RefreshIntegrationService,
     private _webhookService: WebhooksService,
+    private _logsService: LogsService,
     private _temporalService: TemporalService,
     private _subscriptionService: SubscriptionService,
     private _pipelinePlugService: PipelinePlugService
@@ -224,13 +228,15 @@ export class PostActivity {
       }));
     }
 
-    return getIntegration.comment(
-      integration.internalId,
-      postId,
-      lastPostId,
-      integration.token,
-      mappedPosts,
-      integration
+    return this.withPostHttpLog(integration, posts[0]?.id || postId, () =>
+      getIntegration.comment(
+        integration.internalId,
+        postId,
+        lastPostId,
+        integration.token,
+        mappedPosts,
+        integration
+      )
     );
   }
 
@@ -312,18 +318,25 @@ export class PostActivity {
         status: 'completed',
       }));
     } else if (allowPending && getIntegration.postPending) {
-      postNow = await getIntegration.postPending(
-        integration.internalId,
-        integration.token,
-        mappedPosts,
-        integration
+      postNow = await this.withPostHttpLog(
+        integration,
+        posts[0]?.id,
+        () =>
+          getIntegration.postPending!(
+            integration.internalId,
+            integration.token,
+            mappedPosts,
+            integration
+          )
       );
     } else {
-      postNow = await getIntegration.post(
-        integration.internalId,
-        integration.token,
-        mappedPosts,
-        integration
+      postNow = await this.withPostHttpLog(integration, posts[0]?.id, () =>
+        getIntegration.post(
+          integration.internalId,
+          integration.token,
+          mappedPosts,
+          integration
+        )
       );
     }
 
@@ -376,10 +389,12 @@ export class PostActivity {
       integration.providerIdentifier
     );
 
-    return getIntegration.checkPostStatus(
-      integration.token,
-      pendingData,
-      integration
+    return this.withPostHttpLog(integration, undefined, () =>
+      getIntegration.checkPostStatus(
+        integration.token,
+        pendingData,
+        integration
+      )
     );
   }
 
@@ -408,10 +423,12 @@ export class PostActivity {
       integration.providerIdentifier
     );
 
-    return getIntegration.finalizePost(
-      integration.token,
-      pendingData,
-      integration
+    return this.withPostHttpLog(integration, undefined, () =>
+      getIntegration.finalizePost(
+        integration.token,
+        pendingData,
+        integration
+      )
     );
   }
 
@@ -488,21 +505,44 @@ export class PostActivity {
       const post = await this._postService.getPostByForWebhookId(postId);
       await Promise.all(
         webhooks.map(async (webhook) => {
+          const headers = {
+            'Content-Type': 'application/json',
+          };
+          const body = JSON.stringify(post);
           try {
             // webhook.url is validated at save time, but DNS can change
             // between then and now - pin resolution like every other
             // user-influenced outbound request.
-            await fetch(webhook.url, {
+            const response = await fetch(webhook.url, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(post),
+              headers,
+              body,
               // @ts-ignore — undici option, not in lib.dom fetch types
               dispatcher: getSsrfSafeDispatcher(),
             });
+            await this._logsService.logOutboundWebhook({
+              organizationId: orgId,
+              webhookId: webhook.id,
+              integrationId,
+              source: WebhookHttpLogSource.ORG_WEBHOOK,
+              method: 'POST',
+              url: webhook.url,
+              requestHeaders: headers,
+              requestBody: body,
+              response,
+            });
           } catch (e) {
-            /**empty**/
+            await this._logsService.logOutboundWebhook({
+              organizationId: orgId,
+              webhookId: webhook.id,
+              integrationId,
+              source: WebhookHttpLogSource.ORG_WEBHOOK,
+              method: 'POST',
+              url: webhook.url,
+              requestHeaders: headers,
+              requestBody: body,
+              error: e,
+            });
           }
         })
       );
@@ -600,5 +640,21 @@ export class PostActivity {
       await this._refreshIntegrationService.setBetweenSteps(integration, cause);
       return false;
     }
+  }
+
+  private withPostHttpLog<T>(
+    integration: Integration,
+    postId: string | undefined,
+    run: () => Promise<T>
+  ) {
+    return runWithPostHttpLogContext(
+      {
+        organizationId: integration.organizationId,
+        postId,
+        integrationId: integration.id,
+        provider: integration.providerIdentifier,
+      },
+      run
+    );
   }
 }

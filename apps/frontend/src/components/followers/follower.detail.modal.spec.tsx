@@ -308,7 +308,7 @@ describe('FollowerDetailModal', () => {
     });
   });
 
-  it('shows unsupported tracking explanation when no grade exists', () => {
+  it('shows empty stars when no grade exists', () => {
     useSWR.mockReturnValue({
       data: {
         ...detail,
@@ -332,125 +332,14 @@ describe('FollowerDetailModal', () => {
       <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
     );
 
-    expect(screen.getByText('Not enough tracked activity')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'No grade yet' })).toBeTruthy();
+    expect(screen.queryByText('Not enough tracked activity')).toBeNull();
     expect(
-      screen.getByText(/does not support interaction tracking/i)
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/Earlier provider activity is not backfilled/i)
-    ).toBeTruthy();
+      screen.queryByText(/does not support interaction tracking/i)
+    ).toBeNull();
   });
 
-  it('shows mixed supported and unsupported directions as limited coverage', () => {
-    useSWR.mockReturnValue({
-      data: {
-        ...detail,
-        tracking: {
-          state: 'partial',
-          noBackfill: true,
-          coverage: [
-            { kind: 'like', inbound: 'supported', outbound: 'supported' },
-            {
-              kind: 'mention',
-              inbound: 'unsupported',
-              outbound: 'supported',
-              reason: 'Inbound mentions are not tracked',
-            },
-          ],
-        },
-      },
-      error: undefined,
-      isLoading: false,
-      mutate,
-    });
-
-    render(
-      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
-    );
-
-    expect(screen.getByText(/Grades may be incomplete/i)).toBeTruthy();
-    expect(screen.getByText('Inbound mentions are not tracked')).toBeTruthy();
-  });
-
-  it('shows provisioning explanation when tracking is still being set up', () => {
-    useSWR.mockReturnValue({
-      data: {
-        ...detail,
-        tracking: {
-          state: 'provisioning',
-          availability: 'provisioning',
-          noBackfill: true,
-          coverage: [{ kind: 'like', inbound: 'supported', outbound: 'supported' }],
-        },
-      },
-      error: undefined,
-      isLoading: false,
-      mutate,
-    });
-
-    render(
-      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
-    );
-
-    expect(
-      screen.getByText(/Interaction tracking is still being set up/i)
-    ).toBeTruthy();
-  });
-
-  it('shows setup explanation for unconfigured tracking', () => {
-    useSWR.mockReturnValue({
-      data: {
-        ...detail,
-        tracking: {
-          state: 'unconfigured',
-          availability: 'unavailable',
-          noBackfill: true,
-          coverage: [{ kind: 'like', inbound: 'supported', outbound: 'supported' }],
-        },
-      },
-      error: undefined,
-      isLoading: false,
-      mutate,
-    });
-
-    render(
-      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
-    );
-
-    expect(
-      screen.getByText(/has not been set up for this channel/i)
-    ).toBeTruthy();
-  });
-
-  it('shows category-based explanation for tracking errors without raw provider text', () => {
-    useSWR.mockReturnValue({
-      data: {
-        ...detail,
-        tracking: {
-          state: 'error',
-          availability: 'unavailable',
-          failureCategory: 'authentication',
-          reason: 'raw provider oauth failure',
-          noBackfill: true,
-          coverage: [{ kind: 'like', inbound: 'supported', outbound: 'supported' }],
-        },
-      },
-      error: undefined,
-      isLoading: false,
-      mutate,
-    });
-
-    render(
-      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
-    );
-
-    expect(
-      screen.getByText(/Reconnecting the channel may help/i)
-    ).toBeTruthy();
-    expect(screen.queryByText(/raw provider oauth failure/i)).toBeNull();
-  });
-
-  it('shows ungraded copy when current grade is null', () => {
+  it('shows empty stars when current grade is null', () => {
     useSWR.mockReturnValue({
       data: {
         ...detail,
@@ -472,7 +361,8 @@ describe('FollowerDetailModal', () => {
       <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
     );
 
-    expect(screen.getByText('Not enough tracked activity')).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'No grade yet' })).toBeTruthy();
+    expect(screen.queryByText('Not enough tracked activity')).toBeNull();
   });
 
   it('preserves note draft after a failed save', async () => {

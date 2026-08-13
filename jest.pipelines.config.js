@@ -7,6 +7,10 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/chat/tools/pipeline.context-document.tools.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/chat/load.tools.service.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/posts/posts.repository.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/database/prisma/logs/**/*.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/database/prisma/channel-interactions/**/*.spec.ts',
+    '<rootDir>/apps/orchestrator/src/activities/post.activity.spec.ts',
+    '<rootDir>/apps/frontend/src/components/settings/logs.component.spec.tsx',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/file.provider.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/imgflip/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/media/media.service.spec.ts',
@@ -39,7 +43,8 @@ module.exports = {
       '<rootDir>/libraries/nestjs-libraries/src/$1',
     '^@gitroom/orchestrator/(.*)$': '<rootDir>/apps/orchestrator/src/$1',
     '^@gitroom/helpers/(.*)$': '<rootDir>/libraries/helpers/src/$1',
-    '^@gitroom/react/(.*)$': '<rootDir>/libraries/react-shared-libraries/src/$1',
+    '^@gitroom/react/(.*)$':
+      '<rootDir>/libraries/react-shared-libraries/src/$1',
     '^@gitroom/frontend/(.*)$': '<rootDir>/apps/frontend/src/$1',
   },
 };

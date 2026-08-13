@@ -1,13 +1,15 @@
 'use client';
 
-import { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import useCookie from 'react-use-cookie';
+import { useDebounce } from 'use-debounce';
 import { useRouter } from 'next/navigation';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import SafeImage from '@gitroom/react/helpers/safe.image';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Button } from '@gitroom/react/form/button';
+import { Input } from '@gitroom/react/form/input';
 import { Select } from '@gitroom/react/form/select';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { SVGLine } from '@gitroom/frontend/components/launches/launches.component';
@@ -199,14 +201,14 @@ const TrackingNotice: FC<{
         <p className="text-[13px] text-textItemBlur">
           {trackingStartedAt
             ? t(
-                'followers_tracking_no_backfill_since',
-                'Rankings include events received after tracking began on {{date}}. Earlier provider activity is not backfilled.',
-                { date: trackingStartedAt }
-              )
+              'followers_tracking_no_backfill_since',
+              'Rankings include events received after tracking began on {{date}}. Earlier provider activity is not backfilled.',
+              { date: trackingStartedAt }
+            )
             : t(
-                'followers_tracking_no_backfill',
-                'Rankings include only events received after tracking begins. Earlier provider activity is not backfilled.'
-              )}
+              'followers_tracking_no_backfill',
+              'Rankings include only events received after tracking begins. Earlier provider activity is not backfilled.'
+            )}
         </p>
       )}
     </div>
@@ -225,8 +227,11 @@ export const FollowersComponent: FC = () => {
     DEFAULT_FOLLOWER_INTERACTION_WINDOW
   );
   const [limit, setLimit] = useState<number>(24);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch] = useDebounce(search, 300);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
+  const trimmedSearch = debouncedSearch.trim();
 
   const {
     data: channels = [],
@@ -271,7 +276,8 @@ export const FollowersComponent: FC = () => {
   );
 
   const requiresWindow = !!activeSort?.requiresWindow;
-  const isDatabaseSort = activeSort?.scope === 'database';
+  const isInteractionsSort = activeSort?.key === 'interactions';
+  const isNotesSort = activeSort?.key === 'notes';
 
   const resetPagination = useCallback(() => {
     setCursorHistory([]);
@@ -324,6 +330,15 @@ export const FollowersComponent: FC = () => {
     [resetPagination]
   );
 
+  const previousSearch = useRef(trimmedSearch);
+  useEffect(() => {
+    if (previousSearch.current === trimmedSearch) {
+      return;
+    }
+    previousSearch.current = trimmedSearch;
+    resetPagination();
+  }, [trimmedSearch, resetPagination]);
+
   const currentCursor = cursorHistory[cursorHistory.length - 1];
   const effectiveDirection = activeSort
     ? direction ?? activeSort.defaultDirection
@@ -341,6 +356,7 @@ export const FollowersComponent: FC = () => {
     sort: effectiveSort,
     direction: effectiveDirection,
     window: requiresWindow ? window : undefined,
+    search: trimmedSearch || undefined,
   });
 
   const handleNext = useCallback(() => {
@@ -366,8 +382,8 @@ export const FollowersComponent: FC = () => {
       }
       modal.openModal({
         id: `follower-detail-${selectedIntegrationId}-${follower.id}`,
-        title: follower.name,
-        withCloseButton: true,
+        title: '',
+        withCloseButton: false,
         classNames: {
           modal: 'w-[100%] max-w-[720px] text-textColor',
         },
@@ -442,7 +458,23 @@ export const FollowersComponent: FC = () => {
   const isTrackingReady = tracking?.availability === 'ready';
 
   const renderEmptyState = () => {
-    if (isDatabaseSort && isTrackingProvisioning) {
+    if (trimmedSearch) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t('followers_search_empty_title', 'No followers match this search')}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_search_empty_description',
+              'Try a different username or display name.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (isInteractionsSort && isTrackingProvisioning) {
       return (
         <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
           <p className="text-[18px] text-newTextColor">
@@ -461,7 +493,7 @@ export const FollowersComponent: FC = () => {
       );
     }
 
-    if (isDatabaseSort && isTrackingUnavailable) {
+    if (isInteractionsSort && isTrackingUnavailable) {
       return (
         <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
           <p className="text-[18px] text-newTextColor">
@@ -483,7 +515,7 @@ export const FollowersComponent: FC = () => {
       );
     }
 
-    if (isDatabaseSort && isTrackingReady) {
+    if (isInteractionsSort && isTrackingReady) {
       return (
         <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
           <p className="text-[18px] text-newTextColor">
@@ -496,6 +528,25 @@ export const FollowersComponent: FC = () => {
             {t(
               'followers_interactions_empty_description',
               'No follower interactions were recorded during the selected period. Try a longer time window.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (isNotesSort) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t(
+              'followers_notes_empty_title',
+              'No synced followers to sort by notes yet'
+            )}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_notes_empty_description',
+              'Once followers are synced for this channel, you can sort them by how many team notes they have.'
             )}
           </p>
         </div>
@@ -613,6 +664,20 @@ export const FollowersComponent: FC = () => {
           </div>
 
           <div className="flex flex-wrap items-end gap-[12px]">
+            <div className="min-w-[220px] flex-1">
+              <Input
+                label={t('followers_search', 'Search')}
+                name="followers-search"
+                disableForm={true}
+                removeError={true}
+                value={search}
+                placeholder={t(
+                  'followers_search_placeholder',
+                  'Search by username or name'
+                )}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
             {showSortSelector && (
               <div className="min-w-[160px]">
                 <Select
@@ -705,7 +770,7 @@ export const FollowersComponent: FC = () => {
           </p>
         )}
 
-        {isDatabaseSort && (
+        {isInteractionsSort && (
           <TrackingNotice tracking={tracking} showFreshness={isTrackingReady} />
         )}
 

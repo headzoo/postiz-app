@@ -47,6 +47,7 @@ import { PipelinesController } from '@gitroom/backend/api/routes/pipelines.contr
 import { ContextDocumentsController } from '@gitroom/backend/api/routes/context-documents.controller';
 import { FollowersController } from '@gitroom/backend/api/routes/followers.controller';
 import { ChannelWebhooksController } from '@gitroom/backend/api/routes/channel-webhooks.controller';
+import { LogsController } from '@gitroom/backend/api/routes/logs.controller';
 
 const authenticatedController = [
   UsersController,
@@ -71,6 +72,7 @@ const authenticatedController = [
   PipelinesController,
   ContextDocumentsController,
   FollowersController,
+  LogsController,
 ];
 @Module({
   imports: [UploadModule],

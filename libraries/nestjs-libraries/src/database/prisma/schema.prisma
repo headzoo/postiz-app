@@ -9,43 +9,43 @@ datasource db {
 }
 
 model Organization {
-  id                  String               @id @default(uuid())
-  name                String
-  description         String?
-  apiKey              String?
-  paymentId           String?
-  streakSince         DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  allowTrial          Boolean              @default(false)
-  isTrailing          Boolean              @default(false)
-  shortlink           ShortLinkPreference  @default(ASK)
-  autoPost            AutoPost[]
-  Comments            Comments[]
-  credits             Credits[]
-  customers           Customer[]
-  errors              Errors[]
-  github              GitHub[]
-  Integration         Integration[]
-  media               Media[]
-  buyerOrganization   MessagesGroup[]
-  notifications       Notifications[]
-  plugs               Plugs[]
-  pipelinePlugs       PipelinePlug[]
-  post                Post[]               @relation("organization")
-  submittedPost       Post[]               @relation("submittedForOrg")
-  sets                Sets[]
-  signatures          Signatures[]
-  subscription        Subscription?
-  tags                Tags[]
-  thirdParty          ThirdParty[]
-  usedCodes           UsedCodes[]
-  users               UserOrganization[]
-  webhooks            Webhooks[]
-  oauthApp            OAuthApp[]
-  oauthAuthorizations OAuthAuthorization[]
-  pipelines           Pipeline[]
-  contextDocuments    ContextDocument[]
+  id                                String                             @id @default(uuid())
+  name                              String
+  description                       String?
+  apiKey                            String?
+  paymentId                         String?
+  streakSince                       DateTime?
+  createdAt                         DateTime                           @default(now())
+  updatedAt                         DateTime                           @updatedAt
+  allowTrial                        Boolean                            @default(false)
+  isTrailing                        Boolean                            @default(false)
+  shortlink                         ShortLinkPreference                @default(ASK)
+  autoPost                          AutoPost[]
+  Comments                          Comments[]
+  credits                           Credits[]
+  customers                         Customer[]
+  errors                            Errors[]
+  github                            GitHub[]
+  Integration                       Integration[]
+  media                             Media[]
+  buyerOrganization                 MessagesGroup[]
+  notifications                     Notifications[]
+  plugs                             Plugs[]
+  pipelinePlugs                     PipelinePlug[]
+  post                              Post[]                             @relation("organization")
+  submittedPost                     Post[]                             @relation("submittedForOrg")
+  sets                              Sets[]
+  signatures                        Signatures[]
+  subscription                      Subscription?
+  tags                              Tags[]
+  thirdParty                        ThirdParty[]
+  usedCodes                         UsedCodes[]
+  users                             UserOrganization[]
+  webhooks                          Webhooks[]
+  oauthApp                          OAuthApp[]
+  oauthAuthorizations               OAuthAuthorization[]
+  pipelines                         Pipeline[]
+  contextDocuments                  ContextDocument[]
   channelAudienceMembers            ChannelAudienceMember[]
   channelInteractionEvents          ChannelInteractionEvent[]
   channelInteractionDailyAggregates ChannelInteractionDailyAggregate[]
@@ -55,6 +55,8 @@ model Organization {
   channelFollowerSyncStates         ChannelFollowerSyncState[]
   channelAudienceNotes              ChannelAudienceNote[]
   channelRelationshipGradeSnapshots ChannelRelationshipGradeSnapshot[]
+  postHttpLogs                      PostHttpLog[]
+  webhookHttpLogs                   WebhookHttpLog[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -327,38 +329,38 @@ model Customer {
 }
 
 model Integration {
-  id                    String                  @id @default(cuid())
-  internalId            String
-  organizationId        String
-  name                  String
-  picture               String?
-  providerIdentifier    String
-  type                  String
-  token                 String
-  disabled              Boolean                 @default(false)
-  tokenExpiration       DateTime?
-  refreshToken          String?
-  profile               String?
-  deletedAt             DateTime?
-  createdAt             DateTime                @default(now())
-  updatedAt             DateTime?               @updatedAt
-  inBetweenSteps        Boolean                 @default(false)
-  refreshNeeded         Boolean                 @default(false)
-  postingTimes          String                  @default("[{\"time\":120}, {\"time\":400}, {\"time\":700}]")
-  customInstanceDetails String?
-  customerId            String?
-  rootInternalId        String?
-  additionalSettings    String?                 @default("[]")
-  exisingPlugData       ExisingPlugData[]
-  customer              Customer?               @relation(fields: [customerId], references: [id])
-  organization          Organization            @relation(fields: [organizationId], references: [id])
-  webhooks              IntegrationsWebhooks[]
-  orderItems            OrderItems[]
-  plugs                 Plugs[]
-  pipelinePlugs         PipelinePlug[]
-  posts                 Post[]
-  pipelineIntegrations  PipelineIntegration[]
-  noticeReads           IntegrationNoticeRead[]
+  id                                String                             @id @default(cuid())
+  internalId                        String
+  organizationId                    String
+  name                              String
+  picture                           String?
+  providerIdentifier                String
+  type                              String
+  token                             String
+  disabled                          Boolean                            @default(false)
+  tokenExpiration                   DateTime?
+  refreshToken                      String?
+  profile                           String?
+  deletedAt                         DateTime?
+  createdAt                         DateTime                           @default(now())
+  updatedAt                         DateTime?                          @updatedAt
+  inBetweenSteps                    Boolean                            @default(false)
+  refreshNeeded                     Boolean                            @default(false)
+  postingTimes                      String                             @default("[{\"time\":120}, {\"time\":400}, {\"time\":700}]")
+  customInstanceDetails             String?
+  customerId                        String?
+  rootInternalId                    String?
+  additionalSettings                String?                            @default("[]")
+  exisingPlugData                   ExisingPlugData[]
+  customer                          Customer?                          @relation(fields: [customerId], references: [id])
+  organization                      Organization                       @relation(fields: [organizationId], references: [id])
+  webhooks                          IntegrationsWebhooks[]
+  orderItems                        OrderItems[]
+  plugs                             Plugs[]
+  pipelinePlugs                     PipelinePlug[]
+  posts                             Post[]
+  pipelineIntegrations              PipelineIntegration[]
+  noticeReads                       IntegrationNoticeRead[]
   channelAudienceMembers            ChannelAudienceMember[]
   channelInteractionEvents          ChannelInteractionEvent[]
   channelInteractionDailyAggregates ChannelInteractionDailyAggregate[]
@@ -368,6 +370,8 @@ model Integration {
   channelFollowerSyncState          ChannelFollowerSyncState?
   channelAudienceNotes              ChannelAudienceNote[]
   channelRelationshipGradeSnapshots ChannelRelationshipGradeSnapshot[]
+  postHttpLogs                      PostHttpLog[]
+  webhookHttpLogs                   WebhookHttpLog[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -472,6 +476,7 @@ model Post {
   tags                       TagsPosts[]
   pipelineQueueItemId        String?
   pipelineQueueItem          PipelineQueueItem?        @relation(fields: [pipelineQueueItemId], references: [id])
+  httpLogs                   PostHttpLog[]
 
   @@index([group])
   @@index([deletedAt])
@@ -667,6 +672,7 @@ model Webhooks {
   updatedAt      DateTime               @updatedAt
   integrations   IntegrationsWebhooks[]
   organization   Organization           @relation(fields: [organizationId], references: [id])
+  httpLogs       WebhookHttpLog[]
 
   @@index([organizationId])
   @@index([deletedAt])
@@ -694,17 +700,17 @@ model AutoPost {
 }
 
 model Pipeline {
-  id               String                  @id @default(uuid())
+  id               String                    @id @default(uuid())
   organizationId   String
   name             String
   timezone         String
-  color            String                  @default("#612BD3")
-  active           Boolean                 @default(true)
-  scheduleRevision Int                     @default(1)
+  color            String                    @default("#612BD3")
+  active           Boolean                   @default(true)
+  scheduleRevision Int                       @default(1)
   deletedAt        DateTime?
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  organization     Organization            @relation(fields: [organizationId], references: [id])
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  organization     Organization              @relation(fields: [organizationId], references: [id])
   integrations     PipelineIntegration[]
   scheduleSlots    PipelineScheduleSlot[]
   queueItems       PipelineQueueItem[]
@@ -1177,34 +1183,36 @@ model Announcement {
 }
 
 model ChannelAudienceMember {
-  id                     String                    @id @default(cuid())
-  organizationId         String
-  integrationId          String
-  externalId             String
-  name                   String?
-  username               String?
-  picture                String?
-  profileUrl             String?
-  bio                    String?
-  followersCount         Int?
-  followingCount         Int?
-  membershipState        ChannelAudienceMembership @default(UNKNOWN)
-  followedAt             DateTime?
-  accountCreatedAt       DateTime?
-  followerSyncGeneration String?
+  id                           String                             @id @default(cuid())
+  organizationId               String
+  integrationId                String
+  externalId                   String
+  name                         String?
+  username                     String?
+  picture                      String?
+  profileUrl                   String?
+  bio                          String?
+  followersCount               Int?
+  followingCount               Int?
+  membershipState              ChannelAudienceMembership          @default(UNKNOWN)
+  followedAt                   DateTime?
+  accountCreatedAt             DateTime?
+  followerSyncGeneration       String?
   membershipEvidenceGeneration String?
-  createdAt              DateTime                  @default(now())
-  updatedAt              DateTime                  @updatedAt
-  organization           Organization              @relation(fields: [organizationId], references: [id])
-  integration            Integration               @relation(fields: [integrationId], references: [id])
-  interactionSummaries   ChannelInteractionWindowSummary[] @relation("AudienceMemberInteractionSummaries")
-  notes                  ChannelAudienceNote[]             @relation("AudienceMemberNotes")
-  gradeSnapshots         ChannelRelationshipGradeSnapshot[] @relation("AudienceMemberGradeSnapshots")
+  noteCount                    Int                                @default(0)
+  createdAt                    DateTime                           @default(now())
+  updatedAt                    DateTime                           @updatedAt
+  organization                 Organization                       @relation(fields: [organizationId], references: [id])
+  integration                  Integration                        @relation(fields: [integrationId], references: [id])
+  interactionSummaries         ChannelInteractionWindowSummary[]  @relation("AudienceMemberInteractionSummaries")
+  notes                        ChannelAudienceNote[]              @relation("AudienceMemberNotes")
+  gradeSnapshots               ChannelRelationshipGradeSnapshot[] @relation("AudienceMemberGradeSnapshots")
 
   @@unique([integrationId, externalId])
   @@index([organizationId, integrationId, membershipState])
   @@index([integrationId, followerSyncGeneration])
   @@index([integrationId, membershipEvidenceGeneration])
+  @@index([integrationId, membershipState, noteCount, externalId])
   @@index([integrationId])
   @@index([organizationId])
 }
@@ -1264,7 +1272,7 @@ model ChannelInteractionWindowSummary {
   createdAt              DateTime                 @default(now())
   organization           Organization             @relation(fields: [organizationId], references: [id])
   integration            Integration              @relation(fields: [integrationId], references: [id])
-  audienceMember         ChannelAudienceMember   @relation("AudienceMemberInteractionSummaries", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
+  audienceMember         ChannelAudienceMember    @relation("AudienceMemberInteractionSummaries", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
 
   @@unique([integrationId, window, generation, counterpartyExternalId])
   @@index([integrationId, window, generation, interactionCount, interactionScore, lastInteractionAt, counterpartyExternalId])
@@ -1288,24 +1296,24 @@ model ChannelInteractionRollupState {
 }
 
 model ChannelFollowerSyncState {
-  id               String                         @id @default(cuid())
-  organizationId   String
-  integrationId    String                         @unique
-  activeGeneration String?
+  id                String                    @id @default(cuid())
+  organizationId    String
+  integrationId     String                    @unique
+  activeGeneration  String?
   pendingGeneration String?
-  status           ChannelFollowerSyncStatus      @default(IN_PROGRESS)
-  completedAt      DateTime?
-  createdAt        DateTime                       @default(now())
-  updatedAt        DateTime                       @updatedAt
-  organization     Organization                   @relation(fields: [organizationId], references: [id])
-  integration      Integration                    @relation(fields: [integrationId], references: [id])
+  status            ChannelFollowerSyncStatus @default(IN_PROGRESS)
+  completedAt       DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  organization      Organization              @relation(fields: [organizationId], references: [id])
+  integration       Integration               @relation(fields: [integrationId], references: [id])
 
   @@index([organizationId])
   @@index([integrationId, pendingGeneration, status])
 }
 
 model ChannelInteractionSubscription {
-  id                String                         @id @default(cuid())
+  id                String                          @id @default(cuid())
   organizationId    String
   integrationId     String
   eventKey          String
@@ -1315,10 +1323,10 @@ model ChannelInteractionSubscription {
   trackingStartedAt DateTime?
   failureCategory   String?
   failureReason     String?
-  createdAt         DateTime                       @default(now())
-  updatedAt         DateTime                       @updatedAt
-  organization      Organization                   @relation(fields: [organizationId], references: [id])
-  integration       Integration                    @relation(fields: [integrationId], references: [id])
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+  organization      Organization                    @relation(fields: [organizationId], references: [id])
+  integration       Integration                     @relation(fields: [integrationId], references: [id])
 
   @@unique([integrationId, eventKey, direction])
   @@index([integrationId, state])
@@ -1421,4 +1429,63 @@ model ChannelRelationshipGradeSnapshot {
   @@index([integrationId, counterpartyExternalId, snapshotAt])
   @@index([integrationId, snapshotAt])
   @@index([organizationId])
+}
+
+enum WebhookHttpLogDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum WebhookHttpLogSource {
+  ORG_WEBHOOK
+  CHANNEL_WEBHOOK
+  TEST
+}
+
+model PostHttpLog {
+  id              String       @id @default(uuid())
+  organizationId  String
+  postId          String?
+  integrationId   String?
+  provider        String
+  method          String
+  url             String
+  statusCode      Int?
+  requestHeaders  String       @default("{}")
+  requestBody     String       @default("")
+  responseHeaders String       @default("{}")
+  responseBody    String       @default("")
+  error           String?
+  createdAt       DateTime     @default(now())
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  post            Post?        @relation(fields: [postId], references: [id], onDelete: SetNull)
+  integration     Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([postId])
+}
+
+model WebhookHttpLog {
+  id              String                  @id @default(uuid())
+  organizationId  String
+  webhookId       String?
+  integrationId   String?
+  direction       WebhookHttpLogDirection
+  source          WebhookHttpLogSource
+  method          String
+  url             String
+  statusCode      Int?
+  requestHeaders  String                  @default("{}")
+  requestBody     String                  @default("")
+  responseHeaders String                  @default("{}")
+  responseBody    String                  @default("")
+  error           String?
+  createdAt       DateTime                @default(now())
+  organization    Organization            @relation(fields: [organizationId], references: [id])
+  webhook         Webhooks?               @relation(fields: [webhookId], references: [id], onDelete: SetNull)
+  integration     Integration?            @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([webhookId])
+  @@index([direction])
 }

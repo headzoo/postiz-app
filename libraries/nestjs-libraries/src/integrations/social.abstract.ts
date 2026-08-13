@@ -7,6 +7,16 @@ import {
   getSsrfSafeAxios,
   getSsrfSafeDispatcher,
 } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
+import {
+  getPostHttpLogContext,
+  writePostHttpLog,
+} from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.context';
+import {
+  readCappedHttpLogBody,
+  redactHttpLogUrl,
+  serializeHttpLogBody,
+  serializeHttpLogHeaders,
+} from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.serialize';
 import sharp from 'sharp';
 import { createReadStream, statSync } from 'fs';
 import { Readable } from 'stream';
@@ -395,11 +405,19 @@ export abstract class SocialAbstract {
     ignoreConcurrency = false,
     message = ''
   ): Promise<Response> {
-    const request = await fetch(url, {
-      ...options,
-      // @ts-ignore - undici-only option, not in the lib.dom RequestInit type
-      dispatcher: (options as any).dispatcher ?? getSsrfSafeDispatcher(),
-    });
+    let request: Response;
+    try {
+      request = await fetch(url, {
+        ...options,
+        // @ts-ignore - undici-only option, not in the lib.dom RequestInit type
+        dispatcher: (options as any).dispatcher ?? getSsrfSafeDispatcher(),
+      });
+    } catch (err) {
+      this.logPostHttp(url, options, undefined, err);
+      throw err;
+    }
+
+    this.logPostHttp(url, options, request);
 
     if (request.status === 200 || request.status === 201) {
       return request;
@@ -468,6 +486,61 @@ export abstract class SocialAbstract {
       options.body!,
       handleError?.value || 'Unknown Error'
     );
+  }
+
+  private logPostHttp(
+    url: string,
+    options: RequestInit,
+    response?: Response,
+    error?: unknown
+  ) {
+    if (!getPostHttpLogContext()) {
+      return;
+    }
+    try {
+      const method = String(options.method || 'GET').toUpperCase();
+      const entry = {
+        method,
+        url: redactHttpLogUrl(url),
+        requestHeaders: serializeHttpLogHeaders(options.headers),
+        requestBody: serializeHttpLogBody(options.body),
+      };
+      if (!response) {
+        writePostHttpLog({
+          ...entry,
+          responseHeaders: '{}',
+          responseBody: '',
+          error:
+            error instanceof Error
+              ? error.message
+              : error
+                ? String(error)
+                : 'Request failed',
+        });
+        return;
+      }
+
+      void readCappedHttpLogBody(response.clone())
+        .then((responseBody) => {
+          writePostHttpLog({
+            ...entry,
+            statusCode: response.status,
+            responseHeaders: serializeHttpLogHeaders(response.headers),
+            responseBody,
+          });
+        })
+        .catch(() => {
+          writePostHttpLog({
+            ...entry,
+            statusCode: response.status,
+            responseHeaders: serializeHttpLogHeaders(response.headers),
+            responseBody: '',
+            error: 'Could not read response body',
+          });
+        });
+    } catch {
+      /** logging must never break publishing */
+    }
   }
 
   checkScopes(required: string[], got: string | string[]) {

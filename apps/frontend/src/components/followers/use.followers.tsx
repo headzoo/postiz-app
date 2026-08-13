@@ -92,6 +92,7 @@ export type Follower = {
   interactionCount?: number;
   interactionScore?: number;
   lastInteractionAt?: string;
+  noteCount?: number;
 };
 
 export type ChannelInteractionDirection = 'inbound' | 'outbound';
@@ -200,6 +201,7 @@ export type UseFollowersParams = {
   sort?: string;
   direction?: FollowerSortDirection;
   window?: ChannelInteractionWindow;
+  search?: string;
 };
 
 const buildFollowersUrl = ({
@@ -209,6 +211,7 @@ const buildFollowersUrl = ({
   sort,
   direction,
   window,
+  search,
 }: UseFollowersParams & { integrationId: string }) => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) {
@@ -223,6 +226,9 @@ const buildFollowersUrl = ({
   if (window) {
     params.set('window', window);
   }
+  if (search) {
+    params.set('search', search);
+  }
   return `/followers/${integrationId}?${params.toString()}`;
 };
 
@@ -233,6 +239,7 @@ export const useFollowers = ({
   sort,
   direction,
   window,
+  search,
 }: UseFollowersParams) => {
   const fetch = useFetch();
 
@@ -247,8 +254,9 @@ export const useFollowers = ({
       sort,
       direction,
       window,
+      search,
     });
-  }, [integrationId, cursor, limit, sort, direction, window]);
+  }, [integrationId, cursor, limit, sort, direction, window, search]);
 
   const load = useCallback(
     async (path: string) => {

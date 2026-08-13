@@ -57,6 +57,8 @@ import { ContextDocumentRepository } from '@gitroom/nestjs-libraries/database/pr
 import { ContextDocumentService } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.service';
 import { ChannelInteractionRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
+import { LogsRepository } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.repository';
+import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
 
 @Global()
 @Module({
@@ -123,6 +125,8 @@ import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/pr
     ContextDocumentService,
     ChannelInteractionRepository,
     ChannelInteractionService,
+    LogsRepository,
+    LogsService,
   ],
   get exports() {
     return this.providers;

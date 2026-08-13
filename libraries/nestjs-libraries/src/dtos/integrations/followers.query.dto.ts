@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsIn,
   IsInt,
@@ -8,6 +8,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 
 export class FollowersQueryDto {
   @IsOptional()
@@ -34,4 +35,12 @@ export class FollowersQueryDto {
   @IsOptional()
   @IsIn(['week', 'month', '90_day', 'year'])
   window?: 'week' | 'month' | '90_day' | 'year';
+
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? normalizeFollowerSearch(value) : value
+  )
+  @IsString()
+  @MaxLength(64)
+  search?: string;
 }

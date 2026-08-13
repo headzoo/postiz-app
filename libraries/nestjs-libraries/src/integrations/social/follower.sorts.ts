@@ -21,6 +21,14 @@ export const FOLLOWER_DATABASE_INTERACTIONS_SORT: FollowerSort = {
   requiresWindow: true,
 };
 
+export const FOLLOWER_DATABASE_NOTES_SORT: FollowerSort = {
+  key: 'notes',
+  label: 'Notes',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+};
+
 export const FOLLOWER_PAGE_SORTS: FollowerSort[] = [
   {
     key: 'followers_count',
@@ -56,6 +64,40 @@ export const API_ORDER_FOLLOWER_SORTS: FollowerSort[] = [
   FOLLOWER_NATIVE_RECENT_SORT,
   ...FOLLOWER_PAGE_SORTS,
 ];
+
+export const AUDIENCE_FOLLOWER_SORT_FIELDS = {
+  recent: 'followedAt',
+  name: 'name',
+  followers_count: 'followersCount',
+  following_count: 'followingCount',
+  account_created_at: 'accountCreatedAt',
+} as const;
+
+export type AudienceFollowerSortField =
+  (typeof AUDIENCE_FOLLOWER_SORT_FIELDS)[keyof typeof AUDIENCE_FOLLOWER_SORT_FIELDS];
+
+export const normalizeFollowerSearch = (value?: string) => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim().replace(/^@/, '').trim();
+  return normalized || undefined;
+};
+
+export const getAudienceFollowerSortField = (
+  sortKey?: string
+): AudienceFollowerSortField => {
+  if (!sortKey) {
+    return AUDIENCE_FOLLOWER_SORT_FIELDS.recent;
+  }
+
+  return (
+    AUDIENCE_FOLLOWER_SORT_FIELDS[
+      sortKey as keyof typeof AUDIENCE_FOLLOWER_SORT_FIELDS
+    ] ?? AUDIENCE_FOLLOWER_SORT_FIELDS.recent
+  );
+};
 
 export const isPageScopedFollowerSort = (
   sorts: FollowerSort[] | undefined,

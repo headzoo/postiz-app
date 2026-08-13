@@ -25,8 +25,12 @@ import {
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import {
+  AudienceFollowerSortField,
   FOLLOWER_DATABASE_INTERACTIONS_SORT,
+  FOLLOWER_DATABASE_NOTES_SORT,
+  getAudienceFollowerSortField,
   isPageScopedFollowerSort,
+  normalizeFollowerSearch,
   sortFollowers,
 } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
@@ -54,7 +58,9 @@ import pLimit from 'p-limit';
 import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service';
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 import {
+  AudienceFollowerCursor,
   ChannelInteractionRepository,
+  NoteCountFollowerCursor,
   RankedFollowerCursor,
 } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
 
@@ -317,13 +323,40 @@ export class IntegrationService {
       throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
     }
 
-    const sort = this.validateFollowerQuery(provider, query);
+    const search = normalizeFollowerSearch(query.search);
+    const normalizedQuery: FollowerQuery = {
+      ...query,
+      ...(search ? { search } : { search: undefined }),
+    };
+    const sort = this.validateFollowerQuery(provider, normalizedQuery);
     if (sort?.scope === 'database') {
-      return this.getDatabaseFollowerPage(org.id, integration, provider, query, sort);
+      return this.getDatabaseFollowerPage(
+        org.id,
+        integration,
+        provider,
+        normalizedQuery,
+        sort
+      );
+    }
+
+    if (search) {
+      return this.getAudienceFollowerPage(
+        org.id,
+        integration,
+        provider,
+        normalizedQuery,
+        sort
+      );
     }
 
     try {
-      return await this.getFollowerPage(integration, provider, query);
+      const page = await this.getFollowerPage(integration, provider, normalizedQuery);
+      return this.enrichFollowerPageWithInteractionMetrics(
+        org.id,
+        integration.id,
+        provider,
+        page
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -473,6 +506,7 @@ export class IntegrationService {
         followingCount: number | null;
         followedAt: Date | null;
         accountCreatedAt: Date | null;
+        noteCount: number;
       };
       snapshots: Array<{
         snapshotAt: Date;
@@ -488,7 +522,12 @@ export class IntegrationService {
         content: string;
         createdAt: Date;
         updatedAt: Date;
-        author: { id: string; name: string | null; lastName: string | null };
+        author: {
+          id: string;
+          name: string | null;
+          lastName: string | null;
+          email: string;
+        };
       }>;
       events: Array<{
         id: string;
@@ -557,6 +596,7 @@ export class IntegrationService {
     followingCount: number | null;
     followedAt: Date | null;
     accountCreatedAt: Date | null;
+    noteCount?: number;
   }): Follower {
     return this.sanitizeFollower({
       id: member.externalId,
@@ -577,6 +617,9 @@ export class IntegrationService {
       ...(member.accountCreatedAt
         ? { accountCreatedAt: member.accountCreatedAt.toISOString() }
         : {}),
+      ...(Number.isSafeInteger(member.noteCount) && member.noteCount! >= 0
+        ? { noteCount: member.noteCount }
+        : {}),
     });
   }
 
@@ -585,7 +628,12 @@ export class IntegrationService {
     content: string;
     createdAt: Date;
     updatedAt: Date;
-    author: { id: string; name: string | null; lastName: string | null };
+    author: {
+      id: string;
+      name: string | null;
+      lastName: string | null;
+      email: string;
+    };
   }): FollowerMemberNote {
     const name = [note.author.name, note.author.lastName]
       .filter((value): value is string => !!value)
@@ -596,11 +644,21 @@ export class IntegrationService {
       content: note.content,
       author: {
         id: note.author.id,
-        name: name || 'Unknown',
+        name: name || this.displayNameFromEmail(note.author.email) || 'Unknown',
       },
       createdAt: note.createdAt.toISOString(),
       updatedAt: note.updatedAt.toISOString(),
     };
+  }
+
+  private displayNameFromEmail(email: string) {
+    const localPart = email.split('@')[0]?.trim();
+    if (!localPart) {
+      return '';
+    }
+    const capitalized =
+      localPart.charAt(0).toUpperCase() + localPart.slice(1);
+    return capitalized.split('.')[0];
   }
 
   private mapFollowerMemberInteraction(event: {
@@ -647,8 +705,17 @@ export class IntegrationService {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
 
+    const search = normalizeFollowerSearch(query.search);
+    const isAudienceCursor = !!query.cursor?.startsWith('follower-audience:v1:');
+    const isRankCursor = !!query.cursor?.startsWith('follower-rank:v1:');
+    const isNotesCursor = !!query.cursor?.startsWith('follower-notes:v1:');
+
+    if (isAudienceCursor && !search) {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+
     if (!query.sort && !query.direction) {
-      if (query.cursor?.startsWith('follower-rank:v1:')) {
+      if (isRankCursor || isNotesCursor) {
         throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
       }
       return undefined;
@@ -661,7 +728,10 @@ export class IntegrationService {
       throw new HttpException('Unsupported follower sort', HttpStatus.BAD_REQUEST);
     }
     if (sort.scope === 'database') {
-      if (!sort.requiresWindow || !query.window) {
+      if (isAudienceCursor) {
+        throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+      }
+      if (sort.requiresWindow && !query.window) {
         throw new HttpException(
           'A time window is required for this follower sort',
           HttpStatus.BAD_REQUEST
@@ -669,7 +739,7 @@ export class IntegrationService {
       }
       return sort;
     }
-    if (query.cursor?.startsWith('follower-rank:v1:')) {
+    if (isRankCursor || isNotesCursor) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
     return sort;
@@ -682,6 +752,10 @@ export class IntegrationService {
     query: FollowerQuery,
     sort: FollowerSort
   ): Promise<FollowerPage> {
+    if (sort.key === FOLLOWER_DATABASE_NOTES_SORT.key) {
+      return this.getNoteCountFollowerPage(organizationId, integration, query, sort);
+    }
+
     const direction = query.direction ?? sort.defaultDirection;
     const window = query.window!;
     const cursor = query.cursor
@@ -700,6 +774,7 @@ export class IntegrationService {
       direction,
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
+      ...(query.search ? { search: query.search } : {}),
     });
     if (cursor && ranked.rollup?.activeGeneration !== cursor.generation) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -719,6 +794,12 @@ export class IntegrationService {
       return { items: [], hasMore: false, window, tracking };
     }
 
+    const noteCounts =
+      await this._channelInteractionRepository.getFollowerNoteCounts(
+        organizationId,
+        integration.id,
+        ranked.items.map((row) => row.counterpartyExternalId)
+      );
     const items = ranked.items.map((row) =>
       this.sanitizeFollower({
         id: row.counterpartyExternalId,
@@ -734,6 +815,7 @@ export class IntegrationService {
         interactionCount: row.interactionCount,
         interactionScore: row.interactionScore,
         ...(row.lastInteractionAt ? { lastInteractionAt: row.lastInteractionAt.toISOString() } : {}),
+        noteCount: noteCounts.get(row.counterpartyExternalId) ?? 0,
       })
     );
     const last = items.at(-1);
@@ -757,6 +839,141 @@ export class IntegrationService {
         : {}),
       window,
       tracking,
+    };
+  }
+
+  private async getAudienceFollowerPage(
+    organizationId: string,
+    integration: Integration,
+    provider: SocialProvider,
+    query: FollowerQuery,
+    sort?: FollowerSort
+  ): Promise<FollowerPage> {
+    const search = query.search!;
+    const direction = query.direction ?? sort?.defaultDirection ?? 'desc';
+    const sortKey = sort?.key ?? 'recent';
+    const sortField = getAudienceFollowerSortField(sortKey);
+    const cursor = query.cursor
+      ? this.decodeAudienceFollowerCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        sortKey,
+        direction,
+        search,
+        sortField
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getAudienceFollowers({
+      organizationId,
+      integrationId: integration.id,
+      search,
+      sortField,
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+    });
+    const items = ranked.items.map((row) =>
+      this.sanitizeFollower({
+        id: row.externalId,
+        name: row.name || row.username || row.externalId,
+        ...(row.username ? { username: row.username } : {}),
+        ...(row.picture ? { picture: row.picture } : {}),
+        ...(row.profileUrl ? { profileUrl: row.profileUrl } : {}),
+        ...(row.bio ? { bio: row.bio } : {}),
+        ...(row.followersCount !== null ? { followersCount: row.followersCount } : {}),
+        ...(row.followingCount !== null ? { followingCount: row.followingCount } : {}),
+        ...(row.followedAt ? { followedAt: row.followedAt.toISOString() } : {}),
+        ...(row.accountCreatedAt
+          ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
+          : {}),
+        noteCount: row.noteCount,
+      })
+    );
+    const last = ranked.items.at(-1);
+    const page: FollowerPage = {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeAudienceFollowerCursor({
+            organizationId,
+            integrationId: integration.id,
+            sort: sortKey,
+            direction,
+            search,
+            sortField,
+            sortValue: this.audienceCursorSortValue(last, sortField),
+            externalId: last.externalId,
+          }),
+        }
+        : {}),
+    };
+
+    return this.enrichFollowerPageWithInteractionMetrics(
+      organizationId,
+      integration.id,
+      provider,
+      page
+    );
+  }
+
+  private async getNoteCountFollowerPage(
+    organizationId: string,
+    integration: Integration,
+    query: FollowerQuery,
+    sort: FollowerSort
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? sort.defaultDirection;
+    const cursor = query.cursor
+      ? this.decodeNoteCountFollowerCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        direction
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getFollowersByNoteCount({
+      organizationId,
+      integrationId: integration.id,
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+      ...(query.search ? { search: query.search } : {}),
+    });
+
+    const items = ranked.items.map((row) =>
+      this.sanitizeFollower({
+        id: row.externalId,
+        name: row.name || row.username || row.externalId,
+        ...(row.username ? { username: row.username } : {}),
+        ...(row.picture ? { picture: row.picture } : {}),
+        ...(row.profileUrl ? { profileUrl: row.profileUrl } : {}),
+        ...(row.bio ? { bio: row.bio } : {}),
+        ...(row.followersCount !== null ? { followersCount: row.followersCount } : {}),
+        ...(row.followingCount !== null ? { followingCount: row.followingCount } : {}),
+        ...(row.followedAt ? { followedAt: row.followedAt.toISOString() } : {}),
+        ...(row.accountCreatedAt
+          ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
+          : {}),
+        noteCount: row.noteCount,
+      })
+    );
+    const last = items.at(-1);
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeNoteCountFollowerCursor({
+            organizationId,
+            integrationId: integration.id,
+            direction,
+            noteCount: last.noteCount!,
+            externalId: last.id,
+          }),
+        }
+        : {}),
     };
   }
 
@@ -801,14 +1018,14 @@ export class IntegrationService {
     const state = states.includes(ChannelInteractionTrackingState.ERROR)
       ? 'error'
       : states.includes(ChannelInteractionTrackingState.PROVISIONING) ||
-          !states.length
+        !states.length
         ? 'provisioning'
         : states.includes(ChannelInteractionTrackingState.UNCONFIGURED)
           ? 'unconfigured'
-        : states.includes(ChannelInteractionTrackingState.PARTIAL) ||
+          : states.includes(ChannelInteractionTrackingState.PARTIAL) ||
             this.hasLimitedInteractionCoverage(coverage)
-          ? 'partial'
-          : 'active';
+            ? 'partial'
+            : 'active';
     const availability = options?.rankingAvailability
       ? followerSync?.activeGeneration && followerSync.completedAt && computedAt
         ? 'ready'
@@ -942,6 +1159,187 @@ export class IntegrationService {
     }
   }
 
+  private encodeNoteCountFollowerCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    direction: 'asc' | 'desc';
+  } & NoteCountFollowerCursor) {
+    return `follower-notes:v1:${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeNoteCountFollowerCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    direction: 'asc' | 'desc'
+  ): NoteCountFollowerCursor {
+    try {
+      if (!value.startsWith('follower-notes:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(
+          value.slice('follower-notes:v1:'.length),
+          'base64url'
+        ).toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.direction !== direction ||
+        !Number.isSafeInteger(cursor.noteCount) ||
+        cursor.noteCount < 0 ||
+        typeof cursor.externalId !== 'string'
+      ) {
+        throw new Error();
+      }
+      return {
+        noteCount: cursor.noteCount,
+        externalId: cursor.externalId,
+      };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  private encodeAudienceFollowerCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    sort: string;
+    direction: 'asc' | 'desc';
+    search: string;
+    sortField: AudienceFollowerSortField;
+  } & AudienceFollowerCursor) {
+    return `follower-audience:v1:${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeAudienceFollowerCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    sort: string,
+    direction: 'asc' | 'desc',
+    search: string,
+    sortField: AudienceFollowerSortField
+  ): AudienceFollowerCursor {
+    try {
+      if (!value.startsWith('follower-audience:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(
+          value.slice('follower-audience:v1:'.length),
+          'base64url'
+        ).toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.sort !== sort ||
+        cursor.direction !== direction ||
+        cursor.search !== search ||
+        cursor.sortField !== sortField ||
+        typeof cursor.externalId !== 'string' ||
+        !this.isAudienceCursorSortValue(cursor.sortField, cursor.sortValue)
+      ) {
+        throw new Error();
+      }
+      return {
+        sortField: cursor.sortField,
+        sortValue: cursor.sortValue,
+        externalId: cursor.externalId,
+      };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  private isAudienceCursorSortValue(
+    field: AudienceFollowerSortField,
+    value: unknown
+  ): value is string | number | null {
+    if (value === null) {
+      return true;
+    }
+    if (field === 'followersCount' || field === 'followingCount') {
+      return typeof value === 'number' && Number.isSafeInteger(value);
+    }
+    if (field === 'followedAt' || field === 'accountCreatedAt') {
+      return typeof value === 'string' && !Number.isNaN(new Date(value).getTime());
+    }
+    return typeof value === 'string';
+  }
+
+  private audienceCursorSortValue(
+    row: {
+      name: string | null;
+      followersCount: number | null;
+      followingCount: number | null;
+      followedAt: Date | null;
+      accountCreatedAt: Date | null;
+    },
+    sortField: AudienceFollowerSortField
+  ): string | number | null {
+    const value = row[sortField];
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+      return value;
+    }
+    return null;
+  }
+
+  private async enrichFollowerPageWithInteractionMetrics(
+    organizationId: string,
+    integrationId: string,
+    provider: SocialProvider,
+    page: FollowerPage
+  ): Promise<FollowerPage> {
+    if (!provider.channelInteractionWebhooks || !page.items.length) {
+      return page;
+    }
+
+    const externalIds = page.items.map((item) => item.id);
+    const [metrics, noteCounts] = await Promise.all([
+      this._channelInteractionRepository.getFollowerInteractionMetrics(
+        organizationId,
+        integrationId,
+        externalIds
+      ),
+      this._channelInteractionRepository.getFollowerNoteCounts(
+        organizationId,
+        integrationId,
+        externalIds
+      ),
+    ]);
+
+    return {
+      ...page,
+      items: page.items.map((item) => {
+        const metric = metrics.get(item.id);
+        return this.sanitizeFollower({
+          ...item,
+          interactionCount: metric?.interactionCount ?? 0,
+          noteCount: noteCounts.get(item.id) ?? 0,
+          ...(metric
+            ? {
+              interactionScore: metric.interactionScore,
+              ...(metric.lastInteractionAt
+                ? {
+                  lastInteractionAt:
+                    metric.lastInteractionAt.toISOString(),
+                }
+                : {}),
+            }
+            : {}),
+        });
+      }),
+    };
+  }
+
   private async getFollowerPage(
     integration: Integration,
     provider: SocialProvider,
@@ -973,8 +1371,8 @@ export class IntegrationService {
         query.sort
       );
       const providerQuery: FollowerQuery = pageScoped
-        ? { ...query, sort: undefined, direction: undefined }
-        : query;
+        ? { ...query, sort: undefined, direction: undefined, search: undefined }
+        : { ...query, search: undefined };
       const page = await provider.followers!(
         liveIntegration,
         liveIntegration.token,
@@ -1053,25 +1451,38 @@ export class IntegrationService {
         ? { accountCreatedAt: follower.accountCreatedAt }
         : {}),
       ...(Number.isSafeInteger(follower.interactionCount) &&
-      follower.interactionCount >= 0
+        follower.interactionCount >= 0
         ? { interactionCount: follower.interactionCount }
         : {}),
       ...(Number.isSafeInteger(follower.interactionScore) &&
-      follower.interactionScore >= 0
+        follower.interactionScore >= 0
         ? { interactionScore: follower.interactionScore }
         : {}),
       ...(typeof follower.lastInteractionAt === 'string'
         ? { lastInteractionAt: follower.lastInteractionAt }
         : {}),
+      ...(Number.isSafeInteger(follower.noteCount) && follower.noteCount >= 0
+        ? { noteCount: follower.noteCount }
+        : {}),
     };
   }
 
   private getFollowerSorts(provider: SocialProvider) {
-    const sorts = provider.followerSorts || [];
-    return provider.channelInteractionWebhooks &&
-      !sorts.some((sort) => sort.key === FOLLOWER_DATABASE_INTERACTIONS_SORT.key)
-      ? [...sorts, FOLLOWER_DATABASE_INTERACTIONS_SORT]
-      : sorts;
+    const sorts = [...(provider.followerSorts || [])];
+    if (!provider.channelInteractionWebhooks) {
+      return sorts;
+    }
+    if (
+      !sorts.some(
+        (sort) => sort.key === FOLLOWER_DATABASE_INTERACTIONS_SORT.key
+      )
+    ) {
+      sorts.push(FOLLOWER_DATABASE_INTERACTIONS_SORT);
+    }
+    if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_NOTES_SORT.key)) {
+      sorts.push(FOLLOWER_DATABASE_NOTES_SORT);
+    }
+    return sorts;
   }
 
   private sanitizeHttpUrl(url: string | null | undefined) {

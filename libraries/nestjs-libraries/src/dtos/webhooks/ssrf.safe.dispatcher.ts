@@ -61,6 +61,8 @@ const ssrfSafeAxios = axios.create({
   } as https.AgentOptions),
 });
 
+const unprotectedAxios = axios.create();
+
 // Self-hosters legitimately connect Postiz to WordPress/Mastodon/Lemmy/Listmonk
 // instances that live on a private network (e.g. the same Docker network or VPC).
 // Setting DISABLE_SSRF_PROTECTION=true opts those deployments out of the IP
@@ -72,5 +74,11 @@ export function getSsrfSafeDispatcher(): Agent | undefined {
 }
 
 export function getSsrfSafeAxios(): AxiosInstance {
-  return process.env.DISABLE_SSRF_PROTECTION === 'true' ? axios : ssrfSafeAxios;
+  return process.env.DISABLE_SSRF_PROTECTION === 'true'
+    ? unprotectedAxios
+    : ssrfSafeAxios;
+}
+
+export function getSsrfSafeAxiosInstances(): AxiosInstance[] {
+  return [ssrfSafeAxios, unprotectedAxios];
 }

@@ -281,6 +281,62 @@ describe('ChannelInteractionService', () => {
     expect(record).toHaveBeenCalledWith('org-b', 'integration-b', [interaction()]);
   });
 
+  it('writes an inbound webhook log for each resolved organization', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([
+      { id: 'integration-a', organizationId: 'org-a' },
+      { id: 'integration-a2', organizationId: 'org-a' },
+      { id: 'integration-b', organizationId: 'org-b' },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyAndNormalizeDelivery: jest.fn().mockResolvedValue({
+            accepted: true,
+            connectedAccountId: 'account-1',
+            events: [interaction()],
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      logsService as any
+    );
+    jest.spyOn(service, 'recordNormalizedDelivery').mockResolvedValue({
+      created: 1,
+      duplicates: 0,
+      membershipOnly: 0,
+    });
+
+    await service.handleDelivery('provider', {
+      rawBody: Buffer.from('{"ok":true}'),
+      headers: { 'x-twitter-webhooks-signature': 'valid' },
+    });
+
+    expect(logsService.logInboundWebhook).toHaveBeenCalledTimes(2);
+    expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        method: 'POST',
+        url: '/channel-webhooks/provider',
+        statusCode: 200,
+      })
+    );
+    expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-b',
+        method: 'POST',
+        url: '/channel-webhooks/provider',
+        statusCode: 200,
+      })
+    );
+  });
+
   it('acknowledges a verified delivery for an unknown local account', async () => {
     const repository = createRepository();
     const manager = {

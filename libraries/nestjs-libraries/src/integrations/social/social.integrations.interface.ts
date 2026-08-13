@@ -195,6 +195,7 @@ export type Follower = {
   interactionCount?: number;
   interactionScore?: number;
   lastInteractionAt?: string;
+  noteCount?: number;
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';
@@ -218,6 +219,7 @@ export type FollowerQuery = {
   sort?: string;
   direction?: FollowerSortDirection;
   window?: ChannelInteractionWindow;
+  search?: string;
 };
 
 export type ChannelInteractionTrackingState =

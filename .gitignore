@@ -63,3 +63,5 @@ i18n.cache
 apps/frontend/public/g.js
 
 *.scratch.md
+*.sql
+!libraries/nestjs-libraries/src/database/prisma/migrations/**/*.sql

@@ -35,6 +35,7 @@ const createHarness = () => {
     channelInteractionDailyAggregate: {
       upsert: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     channelFollowerSyncState: {
       upsert: jest.fn().mockResolvedValue({}),
@@ -60,6 +61,7 @@ const createHarness = () => {
     },
     channelAudienceNote: {
       create: jest.fn(),
+      findFirst: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
@@ -70,13 +72,16 @@ const createHarness = () => {
   const repository = new ChannelInteractionRepository(
     {
       model: {
-        channelInteractionDailyAggregate: {},
+        channelInteractionDailyAggregate: {
+          groupBy: tx.channelInteractionDailyAggregate.groupBy,
+        },
         channelInteractionEvent: {},
         channelInteractionRollupState: {},
         channelFollowerSyncState: {},
         channelInteractionWindowSummary: {},
         channelAudienceMember: {
           findFirst: tx.channelAudienceMember.findFirst,
+          findMany: tx.channelAudienceMember.findMany,
         },
         channelAudienceNote: tx.channelAudienceNote,
         channelRelationshipGradeSnapshot: tx.channelRelationshipGradeSnapshot,
@@ -90,6 +95,7 @@ const createHarness = () => {
     repository,
     tx,
     groupBy: tx.channelInteractionEvent.groupBy,
+    dailyAggregateGroupBy: tx.channelInteractionDailyAggregate.groupBy,
     transaction,
     findFirst: tx.channelInteractionRollupState.findFirst,
     followerSyncFindFirst: tx.channelFollowerSyncState.findFirst,
@@ -100,6 +106,45 @@ const createHarness = () => {
 };
 
 describe('ChannelInteractionRepository', () => {
+  it('loads interaction metrics for follower ids from daily aggregates', async () => {
+    const { repository, dailyAggregateGroupBy } = createHarness();
+    dailyAggregateGroupBy.mockResolvedValue([
+      {
+        counterpartyExternalId: 'person-1',
+        _sum: { interactionCount: 23, interactionScore: 40 },
+        _max: { lastInteractionAt: new Date('2026-08-12T12:00:00.000Z') },
+      },
+    ]);
+
+    const metrics = await repository.getFollowerInteractionMetrics(
+      'org',
+      'integration',
+      ['person-1', 'person-2', 'person-1']
+    );
+
+    expect(dailyAggregateGroupBy).toHaveBeenCalledWith({
+      by: ['counterpartyExternalId'],
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        counterpartyExternalId: { in: ['person-1', 'person-2'] },
+      },
+      _sum: {
+        interactionCount: true,
+        interactionScore: true,
+      },
+      _max: {
+        lastInteractionAt: true,
+      },
+    });
+    expect(metrics.get('person-1')).toEqual({
+      interactionCount: 23,
+      interactionScore: 40,
+      lastInteractionAt: new Date('2026-08-12T12:00:00.000Z'),
+    });
+    expect(metrics.has('person-2')).toBe(false);
+  });
+
   it('increments the UTC daily aggregate once under concurrent duplicate delivery', async () => {
     const { repository, tx } = createHarness();
     tx.channelInteractionEvent.createMany
@@ -506,7 +551,7 @@ describe('ChannelInteractionRepository', () => {
   });
 
   it('preserves the previous active rollup if writing the new generation fails', async () => {
-    const { repository, tx, groupBy } = createHarness();
+    const { repository, tx, groupBy, audienceMemberFindMany } = createHarness();
     groupBy.mockResolvedValue([{
       counterpartyExternalId: 'person-1',
       kind: ChannelInteractionKind.LIKE,
@@ -514,6 +559,7 @@ describe('ChannelInteractionRepository', () => {
       _count: { _all: 2 },
       _max: { eventAt: new Date('2026-08-12T12:00:00.000Z') },
     }]);
+    audienceMemberFindMany.mockResolvedValue([{ externalId: 'person-1' }]);
     tx.channelInteractionWindowSummary.createMany.mockRejectedValue(
       new Error('write failed')
     );
@@ -753,6 +799,271 @@ describe('ChannelInteractionRepository', () => {
         formulaVersion: 1,
       }],
       skipDuplicates: true,
+    });
+  });
+
+  it('increments noteCount when creating an audience note', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue({ id: 'member-1' });
+    tx.channelAudienceNote.create.mockResolvedValue({
+      id: 'note-1',
+      content: 'Hello',
+      author: { id: 'user-1', name: 'Ada', lastName: null, email: 'ada@example.com' },
+    });
+
+    await expect(
+      repository.createAudienceNote('org', 'integration', 'person-1', 'user-1', 'Hello')
+    ).resolves.toMatchObject({ id: 'note-1' });
+
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      data: { noteCount: { increment: 1 } },
+    });
+  });
+
+  it('decrements noteCount when deleting an audience note', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceNote.findFirst.mockResolvedValue({
+      id: 'note-1',
+      counterpartyExternalId: 'person-1',
+    });
+    tx.channelAudienceNote.deleteMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      repository.deleteAudienceNote('org', 'integration', 'note-1')
+    ).resolves.toBe(true);
+
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+        noteCount: { gt: 0 },
+      },
+      data: { noteCount: { decrement: 1 } },
+    });
+  });
+
+  it('does not decrement noteCount when the note is missing', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceNote.findFirst.mockResolvedValue(null);
+
+    await expect(
+      repository.deleteAudienceNote('org', 'integration', 'missing')
+    ).resolves.toBe(false);
+
+    expect(tx.channelAudienceNote.deleteMany).not.toHaveBeenCalled();
+    expect(tx.channelAudienceMember.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('ranks followers by noteCount with keyset pagination', async () => {
+    const { repository, tx, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      { externalId: 'person-2', name: 'Two', noteCount: 4 },
+      { externalId: 'person-1', name: 'One', noteCount: 2 },
+      { externalId: 'person-0', name: 'Zero', noteCount: 0 },
+    ]);
+
+    await expect(
+      repository.getFollowersByNoteCount({
+        organizationId: 'org',
+        integrationId: 'integration',
+        direction: 'desc',
+        limit: 2,
+      })
+    ).resolves.toEqual({
+      items: [
+        { externalId: 'person-2', name: 'Two', noteCount: 4 },
+        { externalId: 'person-1', name: 'One', noteCount: 2 },
+      ],
+      hasMore: true,
+    });
+
+    expect(tx.integration.findFirst).toHaveBeenCalled();
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+        },
+        orderBy: [{ noteCount: 'desc' }, { externalId: 'desc' }],
+        take: 3,
+      })
+    );
+
+    expect(
+      (repository as any).noteCountFollowerKeyset(
+        { noteCount: 2, externalId: 'person-1' },
+        'desc'
+      )
+    ).toEqual({
+      OR: [
+        { noteCount: { lt: 2 } },
+        { noteCount: 2, externalId: { lt: 'person-1' } },
+      ],
+    });
+  });
+
+  it('filters ranked followers by username or name when search is set', async () => {
+    const {
+      repository,
+      findFirst,
+      followerSyncFindFirst,
+      findMany,
+    } = createHarness();
+    findFirst.mockResolvedValue({
+      activeGeneration: 'generation-a',
+      computedAt: new Date('2026-08-12T12:00:00.000Z'),
+    });
+    followerSyncFindFirst.mockResolvedValue({
+      activeGeneration: 'followers-a',
+      status: ChannelFollowerSyncStatus.IN_PROGRESS,
+      completedAt: new Date('2026-08-11T12:00:00.000Z'),
+    });
+    findMany.mockResolvedValue([]);
+
+    await repository.getRankedFollowers({
+      organizationId: 'org',
+      integrationId: 'integration',
+      window: ChannelInteractionWindow.MONTH,
+      direction: 'desc',
+      limit: 24,
+      search: 'alice',
+    });
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          audienceMember: {
+            is: {
+              organizationId: 'org',
+              integrationId: 'integration',
+              membershipState: ChannelAudienceMembership.FOLLOWER,
+              OR: [
+                { username: { contains: 'alice', mode: 'insensitive' } },
+                { name: { contains: 'alice', mode: 'insensitive' } },
+              ],
+            },
+          },
+        }),
+      })
+    );
+  });
+
+  it('filters note-count followers by username or name when search is set', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getFollowersByNoteCount({
+      organizationId: 'org',
+      integrationId: 'integration',
+      direction: 'desc',
+      limit: 24,
+      search: 'alice',
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          AND: [
+            {
+              OR: [
+                { username: { contains: 'alice', mode: 'insensitive' } },
+                { name: { contains: 'alice', mode: 'insensitive' } },
+              ],
+            },
+          ],
+        },
+      })
+    );
+  });
+
+  it('queries synced audience members for search with keyset pagination', async () => {
+    const { repository, tx, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      {
+        externalId: 'person-2',
+        name: 'Alice Two',
+        username: 'alice2',
+        followedAt: new Date('2026-08-12T12:00:00.000Z'),
+      },
+      {
+        externalId: 'person-1',
+        name: 'Alice One',
+        username: 'alice1',
+        followedAt: new Date('2026-08-11T12:00:00.000Z'),
+      },
+      {
+        externalId: 'person-0',
+        name: 'Alice Zero',
+        username: 'alice0',
+        followedAt: new Date('2026-08-10T12:00:00.000Z'),
+      },
+    ]);
+
+    await expect(
+      repository.getAudienceFollowers({
+        organizationId: 'org',
+        integrationId: 'integration',
+        search: 'alice',
+        sortField: 'followedAt',
+        direction: 'desc',
+        limit: 2,
+      })
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({ externalId: 'person-2' }),
+        expect.objectContaining({ externalId: 'person-1' }),
+      ],
+      hasMore: true,
+    });
+
+    expect(tx.integration.findFirst).toHaveBeenCalled();
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          AND: [
+            {
+              OR: [
+                { username: { contains: 'alice', mode: 'insensitive' } },
+                { name: { contains: 'alice', mode: 'insensitive' } },
+              ],
+            },
+          ],
+        },
+        orderBy: [{ followedAt: 'desc' }, { externalId: 'desc' }],
+        take: 3,
+      })
+    );
+
+    expect(
+      (repository as any).audienceFollowerKeyset(
+        {
+          sortField: 'followedAt',
+          sortValue: '2026-08-11T12:00:00.000Z',
+          externalId: 'person-1',
+        },
+        'desc'
+      )
+    ).toEqual({
+      OR: [
+        { followedAt: { lt: new Date('2026-08-11T12:00:00.000Z') } },
+        {
+          followedAt: new Date('2026-08-11T12:00:00.000Z'),
+          externalId: { lt: 'person-1' },
+        },
+      ],
     });
   });
 });

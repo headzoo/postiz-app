@@ -1,5 +1,7 @@
 import {
   compareFollowers,
+  getAudienceFollowerSortField,
+  normalizeFollowerSearch,
   sortFollowers,
 } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 
@@ -31,6 +33,23 @@ describe('follower.sorts', () => {
     expect(sortFollowers(followers, 'name', 'asc').map((item) => item.id)).toEqual(
       ['a', 'b']
     );
+  });
+
+  it('normalizes follower search by trimming and stripping a leading @', () => {
+    expect(normalizeFollowerSearch('  @Alice  ')).toBe('Alice');
+    expect(normalizeFollowerSearch('@@alice')).toBe('@alice');
+    expect(normalizeFollowerSearch('   ')).toBeUndefined();
+    expect(normalizeFollowerSearch('@')).toBeUndefined();
+    expect(normalizeFollowerSearch(undefined)).toBeUndefined();
+  });
+
+  it('maps audience search sorts onto database columns', () => {
+    expect(getAudienceFollowerSortField('recent')).toBe('followedAt');
+    expect(getAudienceFollowerSortField('name')).toBe('name');
+    expect(getAudienceFollowerSortField('followers_count')).toBe(
+      'followersCount'
+    );
+    expect(getAudienceFollowerSortField('unknown')).toBe('followedAt');
   });
 
   it('places missing values last when sorting ascending', () => {

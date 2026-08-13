@@ -23,6 +23,7 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
 import { Integration } from '@prisma/client';
+import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
 import {
   AudienceProfile,
   ChannelInteractionRepository,
@@ -82,7 +83,8 @@ const WINDOW_MAP: Record<ChannelInteractionWindow, {
 export class ChannelInteractionService {
   constructor(
     private _repository: ChannelInteractionRepository,
-    private _integrationManager?: IntegrationManager
+    private _integrationManager?: IntegrationManager,
+    private _logsService?: LogsService
   ) {}
 
   async handleChallenge(
@@ -116,7 +118,47 @@ export class ChannelInteractionService {
         )
       )
     );
+    await this.logInboundDelivery(
+      providerIdentifier,
+      request,
+      integrations,
+      200,
+      { ok: true }
+    );
     return delivery;
+  }
+
+  private async logInboundDelivery(
+    providerIdentifier: string,
+    request: ChannelWebhookDeliveryRequest,
+    integrations: Array<{ id: string; organizationId: string }>,
+    statusCode: number,
+    responseBody: unknown
+  ) {
+    if (!this._logsService || integrations.length === 0) {
+      return;
+    }
+    const orgs = new Map<string, string | undefined>();
+    for (const integration of integrations) {
+      if (!orgs.has(integration.organizationId)) {
+        orgs.set(integration.organizationId, integration.id);
+      }
+    }
+    await Promise.all(
+      [...orgs.entries()].map(([organizationId, integrationId]) =>
+        this._logsService!.logInboundWebhook({
+          organizationId,
+          integrationId,
+          method: 'POST',
+          url: `/channel-webhooks/${providerIdentifier}`,
+          statusCode,
+          requestHeaders: request.headers,
+          requestBody: request.rawBody,
+          responseHeaders: { 'content-type': 'application/json' },
+          responseBody,
+        })
+      )
+    );
   }
 
   async requestReconciliation(integration: Integration) {

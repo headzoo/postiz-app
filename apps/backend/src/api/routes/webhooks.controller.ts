@@ -12,6 +12,9 @@ import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.reque
 import { Organization } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 import { WebhooksService } from '@gitroom/nestjs-libraries/database/prisma/webhooks/webhooks.service';
+import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
+import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
+import { WebhookHttpLogSource } from '@prisma/client';
 import { CheckPolicies } from '@gitroom/backend/services/auth/permissions/permissions.ability';
 import {
   OnlyURL, UpdateDto, WebhooksDto
@@ -21,7 +24,10 @@ import { AuthorizationActions, Sections } from '@gitroom/backend/services/auth/p
 @ApiTags('Webhooks')
 @Controller('/webhooks')
 export class WebhookController {
-  constructor(private _webhooksService: WebhooksService) {}
+  constructor(
+    private _webhooksService: WebhooksService,
+    private _logsService: LogsService
+  ) {}
 
   @Get('/')
   async getStatistics(@GetOrgFromRequest() org: Organization) {
@@ -54,15 +60,40 @@ export class WebhookController {
   }
 
   @Post('/send')
-  async sendWebhook(@Body() body: any, @Query() query: OnlyURL) {
+  async sendWebhook(
+    @GetOrgFromRequest() org: Organization,
+    @Body() body: any,
+    @Query() query: OnlyURL
+  ) {
+    const headers = { 'Content-Type': 'application/json' };
+    const payload = JSON.stringify(body);
     try {
-      await fetch(query.url, {
+      const response = await fetch(query.url, {
         method: 'POST',
-        body: JSON.stringify(body),
-        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        headers,
+        // @ts-ignore — undici option, not in lib.dom fetch types
+        dispatcher: getSsrfSafeDispatcher(),
+      });
+      await this._logsService.logOutboundWebhook({
+        organizationId: org.id,
+        source: WebhookHttpLogSource.TEST,
+        method: 'POST',
+        url: query.url,
+        requestHeaders: headers,
+        requestBody: payload,
+        response,
       });
     } catch (err) {
-      /** sent **/
+      await this._logsService.logOutboundWebhook({
+        organizationId: org.id,
+        source: WebhookHttpLogSource.TEST,
+        method: 'POST',
+        url: query.url,
+        requestHeaders: headers,
+        requestBody: payload,
+        error: err,
+      });
     }
 
     return { send: true };

@@ -45,10 +45,10 @@ export const FollowerCard: FC<{
     ? formatDate(follower.lastInteractionAt)
     : null;
   const handle = follower.username ? `@${follower.username}` : undefined;
-  const hasInteractionMetrics =
-    Number.isFinite(follower.interactionCount) ||
-    Number.isFinite(follower.interactionScore) ||
-    !!lastInteractionAt;
+  const hasInteractionCount = Number.isFinite(follower.interactionCount);
+  const hasNoteCount = Number.isFinite(follower.noteCount);
+  const hasSecondaryInteractionMetrics =
+    Number.isFinite(follower.interactionScore) || !!lastInteractionAt;
 
   const handleCardClick = () => {
     onOpen?.();
@@ -133,55 +133,65 @@ export const FollowerCard: FC<{
               <h3 className="text-[15px] font-[600] text-newTextColor truncate">
                 {follower.name}
               </h3>
-              {handle &&
-                (follower.profileUrl ? (
-                  <a
-                    href={follower.profileUrl}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    onClick={stopProfileNavigation}
-                    onKeyDown={stopProfileKeyboard}
-                    className="text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80 block"
-                  >
-                    {handle}
-                  </a>
-                ) : (
-                  <p className="text-[13px] text-textItemBlur truncate">
-                    {handle}
-                  </p>
-                ))}
-            </div>
-
-            {hasInteractionMetrics && (
-              <div className="mt-[10px] flex flex-col gap-[4px]">
-                {Number.isFinite(follower.interactionCount) && (
-                  <div className="flex items-baseline gap-[8px]">
-                    <span className="text-[22px] font-[700] leading-none text-newTextColor">
-                      {formatCompactCount(follower.interactionCount!)}
-                    </span>
-                    <span className="text-[13px] text-textItemBlur">
-                      {t('followers_interaction_count', 'Interactions')}
-                    </span>
-                  </div>
-                )}
-                <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[4px] text-[12px] text-textItemBlur">
-                  {Number.isFinite(follower.interactionScore) && (
-                    <span>
-                      {t('followers_activity_score', 'Activity score {{score}}', {
-                        score: follower.interactionScore!,
-                      })}
+              {(handle || hasInteractionCount || hasNoteCount) && (
+                <div className="flex flex-wrap items-baseline gap-x-[8px] gap-y-[2px] text-[13px] min-w-0">
+                  {handle &&
+                    (follower.profileUrl ? (
+                      <a
+                        href={follower.profileUrl}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        onClick={stopProfileNavigation}
+                        onKeyDown={stopProfileKeyboard}
+                        className="text-textItemBlur truncate hover:underline hover:opacity-80"
+                      >
+                        {handle}
+                      </a>
+                    ) : (
+                      <span className="text-textItemBlur truncate">{handle}</span>
+                    ))}
+                  {hasInteractionCount && (
+                    <span className="shrink-0">
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.interactionCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_interaction_count', 'interactions')}
+                      </span>
                     </span>
                   )}
-                  {lastInteractionAt && (
-                    <span>
-                      {t(
-                        'followers_last_interaction',
-                        'Last interaction {{date}}',
-                        { date: lastInteractionAt }
-                      )}
+                  {hasNoteCount && (
+                    <span className="shrink-0">
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.noteCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_note_count', 'notes')}
+                      </span>
                     </span>
                   )}
                 </div>
+              )}
+            </div>
+
+            {hasSecondaryInteractionMetrics && (
+              <div className="mt-[6px] flex flex-wrap items-center gap-x-[16px] gap-y-[4px] text-[12px] text-textItemBlur">
+                {Number.isFinite(follower.interactionScore) && (
+                  <span>
+                    {t('followers_activity_score', 'Activity score {{score}}', {
+                      score: follower.interactionScore!,
+                    })}
+                  </span>
+                )}
+                {lastInteractionAt && (
+                  <span>
+                    {t(
+                      'followers_last_interaction',
+                      'Last interaction {{date}}',
+                      { date: lastInteractionAt }
+                    )}
+                  </span>
+                )}
               </div>
             )}
 

@@ -96,6 +96,26 @@ describe('FollowerCard', () => {
     expect(screen.queryByText(/Quality score/i)).toBeNull();
   });
 
+  it('shows interaction count next to the username', () => {
+    render(<FollowerCard follower={baseFollower} onOpen={jest.fn()} />);
+
+    expect(screen.getByText('@alex')).toBeTruthy();
+    expect(screen.getByText('7')).toBeTruthy();
+    expect(screen.getByText('interactions')).toBeTruthy();
+  });
+
+  it('shows note count next to the username', () => {
+    render(
+      <FollowerCard
+        follower={{ ...baseFollower, noteCount: 3 }}
+        onOpen={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('3')).toBeTruthy();
+    expect(screen.getByText('notes')).toBeTruthy();
+  });
+
   it('opens the modal when avatar has no profile link', () => {
     const onOpen = jest.fn();
     const follower = { ...baseFollower, profileUrl: undefined };
