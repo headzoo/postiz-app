@@ -12,6 +12,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Organization, User } from '@prisma/client';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import { FollowerMemberQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-member.query.dto';
+import { UpdateFollowerGradeDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-grade.dto';
 import {
   CreateFollowerNoteDto,
   UpdateFollowerNoteDto,
@@ -23,7 +24,7 @@ import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.req
 @ApiTags('Followers')
 @Controller('/followers')
 export class FollowersController {
-  constructor(private _integrationService: IntegrationService) {}
+  constructor(private _integrationService: IntegrationService) { }
 
   @Get('/channels')
   getChannels(@GetOrgFromRequest() org: Organization) {
@@ -33,13 +34,31 @@ export class FollowersController {
   @Get('/:integrationId/member')
   getFollowerMember(
     @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
     @Param('integrationId') integrationId: string,
     @Query() query: FollowerMemberQueryDto
   ) {
     return this._integrationService.getFollowerMemberDetails(
       org,
+      user,
       integrationId,
       query.externalId
+    );
+  }
+
+  @Put('/:integrationId/member/my-grade')
+  updateFollowerMemberGrade(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
+    @Param('integrationId') integrationId: string,
+    @Body() body: UpdateFollowerGradeDto
+  ) {
+    return this._integrationService.updateFollowerMemberGrade(
+      org,
+      user,
+      integrationId,
+      body.externalId,
+      body.grade
     );
   }
 
@@ -90,9 +109,10 @@ export class FollowersController {
   @Get('/:integrationId')
   getFollowers(
     @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
     @Param('integrationId') integrationId: string,
     @Query() query: FollowersQueryDto
   ) {
-    return this._integrationService.getFollowers(org, integrationId, query);
+    return this._integrationService.getFollowers(org, user, integrationId, query);
   }
 }

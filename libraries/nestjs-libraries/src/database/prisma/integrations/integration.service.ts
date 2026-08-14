@@ -28,12 +28,15 @@ import {
   AudienceFollowerSortField,
   FOLLOWER_DATABASE_INTERACTIONS_SORT,
   FOLLOWER_DATABASE_LIKES_SORT,
+  FOLLOWER_DATABASE_MY_GRADE_SORT,
   FOLLOWER_DATABASE_NOTES_SORT,
+  FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT,
   getAudienceFollowerSortField,
   isPageScopedFollowerSort,
   normalizeFollowerSearch,
   sortFollowers,
 } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+import { applyPersonalRelationshipGrade } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.scoring';
 import {
   ChannelFollowerSyncStatus,
   ChannelInteractionTrackingState,
@@ -61,6 +64,7 @@ import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/pr
 import {
   AudienceFollowerCursor,
   ChannelInteractionRepository,
+  GradeFollowerCursor,
   LikesCountFollowerCursor,
   NoteCountFollowerCursor,
   RankedFollowerCursor,
@@ -292,6 +296,7 @@ export class IntegrationService {
 
   async getFollowers(
     org: Organization,
+    user: User,
     integrationId: string,
     query: FollowerQuery
   ) {
@@ -334,6 +339,7 @@ export class IntegrationService {
     if (sort?.scope === 'database') {
       return this.getDatabaseFollowerPage(
         org.id,
+        user.id,
         integration,
         provider,
         normalizedQuery,
@@ -344,6 +350,7 @@ export class IntegrationService {
     if (search) {
       return this.getAudienceFollowerPage(
         org.id,
+        user.id,
         integration,
         provider,
         normalizedQuery,
@@ -355,6 +362,7 @@ export class IntegrationService {
       const page = await this.getFollowerPage(integration, provider, normalizedQuery);
       return this.enrichFollowerPageWithInteractionMetrics(
         org.id,
+        user.id,
         integration.id,
         provider,
         page
@@ -372,6 +380,7 @@ export class IntegrationService {
 
   async getFollowerMemberDetails(
     org: Organization,
+    user: User,
     integrationId: string,
     externalId: string
   ): Promise<FollowerMemberDetail> {
@@ -380,7 +389,8 @@ export class IntegrationService {
       const details = await this._channelInteractionService.getFollowerDetails(
         org.id,
         integrationId,
-        externalId
+        externalId,
+        user.id
       );
       return this.mapFollowerMemberDetails(details, provider);
     } catch (error) {
@@ -453,6 +463,31 @@ export class IntegrationService {
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw new HttpException('Follower note was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
+  async updateFollowerMemberGrade(
+    org: Organization,
+    user: User,
+    integrationId: string,
+    externalId: string,
+    grade: number
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      const saved = await this._channelInteractionService.upsertFollowerGrade(
+        org.id,
+        integrationId,
+        externalId,
+        user.id,
+        grade
+      );
+      return { myGrade: saved.grade };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
       }
       throw error;
     }
@@ -552,11 +587,13 @@ export class IntegrationService {
           failureReason?: string | null;
         }[];
       };
+      myGrade?: number | null;
     },
     provider: SocialProvider
   ): FollowerMemberDetail {
+    const myGrade = details.myGrade ?? null;
     const history = details.snapshots.map((snapshot) =>
-      this.mapFollowerRelationshipSnapshot(snapshot)
+      this.mapFollowerRelationshipSnapshot(snapshot, myGrade)
     );
     const coverage =
       provider.channelInteractionWebhooks?.getInteractionCoverage() ?? [];
@@ -584,6 +621,7 @@ export class IntegrationService {
         current: history.length ? history[history.length - 1] : null,
         history,
       },
+      myGrade,
       tracking,
     };
   }
@@ -601,6 +639,9 @@ export class IntegrationService {
     accountCreatedAt: Date | null;
     noteCount?: number;
     likesCount?: number;
+    relationshipGrade?: number | null;
+    myGrade?: number | null;
+    personalGrades?: Array<{ grade: number }>;
   }): Follower {
     return this.sanitizeFollower({
       id: member.externalId,
@@ -627,7 +668,22 @@ export class IntegrationService {
       ...(Number.isSafeInteger(member.likesCount) && member.likesCount! >= 0
         ? { likesCount: member.likesCount }
         : {}),
+      ...this.followerGradeFields(member),
     });
+  }
+
+  private followerGradeFields(member?: {
+    relationshipGrade?: number | null;
+    myGrade?: number | null;
+    personalGrades?: Array<{ grade: number }>;
+  }) {
+    const relationshipGrade = member?.relationshipGrade ?? null;
+    const myGrade = member?.myGrade ?? member?.personalGrades?.[0]?.grade ?? null;
+    return {
+      relationshipGrade,
+      myGrade,
+      adjustedGrade: applyPersonalRelationshipGrade(relationshipGrade, myGrade),
+    };
   }
 
   private mapFollowerMemberNote(note: {
@@ -692,7 +748,7 @@ export class IntegrationService {
     reciprocity: number | null;
     grade: number | null;
     formulaVersion: number;
-  }): FollowerRelationshipSnapshot {
+  }, myGrade: number | null): FollowerRelationshipSnapshot {
     return {
       snapshotAt: snapshot.snapshotAt.toISOString(),
       windowStartedAt: snapshot.windowStartedAt.toISOString(),
@@ -700,6 +756,7 @@ export class IntegrationService {
       reciprocationScore: snapshot.reciprocationScore,
       reciprocity: snapshot.reciprocity,
       grade: snapshot.grade,
+      adjustedGrade: applyPersonalRelationshipGrade(snapshot.grade, myGrade),
       formulaVersion: snapshot.formulaVersion,
     };
   }
@@ -717,13 +774,16 @@ export class IntegrationService {
     const isRankCursor = !!query.cursor?.startsWith('follower-rank:v1:');
     const isNotesCursor = !!query.cursor?.startsWith('follower-notes:v1:');
     const isLikesCursor = !!query.cursor?.startsWith('follower-likes:v1:');
+    const isGradeCursor =
+      !!query.cursor?.startsWith('follower-relationship-grade:v1:') ||
+      !!query.cursor?.startsWith('follower-my-grade:v1:');
 
     if (isAudienceCursor && !search) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
 
     if (!query.sort && !query.direction) {
-      if (isRankCursor || isNotesCursor || isLikesCursor) {
+      if (isRankCursor || isNotesCursor || isLikesCursor || isGradeCursor) {
         throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
       }
       return undefined;
@@ -747,7 +807,7 @@ export class IntegrationService {
       }
       return sort;
     }
-    if (isRankCursor || isNotesCursor || isLikesCursor) {
+    if (isRankCursor || isNotesCursor || isLikesCursor || isGradeCursor) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
     return sort;
@@ -755,16 +815,29 @@ export class IntegrationService {
 
   private async getDatabaseFollowerPage(
     organizationId: string,
+    userId: string,
     integration: Integration,
     provider: SocialProvider,
     query: FollowerQuery,
     sort: FollowerSort
   ): Promise<FollowerPage> {
     if (sort.key === FOLLOWER_DATABASE_NOTES_SORT.key) {
-      return this.getNoteCountFollowerPage(organizationId, integration, query, sort);
+      return this.getNoteCountFollowerPage(organizationId, userId, integration, query, sort);
     }
     if (sort.key === FOLLOWER_DATABASE_LIKES_SORT.key) {
-      return this.getLikesCountFollowerPage(organizationId, integration, query, sort);
+      return this.getLikesCountFollowerPage(organizationId, userId, integration, query, sort);
+    }
+    if (sort.key === FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT.key) {
+      return this.getRelationshipGradeFollowerPage(
+        organizationId,
+        userId,
+        integration,
+        query,
+        sort
+      );
+    }
+    if (sort.key === FOLLOWER_DATABASE_MY_GRADE_SORT.key) {
+      return this.getMyGradeFollowerPage(organizationId, userId, integration, query, sort);
     }
 
     const direction = query.direction ?? sort.defaultDirection;
@@ -809,7 +882,8 @@ export class IntegrationService {
       await this._channelInteractionRepository.getFollowerNoteCounts(
         organizationId,
         integration.id,
-        ranked.items.map((row) => row.counterpartyExternalId)
+        ranked.items.map((row) => row.counterpartyExternalId),
+        userId
       );
     const items = ranked.items.map((row) =>
       this.sanitizeFollower({
@@ -828,6 +902,7 @@ export class IntegrationService {
         ...(row.lastInteractionAt ? { lastInteractionAt: row.lastInteractionAt.toISOString() } : {}),
         noteCount: audienceCounts.get(row.counterpartyExternalId)?.noteCount ?? 0,
         likesCount: audienceCounts.get(row.counterpartyExternalId)?.likesCount ?? 0,
+        ...this.followerGradeFields(audienceCounts.get(row.counterpartyExternalId)),
       })
     );
     const last = items.at(-1);
@@ -856,6 +931,7 @@ export class IntegrationService {
 
   private async getAudienceFollowerPage(
     organizationId: string,
+    userId: string,
     integration: Integration,
     provider: SocialProvider,
     query: FollowerQuery,
@@ -879,30 +955,14 @@ export class IntegrationService {
     const ranked = await this._channelInteractionRepository.getAudienceFollowers({
       organizationId,
       integrationId: integration.id,
+      userId,
       search,
       sortField,
       direction,
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
     });
-    const items = ranked.items.map((row) =>
-      this.sanitizeFollower({
-        id: row.externalId,
-        name: row.name || row.username || row.externalId,
-        ...(row.username ? { username: row.username } : {}),
-        ...(row.picture ? { picture: row.picture } : {}),
-        ...(row.profileUrl ? { profileUrl: row.profileUrl } : {}),
-        ...(row.bio ? { bio: row.bio } : {}),
-        ...(row.followersCount !== null ? { followersCount: row.followersCount } : {}),
-        ...(row.followingCount !== null ? { followingCount: row.followingCount } : {}),
-        ...(row.followedAt ? { followedAt: row.followedAt.toISOString() } : {}),
-        ...(row.accountCreatedAt
-          ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
-          : {}),
-        noteCount: row.noteCount,
-        likesCount: row.likesCount,
-      })
-    );
+    const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
     const page: FollowerPage = {
       items,
@@ -925,6 +985,7 @@ export class IntegrationService {
 
     return this.enrichFollowerPageWithInteractionMetrics(
       organizationId,
+      userId,
       integration.id,
       provider,
       page
@@ -933,6 +994,7 @@ export class IntegrationService {
 
   private async getNoteCountFollowerPage(
     organizationId: string,
+    userId: string,
     integration: Integration,
     query: FollowerQuery,
     sort: FollowerSort
@@ -949,30 +1011,14 @@ export class IntegrationService {
     const ranked = await this._channelInteractionRepository.getFollowersByNoteCount({
       organizationId,
       integrationId: integration.id,
+      userId,
       direction,
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
     });
 
-    const items = ranked.items.map((row) =>
-      this.sanitizeFollower({
-        id: row.externalId,
-        name: row.name || row.username || row.externalId,
-        ...(row.username ? { username: row.username } : {}),
-        ...(row.picture ? { picture: row.picture } : {}),
-        ...(row.profileUrl ? { profileUrl: row.profileUrl } : {}),
-        ...(row.bio ? { bio: row.bio } : {}),
-        ...(row.followersCount !== null ? { followersCount: row.followersCount } : {}),
-        ...(row.followingCount !== null ? { followingCount: row.followingCount } : {}),
-        ...(row.followedAt ? { followedAt: row.followedAt.toISOString() } : {}),
-        ...(row.accountCreatedAt
-          ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
-          : {}),
-        noteCount: row.noteCount,
-        likesCount: row.likesCount,
-      })
-    );
+    const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = items.at(-1);
     return {
       items,
@@ -993,6 +1039,7 @@ export class IntegrationService {
 
   private async getLikesCountFollowerPage(
     organizationId: string,
+    userId: string,
     integration: Integration,
     query: FollowerQuery,
     sort: FollowerSort
@@ -1009,30 +1056,14 @@ export class IntegrationService {
     const ranked = await this._channelInteractionRepository.getFollowersByLikesCount({
       organizationId,
       integrationId: integration.id,
+      userId,
       direction,
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
     });
 
-    const items = ranked.items.map((row) =>
-      this.sanitizeFollower({
-        id: row.externalId,
-        name: row.name || row.username || row.externalId,
-        ...(row.username ? { username: row.username } : {}),
-        ...(row.picture ? { picture: row.picture } : {}),
-        ...(row.profileUrl ? { profileUrl: row.profileUrl } : {}),
-        ...(row.bio ? { bio: row.bio } : {}),
-        ...(row.followersCount !== null ? { followersCount: row.followersCount } : {}),
-        ...(row.followingCount !== null ? { followingCount: row.followingCount } : {}),
-        ...(row.followedAt ? { followedAt: row.followedAt.toISOString() } : {}),
-        ...(row.accountCreatedAt
-          ? { accountCreatedAt: row.accountCreatedAt.toISOString() }
-          : {}),
-        noteCount: row.noteCount,
-        likesCount: row.likesCount,
-      })
-    );
+    const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = items.at(-1);
     return {
       items,
@@ -1045,6 +1076,100 @@ export class IntegrationService {
             direction,
             likesCount: last.likesCount!,
             externalId: last.id,
+          }),
+        }
+        : {}),
+    };
+  }
+
+  private async getRelationshipGradeFollowerPage(
+    organizationId: string,
+    userId: string,
+    integration: Integration,
+    query: FollowerQuery,
+    sort: FollowerSort
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? sort.defaultDirection;
+    const cursor = query.cursor
+      ? this.decodeGradeFollowerCursor(
+        query.cursor,
+        'follower-relationship-grade:v1:',
+        organizationId,
+        integration.id,
+        direction
+      )
+      : undefined;
+    const ranked =
+      await this._channelInteractionRepository.getFollowersByRelationshipGrade({
+        organizationId,
+        integrationId: integration.id,
+        userId,
+        direction,
+        limit: query.limit,
+        ...(cursor ? { cursor } : {}),
+        ...(query.search ? { search: query.search } : {}),
+      });
+    const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
+    const last = ranked.items.at(-1);
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeGradeFollowerCursor(
+            'follower-relationship-grade:v1:',
+            {
+              organizationId,
+              integrationId: integration.id,
+              direction,
+              grade: last.relationshipGrade ?? null,
+              externalId: last.externalId,
+            }
+          ),
+        }
+        : {}),
+    };
+  }
+
+  private async getMyGradeFollowerPage(
+    organizationId: string,
+    userId: string,
+    integration: Integration,
+    query: FollowerQuery,
+    sort: FollowerSort
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? sort.defaultDirection;
+    const cursor = query.cursor
+      ? this.decodeGradeFollowerCursor(
+        query.cursor,
+        'follower-my-grade:v1:',
+        organizationId,
+        integration.id,
+        direction
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getFollowersByMyGrade({
+      organizationId,
+      integrationId: integration.id,
+      userId,
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+      ...(query.search ? { search: query.search } : {}),
+    });
+    const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
+    const last = ranked.items.at(-1);
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeGradeFollowerCursor('follower-my-grade:v1:', {
+            organizationId,
+            integrationId: integration.id,
+            direction,
+            grade: last.personalGrades[0]?.grade ?? null,
+            externalId: last.externalId,
           }),
         }
         : {}),
@@ -1321,6 +1446,51 @@ export class IntegrationService {
     }
   }
 
+  private encodeGradeFollowerCursor(
+    prefix: 'follower-relationship-grade:v1:' | 'follower-my-grade:v1:',
+    cursor: {
+      organizationId: string;
+      integrationId: string;
+      direction: 'asc' | 'desc';
+    } & GradeFollowerCursor
+  ) {
+    return `${prefix}${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeGradeFollowerCursor(
+    value: string,
+    prefix: 'follower-relationship-grade:v1:' | 'follower-my-grade:v1:',
+    organizationId: string,
+    integrationId: string,
+    direction: 'asc' | 'desc'
+  ): GradeFollowerCursor {
+    try {
+      if (!value.startsWith(prefix)) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(value.slice(prefix.length), 'base64url').toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.direction !== direction ||
+        typeof cursor.externalId !== 'string' ||
+        (cursor.grade !== null &&
+          !(typeof cursor.grade === 'number' && Number.isFinite(cursor.grade)))
+      ) {
+        throw new Error();
+      }
+      return {
+        grade: cursor.grade,
+        externalId: cursor.externalId,
+      };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+  }
+
   private encodeAudienceFollowerCursor(cursor: {
     organizationId: string;
     integrationId: string;
@@ -1412,6 +1582,7 @@ export class IntegrationService {
 
   private async enrichFollowerPageWithInteractionMetrics(
     organizationId: string,
+    userId: string,
     integrationId: string,
     provider: SocialProvider,
     page: FollowerPage
@@ -1430,7 +1601,8 @@ export class IntegrationService {
       this._channelInteractionRepository.getFollowerNoteCounts(
         organizationId,
         integrationId,
-        externalIds
+        externalIds,
+        userId
       ),
     ]);
 
@@ -1444,6 +1616,7 @@ export class IntegrationService {
           interactionCount: metric?.interactionCount ?? 0,
           noteCount: counts?.noteCount ?? 0,
           likesCount: counts?.likesCount ?? 0,
+          ...this.followerGradeFields(counts),
           ...(metric
             ? {
               interactionScore: metric.interactionScore,
@@ -1587,6 +1760,16 @@ export class IntegrationService {
       ...(Number.isSafeInteger(follower.likesCount) && follower.likesCount >= 0
         ? { likesCount: follower.likesCount }
         : {}),
+      ...(follower.relationshipGrade === null ||
+        Number.isFinite(follower.relationshipGrade)
+        ? { relationshipGrade: follower.relationshipGrade }
+        : {}),
+      ...(follower.myGrade === null || Number.isFinite(follower.myGrade)
+        ? { myGrade: follower.myGrade }
+        : {}),
+      ...(follower.adjustedGrade === null || Number.isFinite(follower.adjustedGrade)
+        ? { adjustedGrade: follower.adjustedGrade }
+        : {}),
     };
   }
 
@@ -1607,6 +1790,16 @@ export class IntegrationService {
     }
     if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_LIKES_SORT.key)) {
       sorts.push(FOLLOWER_DATABASE_LIKES_SORT);
+    }
+    if (
+      !sorts.some(
+        (sort) => sort.key === FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT.key
+      )
+    ) {
+      sorts.push(FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT);
+    }
+    if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_MY_GRADE_SORT.key)) {
+      sorts.push(FOLLOWER_DATABASE_MY_GRADE_SORT);
     }
     return sorts;
   }

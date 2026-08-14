@@ -89,6 +89,7 @@ const detail: FollowerMemberDetail = {
       timestamp: '2026-01-02T12:00:00.000Z',
     },
   ],
+  myGrade: null,
   relationship: {
     windowDays: 30,
     cadenceDays: 30,
@@ -100,6 +101,7 @@ const detail: FollowerMemberDetail = {
       reciprocationScore: 5,
       reciprocity: 0.5,
       grade: 3.5,
+      adjustedGrade: 3.5,
       formulaVersion: 1,
     },
     history: [
@@ -110,6 +112,7 @@ const detail: FollowerMemberDetail = {
         reciprocationScore: 0,
         reciprocity: null,
         grade: null,
+        adjustedGrade: null,
         formulaVersion: 1,
       },
       {
@@ -119,6 +122,7 @@ const detail: FollowerMemberDetail = {
         reciprocationScore: 5,
         reciprocity: 0.5,
         grade: 3.5,
+        adjustedGrade: 3.5,
         formulaVersion: 1,
       },
     ],
@@ -207,7 +211,9 @@ describe('FollowerDetailModal', () => {
     );
 
     expect(screen.getByText('Relationship grade')).toBeTruthy();
-    expect(screen.getByLabelText('3.5 out of 5')).toBeTruthy();
+    expect(screen.getByText('My grade')).toBeTruthy();
+    expect(screen.getByRole('img', { name: '3.5 out of 5' })).toBeTruthy();
+    expect(screen.getByRole('radio', { name: '4.5 out of 5' })).toBeTruthy();
     expect(screen.getByText('Your effort (E): 10')).toBeTruthy();
     expect(screen.getByText('Their reciprocation (R): 5')).toBeTruthy();
     expect(screen.getByText('Reciprocity: 50%')).toBeTruthy();
@@ -348,6 +354,7 @@ describe('FollowerDetailModal', () => {
           current: {
             ...detail.relationship.current!,
             grade: null,
+            adjustedGrade: null,
             reciprocity: null,
           },
         },
@@ -363,6 +370,54 @@ describe('FollowerDetailModal', () => {
 
     expect(screen.getByRole('img', { name: 'No grade yet' })).toBeTruthy();
     expect(screen.queryByText('Not enough tracked activity')).toBeNull();
+  });
+
+  it('saves a half-star personal grade and revalidates detail', async () => {
+    render(
+      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
+    );
+
+    fireEvent.click(screen.getByRole('radio', { name: '4.5 out of 5' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/followers/channel-1/member/my-grade',
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify({
+            externalId: 'follower-1',
+            grade: 4.5,
+          }),
+        })
+      );
+      expect(mutate).toHaveBeenCalled();
+    });
+  });
+
+  it('shows the adjusted relationship grade and computed hint', () => {
+    useSWR.mockReturnValue({
+      data: {
+        ...detail,
+        myGrade: 5,
+        relationship: {
+          ...detail.relationship,
+          current: {
+            ...detail.relationship.current!,
+            adjustedGrade: 5,
+          },
+        },
+      },
+      error: undefined,
+      isLoading: false,
+      mutate,
+    });
+
+    render(
+      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
+    );
+
+    expect(screen.getByRole('img', { name: '5 out of 5' })).toBeTruthy();
+    expect(screen.getByText('Computed grade: 3.5 out of 5')).toBeTruthy();
   });
 
   it('preserves note draft after a failed save', async () => {

@@ -1,7 +1,6 @@
 'use client';
 
 import { FC, useCallback, useMemo, useState } from 'react';
-import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { Button } from '@gitroom/react/form/button';
 import { Textarea } from '@gitroom/react/form/textarea';
@@ -11,12 +10,14 @@ import {
   useDecisionModal,
 } from '@gitroom/frontend/components/layout/new-modal';
 import { FollowerRelationshipChart } from '@gitroom/frontend/components/followers/follower.relationship.chart';
+import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import {
   ChannelInteractionKind,
   FollowerMemberDetail,
   FollowerMemberInteraction,
   FollowerMemberNote,
   useFollowerDetail,
+  useFollowerGradeMutation,
   useFollowerNoteMutations,
 } from '@gitroom/frontend/components/followers/use.followers';
 
@@ -74,60 +75,6 @@ const formatReciprocity = (value: number | null) => {
     return '—';
   }
   return `${Math.round(value * 100)}%`;
-};
-
-const RelationshipStars: FC<{ grade: number | null }> = ({ grade }) => {
-  const stars = Array.from({ length: 5 }, (_, index) => {
-    if (grade == null) {
-      return 0;
-    }
-    return Math.min(1, Math.max(0, grade - index));
-  });
-
-  return (
-    <div
-      className="flex items-center gap-[4px]"
-      role="img"
-      aria-label={grade == null ? 'No grade yet' : `${grade} out of 5`}
-    >
-      {stars.map((fill, index) => (
-        <span key={index} className="relative inline-block h-[20px] w-[20px]">
-          <svg
-            viewBox="0 0 24 24"
-            className="absolute inset-0 h-[20px] w-[20px] text-newTableBorder"
-            aria-hidden="true"
-          >
-            <path
-              fill="currentColor"
-              d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"
-            />
-          </svg>
-          {fill > 0 && (
-            <span
-              className="absolute inset-0 overflow-hidden"
-              style={{ width: `${fill * 100}%` }}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-[20px] w-[20px] text-amber-400"
-                aria-hidden="true"
-              >
-                <path
-                  fill="currentColor"
-                  d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"
-                />
-              </svg>
-            </span>
-          )}
-        </span>
-      ))}
-      {grade != null && (
-        <span className="ms-[6px] text-[14px] text-newTextColor">
-          {grade} out of 5
-        </span>
-      )}
-    </div>
-  );
 };
 
 const InteractionRow: FC<{
@@ -296,9 +243,16 @@ const FollowerDetailContent: FC<{
   const [newNote, setNewNote] = useState('');
   const [noteError, setNoteError] = useState('');
   const [isNotePending, setIsNotePending] = useState(false);
+  const [gradeError, setGradeError] = useState('');
+  const [isGradePending, setIsGradePending] = useState(false);
 
   const revalidateDetail = useCallback(() => mutate(), [mutate]);
   const { createNote, updateNote, deleteNote } = useFollowerNoteMutations(
+    integrationId,
+    externalId,
+    revalidateDetail
+  );
+  const { updateGrade } = useFollowerGradeMutation(
     integrationId,
     externalId,
     revalidateDetail
@@ -315,6 +269,28 @@ const FollowerDetailContent: FC<{
 
   const current = detail.relationship.current;
   const chartHistory = detail.relationship.history;
+  const displayedGrade = current?.adjustedGrade ?? current?.grade ?? null;
+  const computedGrade = current?.grade ?? null;
+
+  const handleSelectGrade = useCallback(
+    async (grade: number) => {
+      setGradeError('');
+      setIsGradePending(true);
+      try {
+        await updateGrade(grade);
+      } catch {
+        setGradeError(
+          t(
+            'followers_grade_save_error',
+            'Could not save your grade. Try again.'
+          )
+        );
+      } finally {
+        setIsGradePending(false);
+      }
+    },
+    [t, updateGrade]
+  );
 
   const handleCreateNote = useCallback(async () => {
     const trimmed = newNote.trim();
@@ -449,10 +425,39 @@ const FollowerDetailContent: FC<{
       </div>
 
       <section className="flex flex-col gap-[12px]">
-        <h4 className="text-[16px] font-[600] text-newTextColor">
-          {t('followers_relationship_grade', 'Relationship grade')}
-        </h4>
-        <RelationshipStars grade={current?.grade ?? null} />
+        <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2">
+          <div className="flex flex-col gap-[8px]">
+            <h4 className="text-[16px] font-[600] text-newTextColor">
+              {t('followers_relationship_grade', 'Relationship grade')}
+            </h4>
+            <RelationshipStars grade={displayedGrade} />
+            {computedGrade != null &&
+              displayedGrade != null &&
+              computedGrade !== displayedGrade && (
+                <p className="text-[13px] text-textItemBlur">
+                  {t(
+                    'followers_computed_grade',
+                    'Computed grade: {{grade}} out of 5',
+                    { grade: computedGrade }
+                  )}
+                </p>
+              )}
+          </div>
+          <div className="flex flex-col gap-[8px]">
+            <h4 className="text-[16px] font-[600] text-newTextColor">
+              {t('followers_my_grade', 'My grade')}
+            </h4>
+            <RelationshipStars
+              grade={detail.myGrade}
+              interactive={true}
+              disabled={isGradePending}
+              onSelect={handleSelectGrade}
+            />
+            {gradeError && (
+              <p className="text-[13px] text-red-400">{gradeError}</p>
+            )}
+          </div>
+        </div>
         {current && (
           <div className="grid grid-cols-1 gap-[8px] text-[13px] sm:grid-cols-2">
             <p className="text-textItemBlur">

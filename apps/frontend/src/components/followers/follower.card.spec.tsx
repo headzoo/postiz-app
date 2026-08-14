@@ -96,7 +96,7 @@ describe('FollowerCard', () => {
     expect(screen.queryByText(/Quality score/i)).toBeNull();
   });
 
-  it('shows interaction count next to the username', () => {
+  it('shows interaction count in the metrics grid', () => {
     render(<FollowerCard follower={baseFollower} onOpen={jest.fn()} />);
 
     expect(screen.getByText('@alex')).toBeTruthy();
@@ -104,7 +104,7 @@ describe('FollowerCard', () => {
     expect(screen.getByText('interactions')).toBeTruthy();
   });
 
-  it('shows note count next to the username', () => {
+  it('shows note count in the metrics grid', () => {
     render(
       <FollowerCard
         follower={{ ...baseFollower, noteCount: 3 }}
@@ -112,20 +112,41 @@ describe('FollowerCard', () => {
       />
     );
 
+    expect(screen.getByText('@alex')).toBeTruthy();
     expect(screen.getByText('3')).toBeTruthy();
     expect(screen.getByText('notes')).toBeTruthy();
   });
 
-  it('shows like count next to the username', () => {
+  it('shows like count in the metrics grid', () => {
     render(
       <FollowerCard
-        follower={{ ...baseFollower, likesCount: 4 }}
+        follower={{ ...baseFollower, likesCount: 5 }}
         onOpen={jest.fn()}
       />
     );
 
-    expect(screen.getByText('4')).toBeTruthy();
+    expect(screen.getByText('@alex')).toBeTruthy();
+    expect(screen.getByText('5')).toBeTruthy();
     expect(screen.getByText('likes')).toBeTruthy();
+  });
+
+  it('renders relationship and personal grades on the card', () => {
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          relationshipGrade: 3,
+          myGrade: 2,
+          adjustedGrade: 4,
+        }}
+        onOpen={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('Relationship grade')).toBeTruthy();
+    expect(screen.getByText('My grade')).toBeTruthy();
+    expect(screen.getByRole('img', { name: '4 out of 5' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '2 out of 5' })).toBeTruthy();
   });
 
   it('opens the modal when avatar has no profile link', () => {

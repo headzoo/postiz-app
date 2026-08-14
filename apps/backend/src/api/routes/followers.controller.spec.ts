@@ -10,6 +10,7 @@ describe('FollowersController', () => {
     createFollowerMemberNote: jest.fn(),
     updateFollowerMemberNote: jest.fn(),
     deleteFollowerMemberNote: jest.fn(),
+    updateFollowerMemberGrade: jest.fn(),
   };
   const controller = new FollowersController(service as any);
 
@@ -36,9 +37,9 @@ describe('FollowersController', () => {
     service.getFollowers.mockResolvedValue({ items: [], hasMore: false });
 
     await expect(
-      controller.getFollowers(org, 'channel-a', query)
+      controller.getFollowers(org, user, 'channel-a', query)
     ).resolves.toEqual({ items: [], hasMore: false });
-    expect(service.getFollowers).toHaveBeenCalledWith(org, 'channel-a', query);
+    expect(service.getFollowers).toHaveBeenCalledWith(org, user, 'channel-a', query);
   });
 
   it('delegates follower member detail reads with organization and external id', async () => {
@@ -46,10 +47,11 @@ describe('FollowersController', () => {
     service.getFollowerMemberDetails.mockResolvedValue(detail);
 
     await expect(
-      controller.getFollowerMember(org, 'channel-a', { externalId: 'follower-a' })
+      controller.getFollowerMember(org, user, 'channel-a', { externalId: 'follower-a' })
     ).resolves.toEqual(detail);
     expect(service.getFollowerMemberDetails).toHaveBeenCalledWith(
       org,
+      user,
       'channel-a',
       'follower-a'
     );
@@ -100,6 +102,24 @@ describe('FollowersController', () => {
       org,
       'channel-a',
       'note-a'
+    );
+  });
+
+  it('delegates personal grade updates with organization, user, and body', async () => {
+    service.updateFollowerMemberGrade.mockResolvedValue({ myGrade: 4.5 });
+
+    await expect(
+      controller.updateFollowerMemberGrade(org, user, 'channel-a', {
+        externalId: 'follower-a',
+        grade: 4.5,
+      })
+    ).resolves.toEqual({ myGrade: 4.5 });
+    expect(service.updateFollowerMemberGrade).toHaveBeenCalledWith(
+      org,
+      user,
+      'channel-a',
+      'follower-a',
+      4.5
     );
   });
 });

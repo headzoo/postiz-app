@@ -72,6 +72,7 @@ export type NoteCountFollowerCursor = {
 export type NoteCountFollowersQuery = {
   organizationId: string;
   integrationId: string;
+  userId: string;
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: NoteCountFollowerCursor;
@@ -86,6 +87,7 @@ export type LikesCountFollowerCursor = {
 export type LikesCountFollowersQuery = {
   organizationId: string;
   integrationId: string;
+  userId: string;
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: LikesCountFollowerCursor;
@@ -95,6 +97,8 @@ export type LikesCountFollowersQuery = {
 export type FollowerAudienceCounts = {
   noteCount: number;
   likesCount: number;
+  relationshipGrade: number | null;
+  myGrade: number | null;
 };
 
 export type AudienceFollowerCursor = {
@@ -106,11 +110,27 @@ export type AudienceFollowerCursor = {
 export type AudienceFollowersQuery = {
   organizationId: string;
   integrationId: string;
+  userId: string;
   search: string;
   sortField: AudienceFollowerSortField;
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: AudienceFollowerCursor;
+};
+
+export type GradeFollowerCursor = {
+  grade: number | null;
+  externalId: string;
+};
+
+export type GradeFollowersQuery = {
+  organizationId: string;
+  integrationId: string;
+  userId: string;
+  direction: 'asc' | 'desc';
+  limit: number;
+  cursor?: GradeFollowerCursor;
+  search?: string;
 };
 
 export type FollowerInteractionMetrics = {
@@ -942,7 +962,7 @@ export class ChannelInteractionRepository {
     if (!snapshots.length) return { count: 0 };
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
-      return tx.channelRelationshipGradeSnapshot.createMany({
+      const created = await tx.channelRelationshipGradeSnapshot.createMany({
         data: snapshots.map((snapshot) => ({
           organizationId,
           integrationId,
@@ -957,6 +977,19 @@ export class ChannelInteractionRepository {
         })),
         skipDuplicates: true,
       });
+      await Promise.all(
+        snapshots.map((snapshot) =>
+          tx.channelAudienceMember.updateMany({
+            where: {
+              organizationId,
+              integrationId,
+              externalId: snapshot.externalId,
+            },
+            data: { relationshipGrade: snapshot.grade },
+          })
+        )
+      );
+      return created;
     });
   }
 
@@ -1021,7 +1054,8 @@ export class ChannelInteractionRepository {
   async getFollowerDetails(
     organizationId: string,
     integrationId: string,
-    externalId: string
+    externalId: string,
+    userId: string
   ) {
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
@@ -1040,7 +1074,7 @@ export class ChannelInteractionRepository {
         },
       });
       if (!member) return null;
-      const [events, tracking] = await Promise.all([
+      const [events, tracking, personalGrade] = await Promise.all([
         tx.channelInteractionEvent.findMany({
           where: { organizationId, integrationId, counterpartyExternalId: externalId },
           orderBy: { eventAt: 'desc' },
@@ -1054,8 +1088,26 @@ export class ChannelInteractionRepository {
           },
         }),
         this.getInteractionTrackingInTransaction(tx, organizationId, integrationId),
+        tx.channelAudienceMemberGrade.findUnique({
+          where: {
+            organizationId_integrationId_counterpartyExternalId_userId: {
+              organizationId,
+              integrationId,
+              counterpartyExternalId: externalId,
+              userId,
+            },
+          },
+          select: { grade: true },
+        }),
       ]);
-      return { member, snapshots: member.gradeSnapshots, notes: member.notes, events, tracking };
+      return {
+        member,
+        snapshots: member.gradeSnapshots,
+        notes: member.notes,
+        events,
+        tracking,
+        myGrade: personalGrade?.grade ?? null,
+      };
     });
   }
 
@@ -1133,6 +1185,37 @@ export class ChannelInteractionRepository {
     });
   }
 
+  async upsertAudienceMemberGrade(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    userId: string,
+    grade: number
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertNoteAccess(tx, organizationId, integrationId, externalId, userId);
+      return tx.channelAudienceMemberGrade.upsert({
+        where: {
+          organizationId_integrationId_counterpartyExternalId_userId: {
+            organizationId,
+            integrationId,
+            counterpartyExternalId: externalId,
+            userId,
+          },
+        },
+        create: {
+          organizationId,
+          integrationId,
+          counterpartyExternalId: externalId,
+          userId,
+          grade,
+        },
+        update: { grade },
+        select: { grade: true },
+      });
+    });
+  }
+
   async getFollowersByNoteCount(query: NoteCountFollowersQuery) {
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(
@@ -1156,20 +1239,7 @@ export class ChannelInteractionRepository {
           { externalId: query.direction },
         ],
         take: query.limit + 1,
-        select: {
-          externalId: true,
-          name: true,
-          username: true,
-          picture: true,
-          profileUrl: true,
-          bio: true,
-          followersCount: true,
-          followingCount: true,
-          followedAt: true,
-          accountCreatedAt: true,
-          noteCount: true,
-          likesCount: true,
-        },
+        select: this.audienceMemberListSelect(query.userId),
       });
 
       return {
@@ -1202,20 +1272,7 @@ export class ChannelInteractionRepository {
           { externalId: query.direction },
         ],
         take: query.limit + 1,
-        select: {
-          externalId: true,
-          name: true,
-          username: true,
-          picture: true,
-          profileUrl: true,
-          bio: true,
-          followersCount: true,
-          followingCount: true,
-          followedAt: true,
-          accountCreatedAt: true,
-          noteCount: true,
-          likesCount: true,
-        },
+        select: this.audienceMemberListSelect(query.userId),
       });
 
       return {
@@ -1248,20 +1305,7 @@ export class ChannelInteractionRepository {
           { externalId: query.direction },
         ],
         take: query.limit + 1,
-        select: {
-          externalId: true,
-          name: true,
-          username: true,
-          picture: true,
-          profileUrl: true,
-          bio: true,
-          followersCount: true,
-          followingCount: true,
-          followedAt: true,
-          accountCreatedAt: true,
-          noteCount: true,
-          likesCount: true,
-        },
+        select: this.audienceMemberListSelect(query.userId),
       });
 
       return {
@@ -1271,10 +1315,139 @@ export class ChannelInteractionRepository {
     });
   }
 
+  async getFollowersByRelationshipGrade(query: GradeFollowersQuery) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+
+      const rows = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          ...this.audienceListFilters(
+            this.audienceSearchFilter(query.search),
+            this.nullableGradeFollowerKeyset(
+              query.cursor,
+              query.direction,
+              'relationshipGrade'
+            )
+          ),
+        },
+        orderBy: [
+          { relationshipGrade: { sort: query.direction, nulls: 'last' } },
+          { externalId: query.direction },
+        ],
+        take: query.limit + 1,
+        select: this.audienceMemberListSelect(query.userId),
+      });
+
+      return {
+        items: rows.slice(0, query.limit),
+        hasMore: rows.length > query.limit,
+      };
+    });
+  }
+
+  async getFollowersByMyGrade(query: GradeFollowersQuery) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+
+      const take = query.limit + 1;
+      const inUngraded = query.cursor != null && query.cursor.grade == null;
+      const items: Array<{
+        externalId: string;
+        name: string | null;
+        username: string | null;
+        picture: string | null;
+        profileUrl: string | null;
+        bio: string | null;
+        followersCount: number | null;
+        followingCount: number | null;
+        followedAt: Date | null;
+        accountCreatedAt: Date | null;
+        noteCount: number;
+        likesCount: number;
+        relationshipGrade: number | null;
+        personalGrades: Array<{ grade: number }>;
+      }> = [];
+
+      if (!inUngraded) {
+        const graded = await tx.channelAudienceMemberGrade.findMany({
+          where: {
+            organizationId: query.organizationId,
+            integrationId: query.integrationId,
+            userId: query.userId,
+            audienceMember: {
+              is: {
+                membershipState: ChannelAudienceMembership.FOLLOWER,
+                ...this.audienceSearchFilter(query.search),
+              },
+            },
+            ...this.myGradeGradedKeyset(query.cursor, query.direction),
+          },
+          orderBy: [
+            { grade: query.direction },
+            { counterpartyExternalId: query.direction },
+          ],
+          take,
+          select: {
+            grade: true,
+            audienceMember: {
+              select: this.audienceMemberListSelect(query.userId),
+            },
+          },
+        });
+        items.push(
+          ...graded.map((row) => ({
+            ...row.audienceMember,
+            personalGrades: [{ grade: row.grade }],
+          }))
+        );
+      }
+
+      if (items.length < take) {
+        const ungraded = await tx.channelAudienceMember.findMany({
+          where: {
+            organizationId: query.organizationId,
+            integrationId: query.integrationId,
+            membershipState: ChannelAudienceMembership.FOLLOWER,
+            personalGrades: { none: { userId: query.userId } },
+            ...this.audienceListFilters(
+              this.audienceSearchFilter(query.search),
+              this.myGradeUngradedKeyset(
+                query.cursor,
+                query.direction,
+                inUngraded
+              )
+            ),
+          },
+          orderBy: [{ externalId: query.direction }],
+          take: take - items.length,
+          select: this.audienceMemberListSelect(query.userId),
+        });
+        items.push(...ungraded);
+      }
+
+      return {
+        items: items.slice(0, query.limit),
+        hasMore: items.length > query.limit,
+      };
+    });
+  }
+
   async getFollowerNoteCounts(
     organizationId: string,
     integrationId: string,
-    externalIds: string[]
+    externalIds: string[],
+    userId: string
   ): Promise<Map<string, FollowerAudienceCounts>> {
     const uniqueIds = [...new Set(externalIds.filter(Boolean))];
     if (!uniqueIds.length) {
@@ -1287,17 +1460,18 @@ export class ChannelInteractionRepository {
         integrationId,
         externalId: { in: uniqueIds },
       },
-      select: {
-        externalId: true,
-        noteCount: true,
-        likesCount: true,
-      },
+      select: this.audienceMemberListSelect(userId),
     });
 
     return new Map(
       rows.map((row) => [
         row.externalId,
-        { noteCount: row.noteCount, likesCount: row.likesCount },
+        {
+          noteCount: row.noteCount,
+          likesCount: row.likesCount,
+          relationshipGrade: row.relationshipGrade,
+          myGrade: row.personalGrades[0]?.grade ?? null,
+        },
       ])
     );
   }
@@ -1427,6 +1601,29 @@ export class ChannelInteractionRepository {
     return value;
   }
 
+  private audienceMemberListSelect(userId: string) {
+    return {
+      externalId: true,
+      name: true,
+      username: true,
+      picture: true,
+      profileUrl: true,
+      bio: true,
+      followersCount: true,
+      followingCount: true,
+      followedAt: true,
+      accountCreatedAt: true,
+      noteCount: true,
+      likesCount: true,
+      relationshipGrade: true,
+      personalGrades: {
+        where: { userId },
+        select: { grade: true },
+        take: 1,
+      },
+    } as const;
+  }
+
   private noteCountFollowerKeyset(
     cursor: NoteCountFollowerCursor | undefined,
     direction: 'asc' | 'desc'
@@ -1465,6 +1662,68 @@ export class ChannelInteractionRepository {
         },
       ],
     };
+  }
+
+  private nullableGradeFollowerKeyset(
+    cursor: GradeFollowerCursor | undefined,
+    direction: 'asc' | 'desc',
+    field: 'relationshipGrade'
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (!cursor) {
+      return {};
+    }
+
+    const comparison = direction === 'desc' ? 'lt' : 'gt';
+    if (cursor.grade == null) {
+      return {
+        [field]: null,
+        externalId: { [comparison]: cursor.externalId },
+      };
+    }
+
+    return {
+      OR: [
+        { [field]: { [comparison]: cursor.grade } },
+        {
+          [field]: cursor.grade,
+          externalId: { [comparison]: cursor.externalId },
+        },
+        { [field]: null },
+      ],
+    };
+  }
+
+  private myGradeGradedKeyset(
+    cursor: GradeFollowerCursor | undefined,
+    direction: 'asc' | 'desc'
+  ): Prisma.ChannelAudienceMemberGradeWhereInput {
+    if (!cursor || cursor.grade == null) {
+      return {};
+    }
+
+    const comparison = direction === 'desc' ? 'lt' : 'gt';
+    return {
+      OR: [
+        { grade: { [comparison]: cursor.grade } },
+        {
+          grade: cursor.grade,
+          counterpartyExternalId: { [comparison]: cursor.externalId },
+        },
+      ],
+    };
+  }
+
+  private myGradeUngradedKeyset(
+    cursor: GradeFollowerCursor | undefined,
+    direction: 'asc' | 'desc',
+    inUngraded: boolean
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (!inUngraded || !cursor) {
+      return {};
+    }
+
+    const comparison = direction === 'desc' ? 'lt' : 'gt';
+    return { externalId: { [comparison]: cursor.externalId } };
   }
 
   private failureReason(

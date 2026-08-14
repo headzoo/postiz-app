@@ -16,6 +16,7 @@ jest.mock(
 
 describe('IntegrationService followers', () => {
   const org = { id: 'org-a' } as any;
+  const user = { id: 'user-a' } as any;
   const integration = {
     id: 'channel-a',
     name: 'Channel A',
@@ -49,6 +50,8 @@ describe('IntegrationService followers', () => {
       getRankedFollowers: jest.fn(),
       getFollowersByNoteCount: jest.fn(),
       getFollowersByLikesCount: jest.fn(),
+      getFollowersByRelationshipGrade: jest.fn(),
+      getFollowersByMyGrade: jest.fn(),
       getAudienceFollowers: jest.fn(),
       getFollowerInteractionMetrics: jest.fn().mockResolvedValue(new Map()),
       getFollowerNoteCounts: jest.fn().mockResolvedValue(new Map()),
@@ -58,6 +61,7 @@ describe('IntegrationService followers', () => {
       createFollowerNote: jest.fn(),
       updateFollowerNote: jest.fn(),
       deleteFollowerNote: jest.fn(),
+      upsertFollowerGrade: jest.fn(),
     };
     return service;
   };
@@ -158,7 +162,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'recent',
         direction: 'desc',
@@ -184,14 +188,14 @@ describe('IntegrationService followers', () => {
     );
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'recent',
         direction: 'asc',
       })
     ).rejects.toBeInstanceOf(HttpException);
     await expect(
-      service.getFollowers(org, 'missing', { limit: 24 })
+      service.getFollowers(org, user, 'missing', { limit: 24 })
     ).rejects.toMatchObject({ status: 404 });
   });
 
@@ -233,7 +237,7 @@ describe('IntegrationService followers', () => {
     );
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'recent',
         direction: 'desc',
@@ -248,6 +252,9 @@ describe('IntegrationService followers', () => {
           lastInteractionAt: '2026-08-12T12:00:00.000Z',
           noteCount: 0,
           likesCount: 0,
+          relationshipGrade: null,
+          myGrade: null,
+          adjustedGrade: null,
         },
         {
           id: 'follower-b',
@@ -255,6 +262,9 @@ describe('IntegrationService followers', () => {
           interactionCount: 0,
           noteCount: 0,
           likesCount: 0,
+          relationshipGrade: null,
+          myGrade: null,
+          adjustedGrade: null,
         },
       ],
       hasMore: false,
@@ -295,7 +305,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'followers_count',
         direction: 'desc',
@@ -327,7 +337,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', { limit: 24 })
+      service.getFollowers(org, user, 'channel-a', { limit: 24 })
     ).resolves.toEqual({ items: [], hasMore: false });
     expect((service as any)._refreshIntegrationService.refresh).toHaveBeenCalledTimes(1);
     expect(followers).toHaveBeenNthCalledWith(
@@ -346,7 +356,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', { limit: 24 })
+      service.getFollowers(org, user, 'channel-a', { limit: 24 })
     ).rejects.toMatchObject({
       message: 'Followers are temporarily unavailable',
       status: 503,
@@ -386,7 +396,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'interactions',
         direction: 'desc',
@@ -412,7 +422,7 @@ describe('IntegrationService followers', () => {
     }));
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'interactions',
       })
@@ -453,7 +463,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'notes',
         direction: 'desc',
@@ -469,6 +479,7 @@ describe('IntegrationService followers', () => {
       expect.objectContaining({
         organizationId: 'org-a',
         integrationId: 'channel-a',
+        userId: 'user-a',
         direction: 'desc',
         limit: 24,
       })
@@ -512,6 +523,11 @@ describe('IntegrationService followers', () => {
           expect.objectContaining({ key: 'notes', scope: 'database' }),
           expect.objectContaining({ key: 'likes', scope: 'database' }),
           expect.objectContaining({ key: 'interactions', scope: 'database' }),
+          expect.objectContaining({
+            key: 'relationship_grade',
+            scope: 'database',
+          }),
+          expect.objectContaining({ key: 'my_grade', scope: 'database' }),
         ]),
       }),
     ]);
@@ -546,7 +562,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+      service.getFollowerMemberDetails(org, user, 'channel-a', 'follower-a')
     ).resolves.toMatchObject({
       tracking: {
         state: 'unsupported',
@@ -597,7 +613,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+      service.getFollowerMemberDetails(org, user, 'channel-a', 'follower-a')
     ).resolves.toMatchObject({
       tracking: {
         state: 'partial',
@@ -698,7 +714,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+      service.getFollowerMemberDetails(org, user, 'channel-a', 'follower-a')
     ).resolves.toEqual({
       follower: {
         id: 'follower-a',
@@ -710,6 +726,9 @@ describe('IntegrationService followers', () => {
         followingCount: 5,
         followedAt: '2026-01-01T00:00:00.000Z',
         accountCreatedAt: '2025-01-01T00:00:00.000Z',
+        relationshipGrade: null,
+        myGrade: null,
+        adjustedGrade: null,
       },
       notes: [
         {
@@ -740,6 +759,7 @@ describe('IntegrationService followers', () => {
           reciprocationScore: 8,
           reciprocity: 1,
           grade: 5,
+          adjustedGrade: 5,
           formulaVersion: 1,
         },
         history: [
@@ -750,6 +770,7 @@ describe('IntegrationService followers', () => {
             reciprocationScore: 2,
             reciprocity: 0.5,
             grade: 3,
+            adjustedGrade: 3,
             formulaVersion: 1,
           },
           {
@@ -759,10 +780,12 @@ describe('IntegrationService followers', () => {
             reciprocationScore: 8,
             reciprocity: 1,
             grade: 5,
+            adjustedGrade: 5,
             formulaVersion: 1,
           },
         ],
       },
+      myGrade: null,
       tracking: {
         state: 'active',
         noBackfill: true,
@@ -775,7 +798,54 @@ describe('IntegrationService followers', () => {
     });
     expect(
       (service as any)._channelInteractionService.getFollowerDetails
-    ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a');
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a', 'user-a');
+  });
+
+  it('applies a personal grade as a half-star boost or drop around the computed grade', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+      },
+      snapshots: [
+        {
+          snapshotAt: new Date('2026-08-01T00:00:00.000Z'),
+          windowStartedAt: new Date('2026-07-02T00:00:00.000Z'),
+          effortScore: 8,
+          reciprocationScore: 6,
+          reciprocity: 0.75,
+          grade: 4,
+          formulaVersion: 1,
+        },
+      ],
+      notes: [],
+      events: [],
+      tracking: { followerSync: null, subscriptions: [] },
+      myGrade: 5,
+    });
+
+    await expect(
+      service.getFollowerMemberDetails(org, user, 'channel-a', 'follower-a')
+    ).resolves.toMatchObject({
+      myGrade: 5,
+      relationship: {
+        current: {
+          grade: 4,
+          adjustedGrade: 5,
+        },
+      },
+    });
   });
 
   it('treats persisted PARTIAL subscriptions as partial even with full static coverage', async () => {
@@ -813,6 +883,7 @@ describe('IntegrationService followers', () => {
 
     const result = await service.getFollowerMemberDetails(
       org,
+      user,
       'channel-a',
       'follower-a'
     );
@@ -867,6 +938,7 @@ describe('IntegrationService followers', () => {
 
     const result = await service.getFollowerMemberDetails(
       org,
+      user,
       'channel-a',
       'follower-a'
     );
@@ -926,7 +998,7 @@ describe('IntegrationService followers', () => {
       },
     });
     await expect(
-      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+      service.getFollowerMemberDetails(org, user, 'channel-a', 'follower-a')
     ).resolves.toMatchObject({
       tracking: {
         state: 'error',
@@ -944,7 +1016,7 @@ describe('IntegrationService followers', () => {
       },
     });
     await expect(
-      service.getFollowerMemberDetails(org, 'channel-a', 'follower-a')
+      service.getFollowerMemberDetails(org, user, 'channel-a', 'follower-a')
     ).resolves.toMatchObject({
       tracking: {
         state: 'unconfigured',
@@ -963,11 +1035,12 @@ describe('IntegrationService followers', () => {
     );
 
     await expect(
-      service.getFollowerMemberDetails(org, 'missing', 'follower-a')
+      service.getFollowerMemberDetails(org, user, 'missing', 'follower-a')
     ).rejects.toMatchObject({ status: 404 });
     await expect(
       service.getFollowerMemberDetails(
         org,
+        user,
         'channel-a',
         'missing-follower'
       )
@@ -1034,6 +1107,22 @@ describe('IntegrationService followers', () => {
     expect(
       (service as any)._channelInteractionService.deleteFollowerNote
     ).toHaveBeenCalledWith('org-a', 'channel-a', 'note-a');
+  });
+
+  it('upserts a user-scoped personal grade for an owned follower', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionService.upsertFollowerGrade.mockResolvedValue(
+      { grade: 4.5 }
+    );
+
+    await expect(
+      service.updateFollowerMemberGrade(org, user, 'channel-a', 'follower-a', 4.5)
+    ).resolves.toEqual({ myGrade: 4.5 });
+    expect(
+      (service as any)._channelInteractionService.upsertFollowerGrade
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a', 'user-a', 4.5);
   });
 
   it('falls back to email local-part when note author has no name', async () => {
@@ -1121,7 +1210,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'recent',
         direction: 'desc',
@@ -1138,6 +1227,7 @@ describe('IntegrationService followers', () => {
       expect.objectContaining({
         organizationId: 'org-a',
         integrationId: 'channel-a',
+        userId: 'user-a',
         search: 'Alice',
         sortField: 'followedAt',
         direction: 'desc',
@@ -1166,7 +1256,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'recent',
         direction: 'desc',
@@ -1199,7 +1289,7 @@ describe('IntegrationService followers', () => {
       hasMore: false,
     });
 
-    await service.getFollowers(org, 'channel-a', {
+    await service.getFollowers(org, user, 'channel-a', {
       limit: 24,
       sort: 'notes',
       direction: 'desc',
@@ -1253,7 +1343,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'likes',
         direction: 'desc',
@@ -1269,6 +1359,7 @@ describe('IntegrationService followers', () => {
       expect.objectContaining({
         organizationId: 'org-a',
         integrationId: 'channel-a',
+        userId: 'user-a',
         direction: 'desc',
         limit: 24,
       })
@@ -1299,7 +1390,7 @@ describe('IntegrationService followers', () => {
       hasMore: false,
     });
 
-    await service.getFollowers(org, 'channel-a', {
+    await service.getFollowers(org, user, 'channel-a', {
       limit: 24,
       sort: 'likes',
       direction: 'desc',
@@ -1347,7 +1438,7 @@ describe('IntegrationService followers', () => {
       subscriptions: [{ state: 'ACTIVE' }],
     });
 
-    await service.getFollowers(org, 'channel-a', {
+    await service.getFollowers(org, user, 'channel-a', {
       limit: 24,
       sort: 'interactions',
       direction: 'desc',
@@ -1368,6 +1459,107 @@ describe('IntegrationService followers', () => {
     ).not.toHaveBeenCalled();
   });
 
+  it('uses the database relationship-grade path without a window', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowersByRelationshipGrade.mockResolvedValue({
+      items: [
+        {
+          externalId: 'follower-a',
+          name: 'Follower A',
+          username: null,
+          picture: null,
+          profileUrl: null,
+          bio: null,
+          followersCount: null,
+          followingCount: null,
+          followedAt: null,
+          accountCreatedAt: null,
+          noteCount: 0,
+          likesCount: 0,
+          relationshipGrade: 4,
+          personalGrades: [{ grade: 5 }],
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'relationship_grade',
+        direction: 'desc',
+      })
+    ).resolves.toMatchObject({
+      items: [
+        {
+          id: 'follower-a',
+          relationshipGrade: 4,
+          myGrade: 5,
+          adjustedGrade: 5,
+        },
+      ],
+      hasMore: false,
+    });
+    expect(followers).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getFollowersByRelationshipGrade
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        integrationId: 'channel-a',
+        userId: 'user-a',
+        direction: 'desc',
+        limit: 24,
+      })
+    );
+  });
+
+  it('uses the database my-grade path for the current user', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowersByMyGrade.mockResolvedValue({
+      items: [],
+      hasMore: false,
+    });
+
+    await service.getFollowers(org, user, 'channel-a', {
+      limit: 24,
+      sort: 'my_grade',
+      direction: 'desc',
+    });
+
+    expect(
+      (service as any)._channelInteractionRepository.getFollowersByMyGrade
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-a',
+        direction: 'desc',
+        limit: 24,
+      })
+    );
+  });
+
   it('rejects an audience cursor when search is missing', async () => {
     const service = createService([integration], {
       supported: {
@@ -1384,7 +1576,7 @@ describe('IntegrationService followers', () => {
     });
 
     await expect(
-      service.getFollowers(org, 'channel-a', {
+      service.getFollowers(org, user, 'channel-a', {
         limit: 24,
         sort: 'recent',
         direction: 'desc',

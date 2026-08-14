@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Follower } from '@gitroom/frontend/components/followers/use.followers';
+import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 
 const formatDate = (value: string) => {
   const date = new Date(value);
@@ -48,6 +49,17 @@ export const FollowerCard: FC<{
   const hasInteractionCount = Number.isFinite(follower.interactionCount);
   const hasNoteCount = Number.isFinite(follower.noteCount);
   const hasLikesCount = Number.isFinite(follower.likesCount);
+  const hasFollowingCount = Number.isFinite(follower.followingCount);
+  const hasFollowersCount = Number.isFinite(follower.followersCount);
+  const hasInfluenceScore = Number.isFinite(follower.influenceScore);
+  const hasMetricsGrid =
+    hasFollowingCount ||
+    hasFollowersCount ||
+    !!accountCreatedAt ||
+    hasLikesCount ||
+    hasNoteCount ||
+    hasInteractionCount ||
+    hasInfluenceScore;
   const hasSecondaryInteractionMetrics =
     Number.isFinite(follower.interactionScore) || !!lastInteractionAt;
 
@@ -131,58 +143,28 @@ export const FollowerCard: FC<{
         <div className="flex flex-1 min-w-0 flex-col gap-[12px] h-full">
           <div>
             <div className="min-w-0">
-              <h3 className="text-[15px] font-[600] text-newTextColor truncate">
-                {follower.name}
-              </h3>
-              {(handle || hasInteractionCount || hasLikesCount || hasNoteCount) && (
-                <div className="flex flex-wrap items-baseline gap-x-[8px] gap-y-[2px] text-[13px] min-w-0">
-                  {handle &&
-                    (follower.profileUrl ? (
-                      <a
-                        href={follower.profileUrl}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        onClick={stopProfileNavigation}
-                        onKeyDown={stopProfileKeyboard}
-                        className="text-textItemBlur truncate hover:underline hover:opacity-80"
-                      >
-                        {handle}
-                      </a>
-                    ) : (
-                      <span className="text-textItemBlur truncate">{handle}</span>
-                    ))}
-                  {hasInteractionCount && (
-                    <span className="shrink-0">
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.interactionCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_interaction_count', 'interactions')}
-                      </span>
+              <div className="flex min-w-0 items-baseline gap-[8px]">
+                <h3 className="text-[15px] font-[600] text-newTextColor truncate">
+                  {follower.name}
+                </h3>
+                {handle &&
+                  (follower.profileUrl ? (
+                    <a
+                      href={follower.profileUrl}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      onClick={stopProfileNavigation}
+                      onKeyDown={stopProfileKeyboard}
+                      className="shrink-0 text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80"
+                    >
+                      {handle}
+                    </a>
+                  ) : (
+                    <span className="shrink-0 text-[13px] text-textItemBlur truncate">
+                      {handle}
                     </span>
-                  )}
-                  {hasLikesCount && (
-                    <span className="shrink-0">
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.likesCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_like_count', 'likes')}
-                      </span>
-                    </span>
-                  )}
-                  {hasNoteCount && (
-                    <span className="shrink-0">
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.noteCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_note_count', 'notes')}
-                      </span>
-                    </span>
-                  )}
-                </div>
-              )}
+                  ))}
+              </div>
             </div>
 
             {hasSecondaryInteractionMetrics && (
@@ -206,12 +188,9 @@ export const FollowerCard: FC<{
               </div>
             )}
 
-            {(Number.isFinite(follower.followingCount) ||
-              Number.isFinite(follower.followersCount) ||
-              Number.isFinite(follower.influenceScore) ||
-              accountCreatedAt) && (
-                <div className="mt-[6px] flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
-                  {Number.isFinite(follower.followingCount) && (
+            {hasMetricsGrid && (
+                <div className="mt-[6px] grid grid-cols-3 gap-x-[12px] gap-y-[6px] text-[13px]">
+                  {hasFollowingCount && (
                     <span>
                       <span className="font-[700] text-newTextColor">
                         {formatCompactCount(follower.followingCount!)}
@@ -221,7 +200,7 @@ export const FollowerCard: FC<{
                       </span>
                     </span>
                   )}
-                  {Number.isFinite(follower.followersCount) && (
+                  {hasFollowersCount && (
                     <span>
                       <span className="font-[700] text-newTextColor">
                         {formatCompactCount(follower.followersCount!)}
@@ -232,20 +211,71 @@ export const FollowerCard: FC<{
                     </span>
                   )}
                   {accountCreatedAt && (
-                    <span>
+                    <span className="min-w-0 overflow-hidden whitespace-nowrap">
                       <span className="font-[700] text-newTextColor">
                         {t('followers_joined_label', 'Joined')}
                       </span>{' '}
                       <span className="text-textItemBlur">{accountCreatedAt}</span>
                     </span>
                   )}
-                  {Number.isFinite(follower.influenceScore) && (
+                  {hasLikesCount && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.likesCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_like_count', 'likes')}
+                      </span>
+                    </span>
+                  )}
+                  {hasNoteCount && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.noteCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_note_count', 'notes')}
+                      </span>
+                    </span>
+                  )}
+                  {hasInteractionCount && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.interactionCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_interaction_count', 'interactions')}
+                      </span>
+                    </span>
+                  )}
+                  {hasInfluenceScore && (
                     <span className="text-textItemBlur">
                       {t('followers_recommendation_score', 'Score {{score}}', {
                         score: follower.influenceScore!,
                       })}
                     </span>
                   )}
+                </div>
+              )}
+            {(follower.adjustedGrade !== undefined ||
+              follower.relationshipGrade !== undefined ||
+              follower.myGrade !== undefined) && (
+                <div className="mt-[8px] flex flex-col gap-[6px]">
+                  <div className="flex items-center gap-[8px] text-[12px]">
+                    <span className="shrink-0 text-textItemBlur">
+                      {t('followers_relationship_grade', 'Relationship grade')}
+                    </span>
+                    <RelationshipStars
+                      grade={follower.adjustedGrade ?? follower.relationshipGrade ?? null}
+                      compact={true}
+                    />
+                  </div>
+                  <div className="flex items-center gap-[8px] text-[12px]">
+                    <span className="shrink-0 text-textItemBlur">
+                      {t('followers_my_grade', 'My grade')}
+                    </span>
+                    <RelationshipStars grade={follower.myGrade ?? null} compact={true} />
+                  </div>
                 </div>
               )}
             {follower.bio && (

@@ -37,6 +37,22 @@ export const FOLLOWER_DATABASE_LIKES_SORT: FollowerSort = {
   scope: 'database',
 };
 
+export const FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT: FollowerSort = {
+  key: 'relationship_grade',
+  label: 'Relationship grade',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+};
+
+export const FOLLOWER_DATABASE_MY_GRADE_SORT: FollowerSort = {
+  key: 'my_grade',
+  label: 'My grade',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+};
+
 export const FOLLOWER_PAGE_SORTS: FollowerSort[] = [
   {
     key: 'followers_count',

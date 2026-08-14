@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import {
+  applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
   ChannelInteractionService,
   getChannelInteractionScore,
@@ -39,6 +40,7 @@ const createRepository = () => ({
   getDueRelationshipGradeBatch: jest.fn().mockResolvedValue({ members: [] }),
   createRelationshipGradeSnapshots: jest.fn().mockResolvedValue({ count: 0 }),
   hasDueRelationshipGradeMembers: jest.fn().mockResolvedValue(false),
+  upsertAudienceMemberGrade: jest.fn().mockResolvedValue({ grade: 4.5 }),
 });
 
 describe('ChannelInteractionService', () => {
@@ -83,6 +85,17 @@ describe('ChannelInteractionService', () => {
       formulaVersion: 1,
     });
     expect(() => calculateRelationshipGrade(-1, 0)).toThrow(RangeError);
+  });
+
+  it('applies a personal grade as a half-star offset around a 3-star neutral', () => {
+    expect(applyPersonalRelationshipGrade(4, null)).toBe(4);
+    expect(applyPersonalRelationshipGrade(4, 3)).toBe(4);
+    expect(applyPersonalRelationshipGrade(4, 5)).toBe(5);
+    expect(applyPersonalRelationshipGrade(4, 1)).toBe(2);
+    expect(applyPersonalRelationshipGrade(3.5, 4.5)).toBe(5);
+    expect(applyPersonalRelationshipGrade(null, 5)).toBe(5);
+    expect(applyPersonalRelationshipGrade(null, null)).toBeNull();
+    expect(() => applyPersonalRelationshipGrade(4, 2.25)).toThrow(RangeError);
   });
 
   it('creates zero-activity snapshots through the repository batch operation', async () => {
@@ -651,5 +664,25 @@ describe('ChannelInteractionService', () => {
       'org-a',
       'integration-a'
     );
+  });
+
+  it('upserts a valid personal grade and rejects invalid values', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.upsertFollowerGrade('org', 'integration', 'follower-a', 'user-a', 4.5)
+    ).resolves.toEqual({ grade: 4.5 });
+    expect(repository.upsertAudienceMemberGrade).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      'follower-a',
+      'user-a',
+      4.5
+    );
+
+    await expect(
+      service.upsertFollowerGrade('org', 'integration', 'follower-a', 'user-a', 2.25)
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

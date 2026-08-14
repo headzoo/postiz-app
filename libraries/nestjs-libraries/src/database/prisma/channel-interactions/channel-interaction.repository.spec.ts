@@ -66,6 +66,11 @@ const createHarness = () => {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    channelAudienceMemberGrade: {
+      findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn(),
+      findUnique: jest.fn(),
+    },
     userOrganization: { findFirst: jest.fn().mockResolvedValue({ id: 'member' }) },
   };
   const transaction = jest.fn((callback: (client: any) => unknown) => callback(tx));
@@ -858,6 +863,14 @@ describe('ChannelInteractionRepository', () => {
       }],
       skipDuplicates: true,
     });
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      data: { relationshipGrade: null },
+    });
   });
 
   it('increments likesCount for inbound likes', async () => {
@@ -979,6 +992,7 @@ describe('ChannelInteractionRepository', () => {
       repository.getFollowersByNoteCount({
         organizationId: 'org',
         integrationId: 'integration',
+        userId: 'user-a',
         direction: 'desc',
         limit: 2,
       })
@@ -1074,6 +1088,7 @@ describe('ChannelInteractionRepository', () => {
       repository.getFollowersByLikesCount({
         organizationId: 'org',
         integrationId: 'integration',
+        userId: 'user-a',
         direction: 'desc',
         limit: 2,
       })
@@ -1118,6 +1133,7 @@ describe('ChannelInteractionRepository', () => {
     await repository.getFollowersByLikesCount({
       organizationId: 'org',
       integrationId: 'integration',
+      userId: 'user-a',
       direction: 'desc',
       limit: 24,
       search: 'alice',
@@ -1149,6 +1165,7 @@ describe('ChannelInteractionRepository', () => {
     await repository.getFollowersByNoteCount({
       organizationId: 'org',
       integrationId: 'integration',
+      userId: 'user-a',
       direction: 'desc',
       limit: 24,
       search: 'alice',
@@ -1200,6 +1217,7 @@ describe('ChannelInteractionRepository', () => {
       repository.getAudienceFollowers({
         organizationId: 'org',
         integrationId: 'integration',
+        userId: 'user-a',
         search: 'alice',
         sortField: 'followedAt',
         direction: 'desc',
@@ -1252,5 +1270,150 @@ describe('ChannelInteractionRepository', () => {
         },
       ],
     });
+  });
+
+  it('loads note, like, and grade fields for a follower page in one member query', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      {
+        externalId: 'person-1',
+        noteCount: 2,
+        likesCount: 4,
+        relationshipGrade: 3.5,
+        personalGrades: [{ grade: 5 }],
+      },
+    ]);
+
+    await expect(
+      repository.getFollowerNoteCounts('org', 'integration', ['person-1'], 'user-a')
+    ).resolves.toEqual(
+      new Map([
+        [
+          'person-1',
+          {
+            noteCount: 2,
+            likesCount: 4,
+            relationshipGrade: 3.5,
+            myGrade: 5,
+          },
+        ],
+      ])
+    );
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          externalId: { in: ['person-1'] },
+        },
+        select: expect.objectContaining({
+          relationshipGrade: true,
+          personalGrades: expect.objectContaining({
+            where: { userId: 'user-a' },
+          }),
+        }),
+      })
+    );
+  });
+
+  it('ranks followers by relationship grade with ungraded values last', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      { externalId: 'person-2', relationshipGrade: 5 },
+      { externalId: 'person-1', relationshipGrade: 3 },
+      { externalId: 'person-0', relationshipGrade: null },
+    ]);
+
+    await expect(
+      repository.getFollowersByRelationshipGrade({
+        organizationId: 'org',
+        integrationId: 'integration',
+        userId: 'user-a',
+        direction: 'desc',
+        limit: 2,
+      })
+    ).resolves.toEqual({
+      items: [
+        { externalId: 'person-2', relationshipGrade: 5 },
+        { externalId: 'person-1', relationshipGrade: 3 },
+      ],
+      hasMore: true,
+    });
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [
+          { relationshipGrade: { sort: 'desc', nulls: 'last' } },
+          { externalId: 'desc' },
+        ],
+        take: 3,
+      })
+    );
+    expect(
+      (repository as any).nullableGradeFollowerKeyset(
+        { grade: 3, externalId: 'person-1' },
+        'desc',
+        'relationshipGrade'
+      )
+    ).toEqual({
+      OR: [
+        { relationshipGrade: { lt: 3 } },
+        { relationshipGrade: 3, externalId: { lt: 'person-1' } },
+        { relationshipGrade: null },
+      ],
+    });
+  });
+
+  it('ranks followers by the current user personal grade then ungraded members', async () => {
+    const { repository, tx, audienceMemberFindMany } = createHarness();
+    tx.channelAudienceMemberGrade.findMany.mockResolvedValue([
+      {
+        grade: 5,
+        audienceMember: {
+          externalId: 'person-2',
+          relationshipGrade: 4,
+          personalGrades: [{ grade: 5 }],
+        },
+      },
+    ]);
+    audienceMemberFindMany.mockResolvedValue([
+      {
+        externalId: 'person-0',
+        relationshipGrade: null,
+        personalGrades: [],
+      },
+    ]);
+
+    await expect(
+      repository.getFollowersByMyGrade({
+        organizationId: 'org',
+        integrationId: 'integration',
+        userId: 'user-a',
+        direction: 'desc',
+        limit: 2,
+      })
+    ).resolves.toEqual({
+      items: [
+        {
+          externalId: 'person-2',
+          relationshipGrade: 4,
+          personalGrades: [{ grade: 5 }],
+        },
+        {
+          externalId: 'person-0',
+          relationshipGrade: null,
+          personalGrades: [],
+        },
+      ],
+      hasMore: false,
+    });
+    expect(tx.channelAudienceMemberGrade.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'user-a',
+        }),
+        orderBy: [{ grade: 'desc' }, { counterpartyExternalId: 'desc' }],
+        take: 3,
+      })
+    );
   });
 });

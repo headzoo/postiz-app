@@ -197,6 +197,9 @@ export type Follower = {
   lastInteractionAt?: string;
   noteCount?: number;
   likesCount?: number;
+  relationshipGrade?: number | null;
+  myGrade?: number | null;
+  adjustedGrade?: number | null;
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';
@@ -305,6 +308,7 @@ export type FollowerRelationshipSnapshot = {
   reciprocationScore: number;
   reciprocity: number | null;
   grade: number | null;
+  adjustedGrade: number | null;
   formulaVersion: number;
 };
 
@@ -321,6 +325,7 @@ export type FollowerMemberDetail = {
   notes: FollowerMemberNote[];
   interactions: FollowerMemberInteraction[];
   relationship: FollowerRelationship;
+  myGrade: number | null;
   tracking?: FollowerPageTracking;
 };
 

@@ -94,6 +94,9 @@ export type Follower = {
   lastInteractionAt?: string;
   noteCount?: number;
   likesCount?: number;
+  relationshipGrade?: number | null;
+  myGrade?: number | null;
+  adjustedGrade?: number | null;
 };
 
 export type ChannelInteractionDirection = 'inbound' | 'outbound';
@@ -126,6 +129,7 @@ export type FollowerRelationshipSnapshot = {
   reciprocationScore: number;
   reciprocity: number | null;
   grade: number | null;
+  adjustedGrade: number | null;
   formulaVersion: number;
 };
 
@@ -142,6 +146,7 @@ export type FollowerMemberDetail = {
   notes: FollowerMemberNote[];
   interactions: FollowerMemberInteraction[];
   relationship: FollowerRelationship;
+  myGrade: number | null;
   tracking?: FollowerPageTracking;
 };
 
@@ -385,4 +390,31 @@ export const useFollowerNoteMutations = (
   );
 
   return { createNote, updateNote, deleteNote };
+};
+
+export const useFollowerGradeMutation = (
+  integrationId: string,
+  externalId: string,
+  revalidateDetail: () => Promise<FollowerMemberDetail | undefined>
+) => {
+  const fetch = useFetch();
+
+  const updateGrade = useCallback(
+    async (grade: number) => {
+      const response = await fetch(
+        `/followers/${integrationId}/member/my-grade`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ externalId, grade }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to update personal grade');
+      }
+      await revalidateDetail();
+    },
+    [externalId, fetch, integrationId, revalidateDetail]
+  );
+
+  return { updateGrade };
 };

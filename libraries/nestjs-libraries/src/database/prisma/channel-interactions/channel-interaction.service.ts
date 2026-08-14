@@ -34,9 +34,11 @@ import {
 import {
   calculateRelationshipGrade,
   getChannelInteractionScore,
+  isPersonalRelationshipGrade,
 } from './channel-interaction.scoring';
 
 export {
+  applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
   getChannelInteractionScore,
 } from './channel-interaction.scoring';
@@ -476,13 +478,16 @@ export class ChannelInteractionService {
   async getFollowerDetails(
     organizationId: string,
     integrationId: string,
-    externalId: string
+    externalId: string,
+    userId: string
   ) {
     this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    this.validateBoundedString(userId, 'userId', MAX_ID_LENGTH);
     const details = await this._repository.getFollowerDetails(
       organizationId,
       integrationId,
-      externalId
+      externalId,
+      userId
     );
     if (!details) {
       throw new NotFoundException('Follower was not found');
@@ -547,6 +552,31 @@ export class ChannelInteractionService {
       noteId
     )) {
       throw new NotFoundException('Follower note was not found');
+    }
+  }
+
+  async upsertFollowerGrade(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    userId: string,
+    grade: number
+  ) {
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    this.validateBoundedString(userId, 'userId', MAX_ID_LENGTH);
+    if (!isPersonalRelationshipGrade(grade)) {
+      throw new BadRequestException('Grade must be a half-star value between 1 and 5');
+    }
+    try {
+      return await this._repository.upsertAudienceMemberGrade(
+        organizationId,
+        integrationId,
+        externalId,
+        userId,
+        grade
+      );
+    } catch {
+      throw new NotFoundException('Follower was not found');
     }
   }
 

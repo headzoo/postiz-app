@@ -22,6 +22,7 @@ const history: FollowerRelationshipSnapshot[] = [
     reciprocationScore: 0,
     reciprocity: null,
     grade: null,
+    adjustedGrade: null,
     formulaVersion: 1,
   },
   {
@@ -31,6 +32,7 @@ const history: FollowerRelationshipSnapshot[] = [
     reciprocationScore: 5,
     reciprocity: 0.5,
     grade: 3.5,
+    adjustedGrade: 3.5,
     formulaVersion: 1,
   },
 ];

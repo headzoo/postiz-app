@@ -33,7 +33,9 @@ export const FollowerRelationshipChart: FC<{
     const labels = history.map((snapshot) =>
       newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')
     );
-    const grades = history.map((snapshot) => snapshot.grade);
+    const grades = history.map(
+      (snapshot) => snapshot.adjustedGrade ?? snapshot.grade
+    );
 
     chart.current = new DrawChart(ref.current, {
       type: 'line',
@@ -75,10 +77,12 @@ export const FollowerRelationshipChart: FC<{
                 if (!snapshot) {
                   return '';
                 }
+                const displayedGrade =
+                  snapshot.adjustedGrade ?? snapshot.grade;
                 const gradeLabel =
-                  snapshot.grade == null
+                  displayedGrade == null
                     ? 'No grade (not enough tracked activity)'
-                    : `Grade: ${snapshot.grade}`;
+                    : `Grade: ${displayedGrade}`;
                 return [
                   gradeLabel,
                   `E: ${snapshot.effortScore}`,
@@ -155,7 +159,7 @@ export const FollowerRelationshipChart: FC<{
                 {newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')}
               </td>
               <td className="py-[8px] pe-[12px]">
-                {formatGradeLabel(snapshot.grade)}
+                {formatGradeLabel(snapshot.adjustedGrade ?? snapshot.grade)}
               </td>
               <td className="py-[8px] pe-[12px]">{snapshot.effortScore}</td>
               <td className="py-[8px] pe-[12px]">

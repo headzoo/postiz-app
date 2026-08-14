@@ -49,3 +49,29 @@ export function calculateRelationshipGrade(
   const grade = Math.min(5, Math.max(1, Math.round((1 + 4 * reciprocity) * 2) / 2));
   return { reciprocity, grade, formulaVersion: 1 as const };
 }
+
+export const PERSONAL_GRADE_VALUES = [
+  1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5,
+] as const;
+
+export type PersonalRelationshipGrade = (typeof PERSONAL_GRADE_VALUES)[number];
+
+export function isPersonalRelationshipGrade(
+  value: number
+): value is PersonalRelationshipGrade {
+  return PERSONAL_GRADE_VALUES.includes(value as PersonalRelationshipGrade);
+}
+
+export function applyPersonalRelationshipGrade(
+  grade: number | null,
+  myGrade: number | null
+) {
+  if (myGrade == null) {
+    return grade;
+  }
+  if (!isPersonalRelationshipGrade(myGrade)) {
+    throw new RangeError('Personal grade must be a half-star value between 1 and 5');
+  }
+  const base = grade == null ? 3 : grade;
+  return Math.min(5, Math.max(1, Math.round((base + (myGrade - 3)) * 2) / 2));
+}
