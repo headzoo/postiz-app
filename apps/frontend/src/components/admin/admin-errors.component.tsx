@@ -9,6 +9,7 @@ import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { Button } from '@gitroom/react/form/button';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 
 interface ErrorRow {
   id: string;
@@ -59,7 +60,11 @@ const ErrorDetailsModal: FC<{ row: ErrorRow }> = ({ row }) => {
   }, [parsedMessage, parsedBody, row, toaster]);
 
   return (
-    <div className="rounded-[4px] border border-newTableBorder bg-newBgColorInner px-[16px] pb-[16px] relative w-full max-h-[80vh] overflow-auto">
+    <CustomScrollArea
+      className="rounded-[4px] border border-newTableBorder bg-newBgColorInner relative w-full"
+      maxHeight="80vh"
+      contentClassName="px-[16px] pb-[16px] pe-[28px]"
+    >
       <div className="sticky top-0 bg-newBgColorInner py-[16px] flex items-center justify-between gap-[12px] z-10 border-b border-newTableBorder mb-[12px]">
         <div className="text-[16px] font-[600]">Error Details</div>
         <div className="flex gap-[8px] items-center">
@@ -131,7 +136,7 @@ const ErrorDetailsModal: FC<{ row: ErrorRow }> = ({ row }) => {
           ? parsedBody
           : JSON.stringify(parsedBody, null, 2)}
       </pre>
-    </div>
+    </CustomScrollArea>
   );
 };
 

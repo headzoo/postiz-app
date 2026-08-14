@@ -5,7 +5,6 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 import useSWR from 'swr';
@@ -15,6 +14,7 @@ import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import Spinner from '@gitroom/frontend/components/layout/loading';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 
 export type GiphyGifItem = {
   id: string;
@@ -96,7 +96,6 @@ export const GifPicker: FC<{
   const [items, setItems] = useState<GiphyGifItem[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const trimmedQuery = debouncedQuery.trim();
   const offset =
     open && pageState.query === trimmedQuery ? pageState.offset : 0;
@@ -147,19 +146,21 @@ export const GifPicker: FC<{
     );
   }, [error]);
 
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || isLoading || loadingMore || importing || !hasMore) {
-      return;
-    }
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
-      setLoadingMore(true);
-      setPageState((prev) => ({
-        query: trimmedQuery,
-        offset: prev.query === trimmedQuery ? prev.offset + PAGE_SIZE : 0,
-      }));
-    }
-  }, [hasMore, importing, isLoading, loadingMore, trimmedQuery]);
+  const onScroll = useCallback(
+    (el: HTMLElement) => {
+      if (isLoading || loadingMore || importing || !hasMore) {
+        return;
+      }
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
+        setLoadingMore(true);
+        setPageState((prev) => ({
+          query: trimmedQuery,
+          offset: prev.query === trimmedQuery ? prev.offset + PAGE_SIZE : 0,
+        }));
+      }
+    },
+    [hasMore, importing, isLoading, loadingMore, trimmedQuery]
+  );
 
   const handleSelect = useCallback(
     async (gif: GiphyGifItem) => {
@@ -197,10 +198,10 @@ export const GifPicker: FC<{
           autoFocus
         />
       </div>
-      <div
-        ref={scrollRef}
+      <CustomScrollArea
+        className="h-[280px]"
+        contentClassName="p-[8px] pe-[20px]"
         onScroll={onScroll}
-        className="h-[280px] overflow-y-auto scrollbar scrollbar-thumb-newColColor scrollbar-track-newBgColorInner p-[8px]"
       >
         {empty && (
           <div className="h-full flex items-center justify-center text-[12px] opacity-70">
@@ -233,7 +234,7 @@ export const GifPicker: FC<{
             <Spinner width={20} height={20} />
           </div>
         )}
-      </div>
+      </CustomScrollArea>
       <div className="px-[10px] py-[6px] border-t border-newColColor text-[10px] opacity-70 flex justify-end">
         <a
           href="https://giphy.com/"

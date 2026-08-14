@@ -177,6 +177,7 @@ export type FollowerInteractionMetrics = {
 const TRANSACTION_ATTEMPTS = 3;
 const RELATIONSHIP_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const RELATIONSHIP_BATCH_SIZE = 100;
+const RELATIONSHIP_REFRESH_MAX_MEMBERS = 500;
 
 export type RelationshipGradeBatchMember = {
   externalId: string;
@@ -955,47 +956,42 @@ export class ChannelInteractionRepository {
         select: { externalId: true },
       });
       if (!followers.length) return { members: [] };
-      const aggregates = await tx.channelInteractionEvent.groupBy({
-        by: ['counterpartyExternalId', 'kind', 'direction'],
-        where: {
+      return {
+        members: await this.aggregateRelationshipScores(
+          tx,
           organizationId,
           integrationId,
-          counterpartyExternalId: { in: followers.map(({ externalId }) => externalId) },
-          eventAt: {
-            gte: new Date(snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS),
-            lte: snapshotAt,
-          },
-        },
-        _count: { _all: true },
-      });
-      const scores = new Map<string, RelationshipGradeBatchMember>();
-      for (const { externalId } of followers) {
-        scores.set(externalId, {
-          externalId,
-          effortScore: 0,
-          reciprocationScore: 0,
-        });
-      }
-      for (const aggregate of aggregates) {
-        const member = scores.get(aggregate.counterpartyExternalId);
-        if (!member) continue;
-        const score =
-          aggregate._count._all *
-          getChannelInteractionScore(
-            aggregate.kind.toLowerCase() as Parameters<
-              typeof getChannelInteractionScore
-            >[0],
-            aggregate.direction.toLowerCase() as Parameters<
-              typeof getChannelInteractionScore
-            >[1]
-          );
-        if (aggregate.direction === ChannelInteractionDirection.OUTBOUND) {
-          member.effortScore += score;
-        } else {
-          member.reciprocationScore += score;
-        }
-      }
-      return { members: followers.map(({ externalId }) => scores.get(externalId)!) };
+          followers.map(({ externalId }) => externalId),
+          snapshotAt
+        ),
+      };
+    });
+  }
+
+  async getRelationshipScoresForMembers(
+    organizationId: string,
+    integrationId: string,
+    externalIds: string[],
+    snapshotAt: Date
+  ): Promise<{ members: RelationshipGradeBatchMember[] }> {
+    const uniqueIds = [...new Set(externalIds)].slice(
+      0,
+      RELATIONSHIP_REFRESH_MAX_MEMBERS
+    );
+    if (!uniqueIds.length) {
+      return { members: [] };
+    }
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      return {
+        members: await this.aggregateRelationshipScores(
+          tx,
+          organizationId,
+          integrationId,
+          uniqueIds,
+          snapshotAt
+        ),
+      };
     });
   }
 
@@ -1023,35 +1019,52 @@ export class ChannelInteractionRepository {
         })),
         skipDuplicates: true,
       });
-      await Promise.all(
-        snapshots.map((snapshot) =>
-          tx.channelAudienceMember.updateMany({
-            where: {
-              organizationId,
-              integrationId,
-              externalId: snapshot.externalId,
-              OR: [
-                { relationshipSnapshotAt: null },
-                { relationshipSnapshotAt: { lte: snapshotAt } },
-              ],
-            },
-            data: {
-              relationshipGrade: snapshot.grade,
-              relationshipEffortScore: snapshot.effortScore,
-              relationshipReciprocationScore: snapshot.reciprocationScore,
-              relationshipNetGap:
-                snapshot.reciprocationScore - snapshot.effortScore,
-              relationshipTriage: getRelationshipTriage(
-                snapshot.effortScore,
-                snapshot.reciprocationScore
-              ),
-              relationshipFormulaVersion: snapshot.formulaVersion,
-              relationshipSnapshotAt: snapshotAt,
-            },
-          })
-        )
+      await this.writeCurrentRelationshipProjections(
+        tx,
+        organizationId,
+        integrationId,
+        snapshotAt,
+        snapshots
       );
       return created;
+    });
+  }
+
+  async getCurrentRelationshipProjection(
+    organizationId: string,
+    integrationId: string,
+    externalId: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      return tx.channelAudienceMember.findFirst({
+        where: { organizationId, integrationId, externalId },
+        select: {
+          externalId: true,
+          relationshipEffortScore: true,
+          relationshipReciprocationScore: true,
+        },
+      });
+    });
+  }
+
+  async updateCurrentRelationshipProjections(
+    organizationId: string,
+    integrationId: string,
+    snapshotAt: Date,
+    snapshots: RelationshipGradeSnapshotInput[]
+  ) {
+    if (!snapshots.length) return { count: 0 };
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      await this.writeCurrentRelationshipProjections(
+        tx,
+        organizationId,
+        integrationId,
+        snapshotAt,
+        snapshots
+      );
+      return { count: snapshots.length };
     });
   }
 
@@ -1259,7 +1272,7 @@ export class ChannelInteractionRepository {
   ) {
     return this.withSerializableRetry(async (tx) => {
       await this.assertNoteAccess(tx, organizationId, integrationId, externalId, userId);
-      return tx.channelAudienceMemberGrade.upsert({
+      const saved = await tx.channelAudienceMemberGrade.upsert({
         where: {
           organizationId_integrationId_counterpartyExternalId_userId: {
             organizationId,
@@ -1278,6 +1291,14 @@ export class ChannelInteractionRepository {
         update: { grade },
         select: { grade: true },
       });
+      const member = await tx.channelAudienceMember.findFirst({
+        where: { organizationId, integrationId, externalId },
+        select: { relationshipGrade: true },
+      });
+      return {
+        grade: saved.grade,
+        relationshipGrade: member?.relationshipGrade ?? null,
+      };
     });
   }
 
@@ -1927,6 +1948,96 @@ export class ChannelInteractionRepository {
 
   private relationshipDueCutoff(snapshotAt: Date) {
     return new Date(snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS);
+  }
+
+  private async aggregateRelationshipScores(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    integrationId: string,
+    externalIds: string[],
+    snapshotAt: Date
+  ): Promise<RelationshipGradeBatchMember[]> {
+    if (!externalIds.length) {
+      return [];
+    }
+    const aggregates = await tx.channelInteractionEvent.groupBy({
+      by: ['counterpartyExternalId', 'kind', 'direction'],
+      where: {
+        organizationId,
+        integrationId,
+        counterpartyExternalId: { in: externalIds },
+        eventAt: {
+          gte: new Date(snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS),
+          lte: snapshotAt,
+        },
+      },
+      _count: { _all: true },
+    });
+    const scores = new Map<string, RelationshipGradeBatchMember>();
+    for (const externalId of externalIds) {
+      scores.set(externalId, {
+        externalId,
+        effortScore: 0,
+        reciprocationScore: 0,
+      });
+    }
+    for (const aggregate of aggregates) {
+      const member = scores.get(aggregate.counterpartyExternalId);
+      if (!member) continue;
+      const score =
+        aggregate._count._all *
+        getChannelInteractionScore(
+          aggregate.kind.toLowerCase() as Parameters<
+            typeof getChannelInteractionScore
+          >[0],
+          aggregate.direction.toLowerCase() as Parameters<
+            typeof getChannelInteractionScore
+          >[1]
+        );
+      if (aggregate.direction === ChannelInteractionDirection.OUTBOUND) {
+        member.effortScore += score;
+      } else {
+        member.reciprocationScore += score;
+      }
+    }
+    return externalIds.map((externalId) => scores.get(externalId)!);
+  }
+
+  private writeCurrentRelationshipProjections(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    integrationId: string,
+    snapshotAt: Date,
+    snapshots: RelationshipGradeSnapshotInput[]
+  ) {
+    return Promise.all(
+      snapshots.map((snapshot) =>
+        tx.channelAudienceMember.updateMany({
+          where: {
+            organizationId,
+            integrationId,
+            externalId: snapshot.externalId,
+            OR: [
+              { relationshipSnapshotAt: null },
+              { relationshipSnapshotAt: { lte: snapshotAt } },
+            ],
+          },
+          data: {
+            relationshipGrade: snapshot.grade,
+            relationshipEffortScore: snapshot.effortScore,
+            relationshipReciprocationScore: snapshot.reciprocationScore,
+            relationshipNetGap:
+              snapshot.reciprocationScore - snapshot.effortScore,
+            relationshipTriage: getRelationshipTriage(
+              snapshot.effortScore,
+              snapshot.reciprocationScore
+            ),
+            relationshipFormulaVersion: snapshot.formulaVersion,
+            relationshipSnapshotAt: snapshotAt,
+          },
+        })
+      )
+    );
   }
 
   private async assertNoteAccess(

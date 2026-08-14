@@ -102,7 +102,6 @@ export const FollowerCard: FC<{
   const hasMetricsGrid =
     hasFollowingCount ||
     hasFollowersCount ||
-    !!accountCreatedAt ||
     hasLikesCount ||
     hasNoteCount ||
     hasInteractionCount ||
@@ -112,6 +111,7 @@ export const FollowerCard: FC<{
   const hasRelationshipEffort =
     follower.effortStars !== undefined ||
     follower.reciprocationStars !== undefined ||
+    follower.myGrade !== undefined ||
     follower.relationshipTriage != null;
 
   const handleCardClick = () => {
@@ -221,6 +221,15 @@ export const FollowerCard: FC<{
               </div>
             </div>
 
+            {accountCreatedAt && (
+              <div className="mt-[4px] min-w-0 overflow-hidden whitespace-nowrap text-[13px]">
+                <span className="font-[700] text-newTextColor">
+                  {t('followers_joined_label', 'Joined')}
+                </span>{' '}
+                <span className="text-textItemBlur">{accountCreatedAt}</span>
+              </div>
+            )}
+
             {hasSecondaryInteractionMetrics && (
               <div className="mt-[6px] flex flex-wrap items-center gap-x-[16px] gap-y-[4px] text-[12px] text-textItemBlur">
                 {Number.isFinite(follower.interactionScore) && (
@@ -242,97 +251,114 @@ export const FollowerCard: FC<{
               </div>
             )}
 
-            {hasMetricsGrid && (
-                <div className="mt-[6px] grid grid-cols-3 gap-x-[12px] gap-y-[6px] text-[13px]">
-                  {hasFollowingCount && (
-                    <span>
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.followingCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_following_label', 'Following')}
+            {(hasRelationshipEffort || hasMetricsGrid) && (
+              <div
+                data-follower-metrics-row=""
+                className={clsx(
+                  'mt-[8px] grid gap-x-[16px] gap-y-[8px]',
+                  hasRelationshipEffort && hasMetricsGrid
+                    ? 'grid-cols-[max-content_minmax(0,1fr)]'
+                    : 'grid-cols-1'
+                )}
+              >
+                {hasRelationshipEffort && (
+                  <div className="flex flex-col gap-[6px]">
+                    <div className="flex items-center gap-[8px] text-[12px]">
+                      <span className="shrink-0 text-textItemBlur">
+                        {t('followers_card_grade', 'Grade')}
                       </span>
-                    </span>
-                  )}
-                  {hasFollowersCount && (
-                    <span>
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.followersCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_followers_label', 'Followers')}
+                      <RelationshipStars
+                        grade={follower.myGrade ?? null}
+                        compact={true}
+                      />
+                    </div>
+                    <div className="flex items-center gap-[8px] text-[12px]">
+                      <span className="shrink-0 text-textItemBlur">
+                        {t('followers_card_them', 'Them')}
                       </span>
-                    </span>
-                  )}
-                  {accountCreatedAt && (
-                    <span className="min-w-0 overflow-hidden whitespace-nowrap">
-                      <span className="font-[700] text-newTextColor">
-                        {t('followers_joined_label', 'Joined')}
-                      </span>{' '}
-                      <span className="text-textItemBlur">{accountCreatedAt}</span>
-                    </span>
-                  )}
-                  {hasLikesCount && (
-                    <span>
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.likesCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_like_count', 'likes')}
+                      <RelationshipStars
+                        grade={follower.reciprocationStars ?? null}
+                        compact={true}
+                      />
+                    </div>
+                    <div className="flex items-center gap-[8px] text-[12px]">
+                      <span className="shrink-0 text-textItemBlur">
+                        {t('followers_card_you', 'You')}
                       </span>
-                    </span>
-                  )}
-                  {hasNoteCount && (
-                    <span>
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.noteCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_note_count', 'notes')}
-                      </span>
-                    </span>
-                  )}
-                  {hasInteractionCount && (
-                    <span>
-                      <span className="font-[700] text-newTextColor">
-                        {formatCompactCount(follower.interactionCount!)}
-                      </span>{' '}
-                      <span className="text-textItemBlur">
-                        {t('followers_interaction_count', 'interactions')}
-                      </span>
-                    </span>
-                  )}
-                  {hasInfluenceScore && (
-                    <span className="text-textItemBlur">
-                      {t('followers_recommendation_score', 'Score {{score}}', {
-                        score: follower.influenceScore!,
-                      })}
-                    </span>
-                  )}
-                </div>
-              )}
-            {hasRelationshipEffort && (
-                <div className="mt-[8px] flex flex-col gap-[6px]">
-                  <div className="flex items-center gap-[8px] text-[12px]">
-                    <span className="shrink-0 text-textItemBlur">
-                      {t('followers_their_effort', 'Their effort')}
-                    </span>
-                    <RelationshipStars
-                      grade={follower.reciprocationStars ?? null}
-                      compact={true}
-                    />
+                      <RelationshipStars
+                        grade={follower.effortStars ?? null}
+                        compact={true}
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-[8px] text-[12px]">
-                    <span className="shrink-0 text-textItemBlur">
-                      {t('followers_your_effort', 'Your effort')}
-                    </span>
-                    <RelationshipStars
-                      grade={follower.effortStars ?? null}
-                      compact={true}
-                    />
+                )}
+                {hasMetricsGrid && (
+                  <div className="grid min-w-0 grid-cols-2 gap-x-[12px] gap-y-[6px] text-[13px]">
+                    {hasFollowingCount && (
+                      <span className="whitespace-nowrap">
+                        <span className="font-[700] text-newTextColor">
+                          {formatCompactCount(follower.followingCount!)}
+                        </span>{' '}
+                        <span className="text-textItemBlur">
+                          {t('followers_following_label', 'Following')}
+                        </span>
+                      </span>
+                    )}
+                    {hasFollowersCount && (
+                      <span className="whitespace-nowrap">
+                        <span className="font-[700] text-newTextColor">
+                          {formatCompactCount(follower.followersCount!)}
+                        </span>{' '}
+                        <span className="text-textItemBlur">
+                          {t('followers_followers_label', 'Followers')}
+                        </span>
+                      </span>
+                    )}
+                    {hasLikesCount && (
+                      <span className="whitespace-nowrap">
+                        <span className="font-[700] text-newTextColor">
+                          {formatCompactCount(follower.likesCount!)}
+                        </span>{' '}
+                        <span className="text-textItemBlur">
+                          {t('followers_like_count', 'likes')}
+                        </span>
+                      </span>
+                    )}
+                    {hasNoteCount && (
+                      <span className="whitespace-nowrap">
+                        <span className="font-[700] text-newTextColor">
+                          {formatCompactCount(follower.noteCount!)}
+                        </span>{' '}
+                        <span className="text-textItemBlur">
+                          {t('followers_note_count', 'notes')}
+                        </span>
+                      </span>
+                    )}
+                    {hasInteractionCount && (
+                      <span className="whitespace-nowrap">
+                        <span className="font-[700] text-newTextColor">
+                          {formatCompactCount(follower.interactionCount!)}
+                        </span>{' '}
+                        <span className="text-textItemBlur">
+                          {t('followers_interaction_count', 'interactions')}
+                        </span>
+                      </span>
+                    )}
+                    {hasInfluenceScore && (
+                      <span className="text-textItemBlur">
+                        {t(
+                          'followers_recommendation_score',
+                          'Score {{score}}',
+                          {
+                            score: follower.influenceScore!,
+                          }
+                        )}
+                      </span>
+                    )}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            )}
             {follower.bio && (
               <p className="mt-[8px] text-[13px] text-newTextColor line-clamp-3">
                 {follower.bio}

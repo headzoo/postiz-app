@@ -888,6 +888,134 @@ describe('ChannelInteractionRepository', () => {
     });
   });
 
+  it('aggregates targeted member scores without writing snapshots', async () => {
+    const { repository, tx, groupBy } = createHarness();
+    groupBy.mockResolvedValue([{
+      counterpartyExternalId: 'person-1',
+      kind: ChannelInteractionKind.REPLY,
+      direction: ChannelInteractionDirection.OUTBOUND,
+      _count: { _all: 2 },
+    }]);
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await expect(
+      repository.getRelationshipScoresForMembers(
+        'org',
+        'integration',
+        ['person-1', 'quiet-follower'],
+        snapshotAt
+      )
+    ).resolves.toEqual({
+      members: [
+        { externalId: 'person-1', effortScore: 8, reciprocationScore: 0 },
+        { externalId: 'quiet-follower', effortScore: 0, reciprocationScore: 0 },
+      ],
+    });
+    expect(groupBy).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        counterpartyExternalId: { in: ['person-1', 'quiet-follower'] },
+        eventAt: {
+          gte: new Date('2026-07-13T12:00:00.000Z'),
+          lte: snapshotAt,
+        },
+      }),
+    }));
+    expect(tx.channelRelationshipGradeSnapshot.createMany).not.toHaveBeenCalled();
+  });
+
+  it('updates current relationship projections without writing history', async () => {
+    const { repository, tx } = createHarness();
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await expect(
+      repository.updateCurrentRelationshipProjections('org', 'integration', snapshotAt, [{
+        externalId: 'person-1',
+        effortScore: 12,
+        reciprocationScore: 8,
+        reciprocity: 2 / 3,
+        grade: 2,
+        formulaVersion: 2,
+      }])
+    ).resolves.toEqual({ count: 1 });
+    expect(tx.channelRelationshipGradeSnapshot.createMany).not.toHaveBeenCalled();
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+        OR: [
+          { relationshipSnapshotAt: null },
+          { relationshipSnapshotAt: { lte: snapshotAt } },
+        ],
+      },
+      data: {
+        relationshipGrade: 2,
+        relationshipEffortScore: 12,
+        relationshipReciprocationScore: 8,
+        relationshipNetGap: -4,
+        relationshipTriage: 'over_invested',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: snapshotAt,
+      },
+    });
+  });
+
+  it('reads the current relationship projection for one owned member', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      externalId: 'person-1',
+      relationshipEffortScore: 10,
+      relationshipReciprocationScore: 5,
+    });
+
+    await expect(
+      repository.getCurrentRelationshipProjection('org', 'integration', 'person-1')
+    ).resolves.toEqual({
+      externalId: 'person-1',
+      relationshipEffortScore: 10,
+      relationshipReciprocationScore: 5,
+    });
+    expect(tx.channelAudienceMember.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      select: {
+        externalId: true,
+        relationshipEffortScore: true,
+        relationshipReciprocationScore: true,
+      },
+    });
+  });
+
+  it('loads the current relationship grade when upserting a personal grade', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      id: 'member-1',
+      relationshipGrade: 3.5,
+    });
+    tx.channelAudienceMemberGrade.upsert.mockResolvedValue({ grade: 4.5 });
+
+    await expect(
+      repository.upsertAudienceMemberGrade(
+        'org',
+        'integration',
+        'person-1',
+        'user-a',
+        4.5
+      )
+    ).resolves.toEqual({ grade: 4.5, relationshipGrade: 3.5 });
+    expect(tx.channelAudienceMember.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      select: { relationshipGrade: true },
+    });
+  });
+
   it('requires a recent formula-v2 snapshot before a follower is current', async () => {
     const { repository, tx } = createHarness();
     const snapshotAt = new Date('2026-08-12T12:00:00.000Z');

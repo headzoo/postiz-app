@@ -2,7 +2,7 @@
 
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useCallback, useMemo } from 'react';
-import useSWR from 'swr';
+import useSWR, { useSWRConfig } from 'swr';
 
 export type FollowerSortDirection = 'asc' | 'desc';
 
@@ -448,4 +448,94 @@ export const useFollowerGradeMutation = (
   );
 
   return { updateGrade };
+};
+
+export type RelationshipScoreDirection = 'their' | 'your';
+
+export const isFollowerListCacheKey = (
+  integrationId: string,
+  key: unknown
+) =>
+  typeof key === 'string' && key.startsWith(`/followers/${integrationId}?`);
+
+const isRelationshipSnapshot = (
+  value: unknown
+): value is FollowerRelationshipSnapshot => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const snapshot = value as Partial<FollowerRelationshipSnapshot>;
+  return (
+    Number.isSafeInteger(snapshot.effortScore) &&
+    Number.isSafeInteger(snapshot.reciprocationScore) &&
+    Number.isFinite(snapshot.effortStars) &&
+    Number.isFinite(snapshot.reciprocationStars)
+  );
+};
+
+export const applyRelationshipSnapshotToFollowerPage = (
+  page: FollowerPage | undefined,
+  externalId: string,
+  current: unknown
+): FollowerPage | undefined => {
+  if (!page || !isRelationshipSnapshot(current)) {
+    return page;
+  }
+  return {
+    ...page,
+    items: page.items.map((item) =>
+      item.id !== externalId
+        ? item
+        : {
+          ...item,
+          effortScore: current.effortScore,
+          reciprocationScore: current.reciprocationScore,
+          netGap: current.reciprocationScore - current.effortScore,
+          effortStars: current.effortStars,
+          reciprocationStars: current.reciprocationStars,
+          relationshipGrade: current.grade,
+          relationshipTriage: current.triage,
+          relationshipFormulaVersion: current.formulaVersion,
+          relationshipSnapshotAt: current.snapshotAt,
+          adjustedGrade: current.adjustedGrade,
+        }
+    ),
+  };
+};
+
+export const useFollowerRelationshipScoreMutation = (
+  integrationId: string,
+  externalId: string,
+  revalidateDetail: () => Promise<FollowerMemberDetail | undefined>
+) => {
+  const fetch = useFetch();
+  const { mutate: mutateCache } = useSWRConfig();
+
+  const refreshScore = useCallback(
+    async (direction: RelationshipScoreDirection) => {
+      const response = await fetch(
+        `/followers/${integrationId}/member/relationship-score`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ externalId, direction }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to refresh relationship score');
+      }
+      const current = (await response.json()) as FollowerRelationshipSnapshot;
+      await Promise.all([
+        revalidateDetail(),
+        mutateCache(
+          (key) => isFollowerListCacheKey(integrationId, key),
+          (page: FollowerPage | undefined) =>
+            applyRelationshipSnapshotToFollowerPage(page, externalId, current),
+          { revalidate: true }
+        ),
+      ]);
+    },
+    [externalId, fetch, integrationId, mutateCache, revalidateDetail]
+  );
+
+  return { refreshScore };
 };

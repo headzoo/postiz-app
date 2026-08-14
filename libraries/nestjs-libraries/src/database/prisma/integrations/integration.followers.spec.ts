@@ -63,6 +63,7 @@ describe('IntegrationService followers', () => {
       updateFollowerNote: jest.fn(),
       deleteFollowerNote: jest.fn(),
       upsertFollowerGrade: jest.fn(),
+      refreshFollowerRelationshipScore: jest.fn(),
     };
     return service;
   };
@@ -950,6 +951,79 @@ describe('IntegrationService followers', () => {
     ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a', 'user-a');
   });
 
+  it('uses the live relationship projection as follower detail current', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+        relationshipGrade: 1,
+        relationshipEffortScore: 12,
+        relationshipReciprocationScore: 4,
+        relationshipNetGap: -8,
+        relationshipTriage: 'over_invested',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: new Date('2026-08-14T12:00:00.000Z'),
+      },
+      snapshots: [
+        {
+          snapshotAt: new Date('2026-08-01T00:00:00.000Z'),
+          windowStartedAt: new Date('2026-07-02T00:00:00.000Z'),
+          effortScore: 8,
+          reciprocationScore: 8,
+          reciprocity: 1,
+          grade: 5,
+          formulaVersion: 1,
+        },
+      ],
+      notes: [],
+      events: [],
+      tracking: {
+        followerSync: null,
+        subscriptions: [],
+      },
+    });
+
+    const result = await service.getFollowerMemberDetails(
+      org,
+      user,
+      'channel-a',
+      'follower-a'
+    );
+    expect(result.relationship.current).toEqual({
+      snapshotAt: '2026-08-14T12:00:00.000Z',
+      windowStartedAt: '2026-07-15T12:00:00.000Z',
+      effortScore: 12,
+      reciprocationScore: 4,
+      reciprocity: 4 / 12,
+      grade: 1,
+      adjustedGrade: 1,
+      effortStars: 2,
+      reciprocationStars: 1.5,
+      triage: 'over_invested',
+      formulaVersion: 2,
+    });
+    expect(result.relationship.history).toEqual([
+      expect.objectContaining({
+        snapshotAt: '2026-08-01T00:00:00.000Z',
+        effortScore: 8,
+        reciprocationScore: 8,
+        formulaVersion: 1,
+      }),
+    ]);
+    expect(result.relationship.formulaVersion).toBe(2);
+  });
+
   it('keeps personal grade independent from relationship snapshot grades', async () => {
     const service = createService([integration], {
       supported: { followers: jest.fn() },
@@ -1269,15 +1343,57 @@ describe('IntegrationService followers', () => {
       supported: { followers: jest.fn() },
     });
     (service as any)._channelInteractionService.upsertFollowerGrade.mockResolvedValue(
-      { grade: 4.5 }
+      { grade: 4.5, adjustedGrade: 5 }
     );
 
     await expect(
       service.updateFollowerMemberGrade(org, user, 'channel-a', 'follower-a', 4.5)
-    ).resolves.toEqual({ myGrade: 4.5 });
+    ).resolves.toEqual({ myGrade: 4.5, adjustedGrade: 5 });
     expect(
       (service as any)._channelInteractionService.upsertFollowerGrade
     ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a', 'user-a', 4.5);
+  });
+
+  it('refreshes a directional relationship score for an owned follower', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    const snapshotAt = new Date('2026-08-14T12:00:00.000Z');
+    (service as any)._channelInteractionService.refreshFollowerRelationshipScore.mockResolvedValue(
+      {
+        externalId: 'follower-a',
+        effortScore: 10,
+        reciprocationScore: 30,
+        reciprocity: 1 / 3,
+        grade: 5,
+        formulaVersion: 2,
+        snapshotAt,
+      }
+    );
+
+    await expect(
+      service.refreshFollowerMemberRelationshipScore(
+        org,
+        'channel-a',
+        'follower-a',
+        'their'
+      )
+    ).resolves.toEqual({
+      snapshotAt: '2026-08-14T12:00:00.000Z',
+      windowStartedAt: '2026-07-15T12:00:00.000Z',
+      effortScore: 10,
+      reciprocationScore: 30,
+      reciprocity: 1 / 3,
+      grade: 5,
+      adjustedGrade: 5,
+      effortStars: 2,
+      reciprocationStars: 4,
+      triage: 'hot_lead',
+      formulaVersion: 2,
+    });
+    expect(
+      (service as any)._channelInteractionService.refreshFollowerRelationshipScore
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a', 'their');
   });
 
   it('falls back to email local-part when note author has no name', async () => {

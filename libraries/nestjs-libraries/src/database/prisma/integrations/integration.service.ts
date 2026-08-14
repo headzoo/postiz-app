@@ -40,6 +40,7 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
   applyPersonalRelationshipGrade,
+  calculateRelationshipGrade,
   getRelationshipTriage,
   RELATIONSHIP_FORMULA_VERSION,
   RelationshipTriage,
@@ -493,7 +494,44 @@ export class IntegrationService {
         user.id,
         grade
       );
-      return { myGrade: saved.grade };
+      return { myGrade: saved.grade, adjustedGrade: saved.adjustedGrade };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
+  async refreshFollowerMemberRelationshipScore(
+    org: Organization,
+    integrationId: string,
+    externalId: string,
+    direction: 'their' | 'your'
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      const saved =
+        await this._channelInteractionService.refreshFollowerRelationshipScore(
+          org.id,
+          integrationId,
+          externalId,
+          direction
+        );
+      return this.mapFollowerRelationshipSnapshot(
+        {
+          snapshotAt: saved.snapshotAt,
+          windowStartedAt: new Date(
+            saved.snapshotAt.getTime() - 30 * 24 * 60 * 60 * 1000
+          ),
+          effortScore: saved.effortScore,
+          reciprocationScore: saved.reciprocationScore,
+          reciprocity: saved.reciprocity,
+          grade: saved.grade,
+          formulaVersion: saved.formulaVersion,
+        },
+        null
+      );
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
@@ -554,6 +592,7 @@ export class IntegrationService {
         accountCreatedAt: Date | null;
         noteCount: number;
         likesCount?: number;
+        relationshipGrade: number | null;
         relationshipEffortScore: number | null;
         relationshipReciprocationScore: number | null;
         relationshipNetGap: number | null;
@@ -610,6 +649,9 @@ export class IntegrationService {
     const history = details.snapshots.map((snapshot) =>
       this.mapFollowerRelationshipSnapshot(snapshot, myGrade)
     );
+    const current =
+      this.mapFollowerRelationshipFromProjection(details.member, myGrade) ??
+      (history.length ? history[history.length - 1] : null);
     const coverage =
       provider.channelInteractionWebhooks?.getInteractionCoverage() ?? [];
     const tracking =
@@ -633,8 +675,10 @@ export class IntegrationService {
         windowDays: 30,
         cadenceDays: 30,
         formulaVersion:
-          history.at(-1)?.formulaVersion ?? RELATIONSHIP_FORMULA_VERSION,
-        current: history.length ? history[history.length - 1] : null,
+          current?.formulaVersion ??
+          history.at(-1)?.formulaVersion ??
+          RELATIONSHIP_FORMULA_VERSION,
+        current,
         history,
       },
       myGrade,
@@ -802,6 +846,49 @@ export class IntegrationService {
       timestamp: event.eventAt.toISOString(),
       ...(event.relatedObjectId ? { relatedObjectId: event.relatedObjectId } : {}),
     };
+  }
+
+  private mapFollowerRelationshipFromProjection(
+    member: {
+      relationshipGrade?: number | null;
+      relationshipEffortScore?: number | null;
+      relationshipReciprocationScore?: number | null;
+      relationshipFormulaVersion?: number | null;
+      relationshipSnapshotAt?: Date | null;
+    },
+    myGrade?: number | null
+  ): FollowerRelationshipSnapshot | null {
+    const effortScore = member.relationshipEffortScore;
+    const reciprocationScore = member.relationshipReciprocationScore;
+    const snapshotAt = member.relationshipSnapshotAt;
+    if (
+      !snapshotAt ||
+      !Number.isSafeInteger(effortScore) ||
+      effortScore! < 0 ||
+      !Number.isSafeInteger(reciprocationScore) ||
+      reciprocationScore! < 0
+    ) {
+      return null;
+    }
+    const calculated = calculateRelationshipGrade(
+      effortScore!,
+      reciprocationScore!
+    );
+    return this.mapFollowerRelationshipSnapshot(
+      {
+        snapshotAt,
+        windowStartedAt: new Date(
+          snapshotAt.getTime() - 30 * 24 * 60 * 60 * 1000
+        ),
+        effortScore: effortScore!,
+        reciprocationScore: reciprocationScore!,
+        reciprocity: calculated.reciprocity,
+        grade: member.relationshipGrade ?? calculated.grade,
+        formulaVersion:
+          member.relationshipFormulaVersion ?? RELATIONSHIP_FORMULA_VERSION,
+      },
+      myGrade
+    );
   }
 
   private mapFollowerRelationshipSnapshot(

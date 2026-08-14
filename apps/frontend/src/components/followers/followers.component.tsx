@@ -43,33 +43,33 @@ const TRIAGE_FILTER_OPTIONS: {
   key: string;
   defaultLabel: string;
 }[] = [
-  { key: 'followers_triage_filter_all', defaultLabel: 'All' },
-  {
-    value: 'engaged_not_yet',
-    key: 'followers_triage_filter_engaged_not_yet',
-    defaultLabel: "Engaged but I haven't",
-  },
-  {
-    value: 'hot_lead',
-    key: 'followers_triage_hot_lead',
-    defaultLabel: 'Hot lead',
-  },
-  {
-    value: 'mutual',
-    key: 'followers_triage_mutual',
-    defaultLabel: 'Mutual',
-  },
-  {
-    value: 'over_invested',
-    key: 'followers_triage_over_invested',
-    defaultLabel: 'Over-invested',
-  },
-  {
-    value: 'quiet',
-    key: 'followers_triage_quiet',
-    defaultLabel: 'Quiet',
-  },
-];
+    { key: 'followers_triage_filter_all', defaultLabel: 'All' },
+    {
+      value: 'engaged_not_yet',
+      key: 'followers_triage_filter_engaged_not_yet',
+      defaultLabel: 'Engaged',
+    },
+    {
+      value: 'hot_lead',
+      key: 'followers_triage_hot_lead',
+      defaultLabel: 'Hot lead',
+    },
+    {
+      value: 'mutual',
+      key: 'followers_triage_mutual',
+      defaultLabel: 'Mutual',
+    },
+    {
+      value: 'over_invested',
+      key: 'followers_triage_over_invested',
+      defaultLabel: 'Over-invested',
+    },
+    {
+      value: 'quiet',
+      key: 'followers_triage_quiet',
+      defaultLabel: 'Quiet',
+    },
+  ];
 
 const INTERACTION_KIND_LABELS: Record<string, { key: string; defaultLabel: string }> = {
   like: { key: 'followers_interaction_kind_like', defaultLabel: 'Likes' },

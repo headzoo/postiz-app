@@ -9,6 +9,7 @@ import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { Button } from '@gitroom/react/form/button';
 import { StatisticsModal } from '@gitroom/frontend/components/launches/statistics';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 
 export const MissingReleaseModal: FC<{
   postId: string;
@@ -88,16 +89,18 @@ export const MissingReleaseModal: FC<{
           'Select the content that matches this post:'
         )}
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-[10px] max-h-[400px] overflow-y-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor p-[4px]">
+      <CustomScrollArea
+        className="max-h-[400px]"
+        contentClassName="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-[10px] p-[4px] pe-[16px]"
+      >
         {data.map((item: { id: string; url: string }) => (
           <div
             key={item.id}
             onClick={() => setSelected(item.id)}
-            className={`cursor-pointer rounded-[8px] overflow-hidden border-2 transition-all ${
-              selected === item.id
+            className={`cursor-pointer rounded-[8px] overflow-hidden border-2 transition-all ${selected === item.id
                 ? 'border-[#612BD3] scale-[1.02]'
                 : 'border-transparent hover:border-textColor/20'
-            }`}
+              }`}
           >
             <img
               src={item.url}
@@ -106,7 +109,7 @@ export const MissingReleaseModal: FC<{
             />
           </div>
         ))}
-      </div>
+      </CustomScrollArea>
       <div className="flex justify-end gap-[10px] pt-[8px] border-t border-tableBorder">
         <Button
           type="button"

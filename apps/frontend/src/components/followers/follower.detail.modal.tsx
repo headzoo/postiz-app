@@ -1,6 +1,7 @@
 'use client';
 
 import { FC, useCallback, useMemo, useState } from 'react';
+import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { Button } from '@gitroom/react/form/button';
 import { Textarea } from '@gitroom/react/form/textarea';
@@ -12,14 +13,17 @@ import {
 import { FollowerRelationshipChart } from '@gitroom/frontend/components/followers/follower.relationship.chart';
 import { RelationshipTriageBadge } from '@gitroom/frontend/components/followers/follower.card';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
+import { ResetIcon } from '@gitroom/frontend/components/ui/icons';
 import {
   ChannelInteractionKind,
   FollowerMemberDetail,
   FollowerMemberInteraction,
   FollowerMemberNote,
+  RelationshipScoreDirection,
   useFollowerDetail,
   useFollowerGradeMutation,
   useFollowerNoteMutations,
+  useFollowerRelationshipScoreMutation,
 } from '@gitroom/frontend/components/followers/use.followers';
 
 const INTERACTION_KIND_LABELS: Record<
@@ -246,6 +250,9 @@ const FollowerDetailContent: FC<{
   const [isNotePending, setIsNotePending] = useState(false);
   const [gradeError, setGradeError] = useState('');
   const [isGradePending, setIsGradePending] = useState(false);
+  const [scoreError, setScoreError] = useState('');
+  const [pendingScoreDirection, setPendingScoreDirection] =
+    useState<RelationshipScoreDirection | null>(null);
 
   const revalidateDetail = useCallback(() => mutate(), [mutate]);
   const { createNote, updateNote, deleteNote } = useFollowerNoteMutations(
@@ -254,6 +261,11 @@ const FollowerDetailContent: FC<{
     revalidateDetail
   );
   const { updateGrade } = useFollowerGradeMutation(
+    integrationId,
+    externalId,
+    revalidateDetail
+  );
+  const { refreshScore } = useFollowerRelationshipScoreMutation(
     integrationId,
     externalId,
     revalidateDetail
@@ -289,6 +301,26 @@ const FollowerDetailContent: FC<{
       }
     },
     [t, updateGrade]
+  );
+
+  const handleRefreshScore = useCallback(
+    async (direction: RelationshipScoreDirection) => {
+      setScoreError('');
+      setPendingScoreDirection(direction);
+      try {
+        await refreshScore(direction);
+      } catch {
+        setScoreError(
+          t(
+            'followers_score_refresh_error',
+            'Could not refresh this score. Try again.'
+          )
+        );
+      } finally {
+        setPendingScoreDirection(null);
+      }
+    },
+    [refreshScore, t]
   );
 
   const handleCreateNote = useCallback(async () => {
@@ -331,7 +363,7 @@ const FollowerDetailContent: FC<{
     : null;
 
   return (
-    <div className="flex max-h-[75vh] flex-col gap-[20px] overflow-y-auto pe-[4px]">
+    <div className="flex flex-col gap-[20px]">
       <div className="flex items-start gap-[12px]">
         {follower.profileUrl ? (
           <a
@@ -426,15 +458,53 @@ const FollowerDetailContent: FC<{
       <section className="flex flex-col gap-[12px]">
         <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-3">
           <div className="flex flex-col gap-[8px]">
-            <h4 className="text-[16px] font-[600] text-newTextColor">
-              {t('followers_their_effort', 'Their effort')}
-            </h4>
+            <div className="flex items-center gap-[8px]">
+              <h4 className="text-[16px] font-[600] text-newTextColor">
+                {t('followers_their_effort', 'Their effort')}
+              </h4>
+              <button
+                type="button"
+                className="text-textItemBlur hover:text-newTextColor disabled:opacity-50"
+                disabled={pendingScoreDirection !== null}
+                aria-label={t(
+                  'followers_refresh_their_effort',
+                  'Refresh their effort'
+                )}
+                onClick={() => handleRefreshScore('their')}
+              >
+                <ResetIcon
+                  size={16}
+                  className={clsx(
+                    pendingScoreDirection === 'their' && 'animate-spin'
+                  )}
+                />
+              </button>
+            </div>
             <RelationshipStars grade={current?.reciprocationStars ?? null} />
           </div>
           <div className="flex flex-col gap-[8px]">
-            <h4 className="text-[16px] font-[600] text-newTextColor">
-              {t('followers_your_effort', 'Your effort')}
-            </h4>
+            <div className="flex items-center gap-[8px]">
+              <h4 className="text-[16px] font-[600] text-newTextColor">
+                {t('followers_your_effort', 'Your effort')}
+              </h4>
+              <button
+                type="button"
+                className="text-textItemBlur hover:text-newTextColor disabled:opacity-50"
+                disabled={pendingScoreDirection !== null}
+                aria-label={t(
+                  'followers_refresh_your_effort',
+                  'Refresh your effort'
+                )}
+                onClick={() => handleRefreshScore('your')}
+              >
+                <ResetIcon
+                  size={16}
+                  className={clsx(
+                    pendingScoreDirection === 'your' && 'animate-spin'
+                  )}
+                />
+              </button>
+            </div>
             <RelationshipStars grade={current?.effortStars ?? null} />
           </div>
           <div className="flex flex-col gap-[8px]">
@@ -452,6 +522,9 @@ const FollowerDetailContent: FC<{
             )}
           </div>
         </div>
+        {scoreError && (
+          <p className="text-[13px] text-red-400">{scoreError}</p>
+        )}
         {current && (
           <div className="flex flex-col gap-[8px] text-[13px] text-textItemBlur">
             <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[6px]">

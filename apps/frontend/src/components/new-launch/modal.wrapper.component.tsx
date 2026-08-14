@@ -2,6 +2,7 @@ import { FC, ReactNode, useEffect, useRef } from 'react';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 
 export const ModalWrapperComponent: FC<{
   title: string;
@@ -45,10 +46,8 @@ export const ModalWrapperComponent: FC<{
       <div className="relative">
         <div className="absolute -top-[30px] left-0" ref={ref} />
       </div>
-      <div
-        className="p-[32px] flex flex-col text-newTextColor bg-newBgColorInner rounded-[24px]"
-      >
-        <div className="flex items-start mb-[24px]">
+      <div className="flex flex-col text-newTextColor bg-newBgColorInner rounded-[24px] overflow-hidden max-h-[calc(100vh-200px)]">
+        <div className="flex items-start px-[32px] pt-[32px] pb-[24px] shrink-0">
           <div className="flex-1 text-[24px]">{title}</div>
           <div className="cursor-pointer" onClick={closeModal}>
             <svg
@@ -68,7 +67,12 @@ export const ModalWrapperComponent: FC<{
             </svg>
           </div>
         </div>
-        <div>{children}</div>
+        <CustomScrollArea
+          className="flex-1 min-h-0 pr-[12px]"
+          contentClassName="px-[32px] pb-[32px]"
+        >
+          {children}
+        </CustomScrollArea>
       </div>
     </>
   );

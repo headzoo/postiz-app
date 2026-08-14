@@ -23,6 +23,7 @@ import { FollowerMemberDetail } from './use.followers';
 jest.mock('swr', () => ({
   __esModule: true,
   default: jest.fn(),
+  useSWRConfig: jest.fn(() => ({ mutate: jest.fn() })),
 }));
 
 jest.mock('@gitroom/helpers/utils/custom.fetch', () => ({
@@ -58,6 +59,8 @@ jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
 }));
 
 const useSWR = jest.requireMock('swr').default as jest.Mock;
+const useSWRConfig = jest.requireMock('swr').useSWRConfig as jest.Mock;
+const mutateCache = jest.fn();
 const { useFetch } = jest.requireMock(
   '@gitroom/helpers/utils/custom.fetch'
 ) as { useFetch: jest.Mock };
@@ -158,6 +161,8 @@ describe('FollowerDetailModal', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     useFetch.mockReturnValue(fetchMock);
+    mutateCache.mockReset();
+    useSWRConfig.mockReturnValue({ mutate: mutateCache });
     decisionOpen.mockResolvedValue(true);
     useSWR.mockReturnValue({
       data: detail,
@@ -166,6 +171,24 @@ describe('FollowerDetailModal', () => {
       mutate,
     });
     fetchMock.mockImplementation(async (url: string, options?: RequestInit) => {
+      if (typeof url === 'string' && url.includes('/member/relationship-score')) {
+        return {
+          ok: true,
+          json: async () => ({
+            snapshotAt: '2026-08-14T12:00:00.000Z',
+            windowStartedAt: '2026-07-15T12:00:00.000Z',
+            effortScore: 10,
+            reciprocationScore: 30,
+            reciprocity: 1 / 3,
+            grade: 5,
+            adjustedGrade: 5,
+            effortStars: 2,
+            reciprocationStars: 4,
+            triage: 'hot_lead',
+            formulaVersion: 2,
+          }),
+        };
+      }
       if (options?.method === 'POST') {
         return {
           ok: true,
@@ -393,6 +416,90 @@ describe('FollowerDetailModal', () => {
         })
       );
       expect(mutate).toHaveBeenCalled();
+    });
+  });
+
+  it('refreshes their effort and revalidates detail', async () => {
+    render(
+      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh their effort' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/followers/channel-1/member/relationship-score',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            externalId: 'follower-1',
+            direction: 'their',
+          }),
+        })
+      );
+      expect(mutate).toHaveBeenCalled();
+      expect(mutateCache).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.any(Function),
+        { revalidate: true }
+      );
+    });
+  });
+
+  it('refreshes your effort and disables both refresh controls while pending', async () => {
+    let resolveFetch:
+      | ((value: { ok: boolean; json: () => Promise<Record<string, unknown>> }) => void)
+      | undefined;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    render(
+      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh your effort' }));
+
+    expect(
+      screen.getByRole('button', { name: 'Refresh their effort' })
+    ).toHaveProperty('disabled', true);
+    expect(
+      screen.getByRole('button', { name: 'Refresh your effort' })
+    ).toHaveProperty('disabled', true);
+
+    resolveFetch?.({
+      ok: true,
+      json: async () => ({
+        snapshotAt: '2026-08-14T12:00:00.000Z',
+        windowStartedAt: '2026-07-15T12:00:00.000Z',
+        effortScore: 20,
+        reciprocationScore: 5,
+        reciprocity: 0.25,
+        grade: 1,
+        adjustedGrade: 1,
+        effortStars: 3,
+        reciprocationStars: 1.5,
+        triage: 'over_invested',
+        formulaVersion: 2,
+      }),
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/followers/channel-1/member/relationship-score',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            externalId: 'follower-1',
+            direction: 'your',
+          }),
+        })
+      );
+      expect(mutate).toHaveBeenCalled();
+      expect(mutateCache).toHaveBeenCalled();
     });
   });
 

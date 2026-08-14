@@ -35,6 +35,7 @@ import { MediaComponentInner } from '@gitroom/frontend/components/launches/helpe
 import { useMediaAltPrompt } from '@gitroom/frontend/components/media/use.media.alt.prompt';
 import { AiVideo } from '@gitroom/frontend/components/launches/ai.video';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 import { ThirdPartyMediaLibrary } from '@gitroom/frontend/components/third-parties/third-party.media-library';
 import { Dashboard } from '@uppy/react';
 import {
@@ -497,13 +498,14 @@ export const MediaBox: FC<{
             'bg-newTextColor/[0.02] rounded-[12px]'
           )}
         >
-          <div
+          <CustomScrollArea
             className={clsx(
-              'absolute -left-[3px] -top-[3px] withp3 h-full overflow-x-hidden overflow-y-auto scrollbar scrollbar-thumb-newColColor scrollbar-track-newBgColorInner',
+              'absolute -left-[3px] -top-[3px] withp3 h-full',
               !isLoading &&
               !data?.results?.length &&
               'flex justify-center items-center gap-[20px] flex-col'
             )}
+            contentClassName="pe-[16px]"
           >
             {!isLoading && !data?.results?.length && (
               <>
@@ -655,7 +657,7 @@ export const MediaBox: FC<{
                   </div>
                 </div>
               ))}
-          </div>
+          </CustomScrollArea>
         </div>
         {(data?.pages || 0) > 1 && (
           <Pagination

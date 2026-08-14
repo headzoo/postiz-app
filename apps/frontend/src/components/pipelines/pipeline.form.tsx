@@ -125,7 +125,7 @@ export const PipelineForm: FC<{
   ]);
 
   return (
-    <div className="flex flex-col gap-[20px] max-h-[75vh] overflow-y-auto pe-[4px]">
+    <div className="flex flex-col gap-[20px]">
       {formError && (
         <div className="text-[13px] text-red-500 border border-red-500/30 rounded-[8px] px-[12px] py-[8px]">
           {formError}

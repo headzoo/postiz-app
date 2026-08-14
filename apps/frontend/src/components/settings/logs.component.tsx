@@ -7,6 +7,7 @@ import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 import {
   LogsResponse,
   PostHttpLogRow,
@@ -55,7 +56,11 @@ const LogDetailsModal: FC<{
   }, [row, t, toaster]);
 
   return (
-    <div className="rounded-[4px] border border-newTableBorder bg-newBgColorInner px-[16px] pb-[16px] relative w-full max-h-[80vh] overflow-auto">
+    <CustomScrollArea
+      className="rounded-[4px] border border-newTableBorder bg-newBgColorInner relative w-full"
+      maxHeight="80vh"
+      contentClassName="px-[16px] pb-[16px] pe-[28px]"
+    >
       <div className="sticky top-0 bg-newBgColorInner py-[16px] flex items-center justify-between gap-[12px] z-10 border-b border-newTableBorder mb-[12px]">
         <div className="text-[16px] font-[600]">{title}</div>
         <div className="flex gap-[8px] items-center">
@@ -132,7 +137,7 @@ const LogDetailsModal: FC<{
       <pre className="text-[12px] bg-sixth p-[12px] rounded overflow-auto max-h-[20vh] whitespace-pre-wrap break-all">
         {formatJson(row.responseBody)}
       </pre>
-    </div>
+    </CustomScrollArea>
   );
 };
 

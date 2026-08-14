@@ -198,6 +198,8 @@
     "nodemailer": "^7.0.11",
     "nostr-tools": "^2.18.2",
     "openai": "^6.2.0",
+    "overlayscrollbars": "^2.16.0",
+    "overlayscrollbars-react": "^0.5.6",
     "p-limit": "^3.1.0",
     "parse5": "^6.0.1",
     "polotno": "^3.0.0-beta.25",

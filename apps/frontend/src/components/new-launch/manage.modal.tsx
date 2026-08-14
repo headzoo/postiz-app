@@ -2,7 +2,6 @@
 
 import React, {
   FC,
-  ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -39,7 +38,7 @@ import {
   TrashIcon,
   DropdownArrowSmallIcon,
 } from '@gitroom/frontend/components/ui/icons';
-import { useHasScroll } from '@gitroom/frontend/components/ui/is.scroll.hook';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 import { useShortlinkPreference } from '@gitroom/frontend/components/settings/shortlink-preference.component';
 import dayjs from 'dayjs';
 import { Button } from '@gitroom/react/form/button';
@@ -771,11 +770,12 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
             </div>
             <div className="flex-1 flex flex-col gap-[16px]">
               <div
-                className={clsx('flex-1 relative', showSettings && 'hidden')}
+                className={clsx('flex-1 relative min-h-0', showSettings && 'hidden')}
               >
-                <div
+                <CustomScrollArea
                   id="social-content"
-                  className="gap-[32px] flex flex-col pe-[8px] pt-[20px] ps-[20px] absolute top-0 left-0 w-full h-full overflow-x-hidden overflow-y-scroll scrollbar scrollbar-thumb-newColColor scrollbar-track-newBgColorInner"
+                  className="absolute inset-0"
+                  contentClassName="gap-[32px] flex flex-col ps-[20px] pt-[20px] pb-[20px] pr-[28px]"
                 >
                   <div className="flex w-full">
                     <div className="flex flex-1">
@@ -806,7 +806,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                       )}
                     />
                   </div>
-                </div>
+                </CustomScrollArea>
               </div>
               <div
                 id="wrapper-settings"
@@ -840,12 +840,15 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                       'text-[14px] text-textColor font-[500] relative'
                     )}
                   >
-                    <div className="absolute left-0 top-0 w-full h-full flex flex-col overflow-x-hidden overflow-y-auto scrollbar scrollbar-thumb-newBgColorInner scrollbar-track-newColColor">
+                    <CustomScrollArea
+                      className="absolute inset-0"
+                      contentClassName="flex flex-col pr-[16px]"
+                    >
                       <div
                         id="social-settings"
                         className="flex flex-col gap-[20px] bg-newBgColor"
                       />
-                    </div>
+                    </CustomScrollArea>
                   </div>
                   <style>
                     {`#social-settings [data-id="${current}"] {display: block !important;}`}
@@ -861,13 +864,13 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                 <CloseIcon onClick={askClose} className="text-[#A3A3A3]" />
               </div>
             </div>
-            <div className="flex-1 relative">
-              <Scrollable
-                scrollClasses="!pe-[20px]"
-                className="absolute top-0 p-[20px] pe-[8px] left-0 w-full h-full overflow-x-hidden overflow-y-scroll scrollbar scrollbar-thumb-newColColor scrollbar-track-newBgColorInner"
+            <div className="flex-1 relative min-h-0">
+              <CustomScrollArea
+                className="absolute inset-0"
+                contentClassName="p-[20px] pr-[28px]"
               >
                 <ShowAllProviders ref={ref} />
-              </Scrollable>
+              </CustomScrollArea>
             </div>
           </div>
         </div>
@@ -954,8 +957,8 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
               </>
             )}
             {!pipelineMode && !hideScheduleControls && (
-                <DatePicker onChange={setDate} date={date} />
-              )}
+              <DatePicker onChange={setDate} date={date} />
+            )}
             {pipelineMode && (
               <div className="max-w-[250px] text-[13px] text-textColor">
                 <div className="font-[600]">{selectedPipeline!.name}</div>
@@ -1092,16 +1095,3 @@ After using the addPostFor{num} it will create a new addPostContentFor{num+ 1} f
   );
 };
 
-const Scrollable: FC<{
-  className: string;
-  scrollClasses: string;
-  children: ReactNode;
-}> = ({ className, scrollClasses, children }) => {
-  const ref = useRef(undefined);
-  const hasScroll = useHasScroll(ref);
-  return (
-    <div className={clsx(className, hasScroll && scrollClasses)} ref={ref}>
-      {children}
-    </div>
-  );
-};

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import {
   applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
@@ -42,7 +42,13 @@ const createRepository = () => ({
   getDueRelationshipGradeBatch: jest.fn().mockResolvedValue({ members: [] }),
   createRelationshipGradeSnapshots: jest.fn().mockResolvedValue({ count: 0 }),
   hasDueRelationshipGradeMembers: jest.fn().mockResolvedValue(false),
-  upsertAudienceMemberGrade: jest.fn().mockResolvedValue({ grade: 4.5 }),
+  getRelationshipScoresForMembers: jest.fn().mockResolvedValue({ members: [] }),
+  getCurrentRelationshipProjection: jest.fn().mockResolvedValue(null),
+  updateCurrentRelationshipProjections: jest.fn().mockResolvedValue({ count: 0 }),
+  upsertAudienceMemberGrade: jest.fn().mockResolvedValue({
+    grade: 4.5,
+    relationshipGrade: 4,
+  }),
 });
 
 describe('ChannelInteractionService', () => {
@@ -178,6 +184,81 @@ describe('ChannelInteractionService', () => {
         score: 2,
       })
     );
+  });
+
+  it('refreshes unique counterparties after newly created webhook events', async () => {
+    const repository = createRepository();
+    repository.getRelationshipScoresForMembers.mockResolvedValue({
+      members: [
+        { externalId: 'person-1', effortScore: 4, reciprocationScore: 2 },
+      ],
+    });
+    const service = new ChannelInteractionService(repository as any);
+
+    await service.recordNormalizedDelivery('org', 'integration', [
+      interaction(),
+      interaction({
+        providerEventKey: 'provider-event-2',
+        kind: 'reply',
+        direction: 'outbound',
+      }),
+    ] as any);
+
+    expect(repository.getRelationshipScoresForMembers).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      ['person-1'],
+      new Date('2026-08-12T12:05:00.000Z')
+    );
+    expect(repository.updateCurrentRelationshipProjections).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      new Date('2026-08-12T12:05:00.000Z'),
+      [{
+        externalId: 'person-1',
+        effortScore: 4,
+        reciprocationScore: 2,
+        ...calculateRelationshipGrade(4, 2),
+      }]
+    );
+  });
+
+  it('does not refresh relationship projections for duplicate-only deliveries', async () => {
+    const repository = createRepository();
+    repository.recordNormalizedEvent.mockResolvedValue({ created: false });
+    const service = new ChannelInteractionService(repository as any);
+
+    await service.recordNormalizedDelivery('org', 'integration', [
+      interaction(),
+    ] as any);
+
+    expect(repository.getRelationshipScoresForMembers).not.toHaveBeenCalled();
+    expect(repository.updateCurrentRelationshipProjections).not.toHaveBeenCalled();
+  });
+
+  it('does not refresh relationship projections for unfollow-only deliveries', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await service.recordNormalizedDelivery('org', 'integration', [
+      interaction({
+        kind: 'follow',
+        membershipUpdate: 'not_follower',
+      }),
+    ] as any);
+
+    expect(repository.getRelationshipScoresForMembers).not.toHaveBeenCalled();
+    expect(repository.updateCurrentRelationshipProjections).not.toHaveBeenCalled();
+  });
+
+  it('swallows relationship projection refresh failures after recording events', async () => {
+    const repository = createRepository();
+    repository.getRelationshipScoresForMembers.mockRejectedValue(new Error('refresh failed'));
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.recordNormalizedDelivery('org', 'integration', [interaction()] as any)
+    ).resolves.toEqual({ created: 1, duplicates: 0, membershipOnly: 0 });
   });
 
   it('applies unfollow membership immediately without logging a positive event', async () => {
@@ -703,7 +784,7 @@ describe('ChannelInteractionService', () => {
 
     await expect(
       service.upsertFollowerGrade('org', 'integration', 'follower-a', 'user-a', 4.5)
-    ).resolves.toEqual({ grade: 4.5 });
+    ).resolves.toEqual({ grade: 4.5, adjustedGrade: 5 });
     expect(repository.upsertAudienceMemberGrade).toHaveBeenCalledWith(
       'org',
       'integration',
@@ -712,8 +793,90 @@ describe('ChannelInteractionService', () => {
       4.5
     );
 
+    repository.upsertAudienceMemberGrade.mockResolvedValue({
+      grade: 4.5,
+      relationshipGrade: null,
+    });
+    await expect(
+      service.upsertFollowerGrade('org', 'integration', 'follower-a', 'user-a', 4.5)
+    ).resolves.toEqual({ grade: 4.5, adjustedGrade: 4.5 });
+
     await expect(
       service.upsertFollowerGrade('org', 'integration', 'follower-a', 'user-a', 2.25)
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refreshes one score direction and keeps the other projected score', async () => {
+    const repository = createRepository();
+    repository.getCurrentRelationshipProjection.mockResolvedValue({
+      externalId: 'follower-a',
+      relationshipEffortScore: 10,
+      relationshipReciprocationScore: 5,
+    });
+    repository.getRelationshipScoresForMembers.mockResolvedValue({
+      members: [{ externalId: 'follower-a', effortScore: 20, reciprocationScore: 30 }],
+    });
+    const service = new ChannelInteractionService(repository as any);
+    const snapshotAt = new Date('2026-08-12T12:05:00.000Z');
+
+    await expect(
+      service.refreshFollowerRelationshipScore(
+        'org',
+        'integration',
+        'follower-a',
+        'their',
+        snapshotAt
+      )
+    ).resolves.toEqual({
+      externalId: 'follower-a',
+      effortScore: 10,
+      reciprocationScore: 30,
+      ...calculateRelationshipGrade(10, 30),
+      snapshotAt,
+    });
+    expect(repository.updateCurrentRelationshipProjections).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      snapshotAt,
+      [{
+        externalId: 'follower-a',
+        effortScore: 10,
+        reciprocationScore: 30,
+        ...calculateRelationshipGrade(10, 30),
+      }]
+    );
+    expect(repository.createRelationshipGradeSnapshots).not.toHaveBeenCalled();
+
+    await expect(
+      service.refreshFollowerRelationshipScore(
+        'org',
+        'integration',
+        'follower-a',
+        'your',
+        snapshotAt
+      )
+    ).resolves.toEqual({
+      externalId: 'follower-a',
+      effortScore: 20,
+      reciprocationScore: 5,
+      ...calculateRelationshipGrade(20, 5),
+      snapshotAt,
+    });
+  });
+
+  it('returns not found when refreshing a missing follower score', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.refreshFollowerRelationshipScore(
+        'org',
+        'integration',
+        'missing',
+        'their'
+      )
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repository.getRelationshipScoresForMembers).not.toHaveBeenCalled();
+    expect(repository.updateCurrentRelationshipProjections).not.toHaveBeenCalled();
   });
 });

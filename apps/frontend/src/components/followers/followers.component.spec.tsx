@@ -212,7 +212,7 @@ describe('FollowersComponent', () => {
   it('passes the selected triage filter to useFollowers and clears it for All', () => {
     render(<FollowersComponent />);
 
-    fireEvent.click(screen.getByRole('button', { name: "Engaged but I haven't" }));
+    fireEvent.click(screen.getByRole('button', { name: 'Engaged' }));
     expect(useFollowersMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ triage: 'engaged_not_yet', cursor: undefined })
     );

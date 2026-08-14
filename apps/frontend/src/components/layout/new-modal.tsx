@@ -15,6 +15,7 @@ import { Button } from '@gitroom/react/form/button';
 import { useHotkeys } from 'react-hotkeys-hook';
 import clsx from 'clsx';
 import { EventEmitter } from 'events';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 
 interface OpenModalInterface {
   title?: any;
@@ -135,9 +136,9 @@ export const Component: FC<{
         style={{ zIndex }}
         className={clsx(
           !modal.fullScreen
-            ? 'pb-[50px] min-w-full min-h-full'
-            : 'w-full h-full',
-          'fixed flex left-0 top-0 bg-popup transition-all animate-fadeIn overflow-y-auto text-newTextColor',
+            ? 'pb-[50px] min-w-full min-h-full overflow-y-auto'
+            : 'w-full h-full overflow-hidden',
+          'fixed flex left-0 top-0 bg-popup transition-all animate-fadeIn text-newTextColor',
           !isLast && '!overflow-hidden'
         )}
       >
@@ -151,7 +152,8 @@ export const Component: FC<{
           >
             <div
               className={clsx(
-                modal.fullScreen ? 'w-full h-full flex-1' : 'mx-auto py-[48px]'
+                modal.fullScreen ? 'w-full h-full flex-1' : 'mx-auto py-[48px]',
+                modal.classNames?.modal
               )}
               {...(modal.size && { style: { width: modal.size } })}
             >
@@ -196,10 +198,10 @@ export const Component: FC<{
           >
             <div
               className={clsx(
-                !modal.removeLayout && 'gap-[40px] p-[32px]',
-                'bg-newBgColorInner mx-auto flex flex-col w-fit rounded-[24px] relative',
+                'bg-newBgColorInner mx-auto flex flex-col w-fit rounded-[24px] relative overflow-hidden max-h-[calc(100vh-200px)]',
                 modal.size ? '' : 'min-w-[600px]',
-                modal.fullScreen && 'h-full'
+                modal.fullScreen && 'h-full max-h-full',
+                modal.classNames?.modal
               )}
               {...((!!modal.size || !!modal.height || !!modal.maxSize) && {
                 style: {
@@ -213,7 +215,7 @@ export const Component: FC<{
               {(!!modal.title ||
                 typeof modal.withCloseButton === 'undefined' ||
                 modal.withCloseButton) && (
-                  <div className="flex items-center">
+                  <div className="flex items-center px-[32px] pt-[32px] pb-[24px] shrink-0">
                     {!!modal.title && (
                       <div className="text-[24px] font-[600] flex-1">
                         {modal.title}
@@ -246,14 +248,26 @@ export const Component: FC<{
                     ) : null}
                   </div>
                 )}
-              <div
-                className={clsx(
-                  'whitespace-pre-line',
-                  !!modal.height && !!modal.size && 'flex flex-1 flex-col'
+              <CustomScrollArea
+                className="flex-1 min-h-0 pr-[12px]"
+                contentClassName={clsx(
+                  'px-[32px] pb-[32px]',
+                  !(
+                    !!modal.title ||
+                    typeof modal.withCloseButton === 'undefined' ||
+                    modal.withCloseButton
+                  ) && 'pt-[32px]'
                 )}
               >
-                {RenderComponent}
-              </div>
+                <div
+                  className={clsx(
+                    'whitespace-pre-line',
+                    !!modal.height && !!modal.size && 'flex flex-1 flex-col'
+                  )}
+                >
+                  {RenderComponent}
+                </div>
+              </CustomScrollArea>
             </div>
           </div>
         </div>

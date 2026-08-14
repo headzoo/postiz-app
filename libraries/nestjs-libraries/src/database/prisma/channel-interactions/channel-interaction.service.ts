@@ -32,6 +32,7 @@ import {
   DesiredInteractionSubscription,
 } from './channel-interaction.repository';
 import {
+  applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
   getChannelInteractionScore,
   isPersonalRelationshipGrade,
@@ -320,6 +321,7 @@ export class ChannelInteractionService {
     let created = 0;
     let duplicates = 0;
     let membershipOnly = 0;
+    const dirtyExternalIds = new Set<string>();
 
     for (const event of normalized) {
       if (
@@ -340,9 +342,58 @@ export class ChannelInteractionService {
         integrationId,
         event
       );
-      result.created ? created++ : duplicates++;
+      if (result.created) {
+        created++;
+        dirtyExternalIds.add(event.counterparty.externalId);
+      } else {
+        duplicates++;
+      }
+    }
+    if (dirtyExternalIds.size) {
+      try {
+        await this.refreshRelationshipGradeProjections(
+          organizationId,
+          integrationId,
+          [...dirtyExternalIds]
+        );
+      } catch {
+        /** Temporal remains the fallback if live projection refresh fails */
+      }
     }
     return { created, duplicates, membershipOnly };
+  }
+
+  private async refreshRelationshipGradeProjections(
+    organizationId: string,
+    integrationId: string,
+    externalIds: string[],
+    snapshotAt = new Date()
+  ) {
+    const uniqueIds = [...new Set(externalIds)].slice(0, MAX_DELIVERY_EVENTS);
+    if (!uniqueIds.length) {
+      return;
+    }
+    const batch = await this._repository.getRelationshipScoresForMembers(
+      organizationId,
+      integrationId,
+      uniqueIds,
+      snapshotAt
+    );
+    const snapshots = batch.members.map((member) => ({
+      externalId: member.externalId,
+      effortScore: member.effortScore,
+      reciprocationScore: member.reciprocationScore,
+      ...calculateRelationshipGrade(
+        member.effortScore,
+        member.reciprocationScore
+      ),
+    }));
+    await this._repository.updateCurrentRelationshipProjections(
+      organizationId,
+      integrationId,
+      snapshotAt,
+      snapshots
+    );
   }
 
   async beginFollowerSync(organizationId: string, integrationId: string) {
@@ -477,6 +528,69 @@ export class ChannelInteractionService {
     };
   }
 
+  async refreshFollowerRelationshipScore(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    direction: 'their' | 'your',
+    snapshotAt = new Date()
+  ) {
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    if (direction !== 'their' && direction !== 'your') {
+      throw new BadRequestException('Unsupported relationship score direction');
+    }
+    if (Number.isNaN(snapshotAt.getTime())) {
+      throw new BadRequestException('snapshotAt must be a valid timestamp');
+    }
+    const member = await this._repository.getCurrentRelationshipProjection(
+      organizationId,
+      integrationId,
+      externalId
+    );
+    if (!member) {
+      throw new NotFoundException('Follower was not found');
+    }
+    const batch = await this._repository.getRelationshipScoresForMembers(
+      organizationId,
+      integrationId,
+      [externalId],
+      snapshotAt
+    );
+    const live = batch.members[0] ?? {
+      externalId,
+      effortScore: 0,
+      reciprocationScore: 0,
+    };
+    const keptEffort = Number.isSafeInteger(member.relationshipEffortScore)
+      ? member.relationshipEffortScore!
+      : 0;
+    const keptReciprocation = Number.isSafeInteger(
+      member.relationshipReciprocationScore
+    )
+      ? member.relationshipReciprocationScore!
+      : 0;
+    const effortScore =
+      direction === 'your' ? live.effortScore : keptEffort;
+    const reciprocationScore =
+      direction === 'their' ? live.reciprocationScore : keptReciprocation;
+    const snapshot = {
+      externalId,
+      effortScore,
+      reciprocationScore,
+      ...calculateRelationshipGrade(effortScore, reciprocationScore),
+    };
+    await this._repository.updateCurrentRelationshipProjections(
+      organizationId,
+      integrationId,
+      snapshotAt,
+      [snapshot]
+    );
+    return {
+      ...snapshot,
+      snapshotAt,
+    };
+  }
+
   async getFollowerDetails(
     organizationId: string,
     integrationId: string,
@@ -570,13 +684,20 @@ export class ChannelInteractionService {
       throw new BadRequestException('Grade must be a half-star value between 1 and 5');
     }
     try {
-      return await this._repository.upsertAudienceMemberGrade(
+      const saved = await this._repository.upsertAudienceMemberGrade(
         organizationId,
         integrationId,
         externalId,
         userId,
         grade
       );
+      return {
+        grade: saved.grade,
+        adjustedGrade: applyPersonalRelationshipGrade(
+          saved.relationshipGrade,
+          saved.grade
+        ),
+      };
     } catch {
       throw new NotFoundException('Follower was not found');
     }

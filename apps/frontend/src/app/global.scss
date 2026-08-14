@@ -819,3 +819,16 @@ html[dir='rtl'] [dir='ltr'] {
   text-shadow: -1px -1px 0 black, 1px -1px 0 black, -1px 1px 0 black,
     1px 1px 0 black;
 }
+
+.os-theme-postiz {
+  --os-size: 6px;
+  --os-padding-perpendicular: 2px;
+  --os-padding-axis: 8px;
+  --os-track-border-radius: 10px;
+  --os-handle-interactive-area-offset: 4px;
+  --os-handle-border-radius: 10px;
+  --os-track-bg: transparent;
+  --os-handle-bg: var(--new-col-color);
+  --os-handle-bg-hover: var(--new-table-border);
+  --os-handle-bg-active: var(--new-table-border);
+}

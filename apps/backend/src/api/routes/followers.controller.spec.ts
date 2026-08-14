@@ -5,6 +5,7 @@ jest.mock(
 
 import { FollowersController } from './followers.controller';
 import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
+import { RefreshFollowerRelationshipScoreDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-relationship-score.dto';
 import { validate } from 'class-validator';
 
 describe('FollowersController', () => {
@@ -18,6 +19,7 @@ describe('FollowersController', () => {
     updateFollowerMemberNote: jest.fn(),
     deleteFollowerMemberNote: jest.fn(),
     updateFollowerMemberGrade: jest.fn(),
+    refreshFollowerMemberRelationshipScore: jest.fn(),
   };
   const controller = new FollowersController(service as any);
 
@@ -126,20 +128,59 @@ describe('FollowersController', () => {
   });
 
   it('delegates personal grade updates with organization, user, and body', async () => {
-    service.updateFollowerMemberGrade.mockResolvedValue({ myGrade: 4.5 });
+    service.updateFollowerMemberGrade.mockResolvedValue({
+      myGrade: 4.5,
+      adjustedGrade: 5,
+    });
 
     await expect(
       controller.updateFollowerMemberGrade(org, user, 'channel-a', {
         externalId: 'follower-a',
         grade: 4.5,
       })
-    ).resolves.toEqual({ myGrade: 4.5 });
+    ).resolves.toEqual({ myGrade: 4.5, adjustedGrade: 5 });
     expect(service.updateFollowerMemberGrade).toHaveBeenCalledWith(
       org,
       user,
       'channel-a',
       'follower-a',
       4.5
+    );
+  });
+
+  it('delegates directional relationship score refresh with organization and body', async () => {
+    const current = { effortScore: 10, reciprocationScore: 30, grade: 5 };
+    service.refreshFollowerMemberRelationshipScore.mockResolvedValue(current);
+
+    await expect(
+      controller.refreshFollowerMemberRelationshipScore(org, 'channel-a', {
+        externalId: 'follower-a',
+        direction: 'their',
+      })
+    ).resolves.toEqual(current);
+    expect(service.refreshFollowerMemberRelationshipScore).toHaveBeenCalledWith(
+      org,
+      'channel-a',
+      'follower-a',
+      'their'
+    );
+  });
+
+  it('accepts only their and your relationship score directions', async () => {
+    const valid = Object.assign(new RefreshFollowerRelationshipScoreDto(), {
+      externalId: 'follower-a',
+      direction: 'your',
+    });
+    const invalid = Object.assign(new RefreshFollowerRelationshipScoreDto(), {
+      externalId: 'follower-a',
+      direction: 'both',
+    });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(invalid)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'direction' }),
+      ])
     );
   });
 });

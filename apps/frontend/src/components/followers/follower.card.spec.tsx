@@ -146,14 +146,67 @@ describe('FollowerCard', () => {
       />
     );
 
-    expect(screen.getByText('Their effort')).toBeTruthy();
-    expect(screen.getByText('Your effort')).toBeTruthy();
+    expect(screen.getByText('Grade')).toBeTruthy();
+    expect(screen.getByText('Them')).toBeTruthy();
+    expect(screen.getByText('You')).toBeTruthy();
     expect(screen.getByText('Hot lead')).toBeTruthy();
+    expect(screen.queryByText('Your grade')).toBeNull();
+    expect(screen.queryByText('Their effort')).toBeNull();
+    expect(screen.queryByText('Your effort')).toBeNull();
     expect(screen.queryByText('Relationship grade')).toBeNull();
     expect(screen.queryByText('My grade')).toBeNull();
     expect(screen.queryByText(/out of 5/i)).toBeNull();
+    expect(screen.getAllByRole('img', { name: '2 out of 5' })).toHaveLength(2);
     expect(screen.getByRole('img', { name: '1.5 out of 5' })).toBeTruthy();
-    expect(screen.getByRole('img', { name: '2 out of 5' })).toBeTruthy();
+    const labels = screen
+      .getAllByText(/Grade|Them|You/)
+      .map((node) => node.textContent);
+    expect(labels).toEqual(['Grade', 'Them', 'You']);
+  });
+
+  it('places scores and counts in the same two-column row', () => {
+    const { container } = render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          effortStars: 1,
+          reciprocationStars: 1,
+          myGrade: 3.5,
+          followingCount: 1904,
+          followersCount: 1227,
+        }}
+        onOpen={jest.fn()}
+      />
+    );
+
+    const row = container.querySelector('[data-follower-metrics-row]');
+    expect(row).toBeTruthy();
+    expect(row?.firstElementChild?.textContent).toContain('Grade');
+    expect(row?.lastElementChild?.textContent).toContain('Following');
+    expect(row?.lastElementChild?.textContent).toContain('Followers');
+  });
+
+  it('shows join date under the name and username, not in the counts column', () => {
+    const { container } = render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          effortStars: 1,
+          reciprocationStars: 1,
+          myGrade: 3.5,
+          followingCount: 1904,
+          accountCreatedAt: '2023-09-29T00:00:00.000Z',
+        }}
+        onOpen={jest.fn()}
+      />
+    );
+
+    const joined = screen.getByText('Joined');
+    const counts = container.querySelector('[data-follower-metrics-row]')
+      ?.lastElementChild;
+    expect(joined.parentElement?.textContent).toMatch(/Joined\s.+/);
+    expect(counts?.textContent).not.toContain('Joined');
+    expect(counts?.textContent).toContain('Following');
   });
 
   it('opens the modal when avatar has no profile link', () => {

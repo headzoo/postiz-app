@@ -99,9 +99,7 @@ const ContextDocumentReader: FC<{ documentId: string }> = ({ documentId }) => {
   }
 
   return (
-    <div className="max-h-[70vh] overflow-auto pr-[4px]">
-      <ContextDocumentMarkdown content={data.content} />
-    </div>
+    <ContextDocumentMarkdown content={data.content} />
   );
 };
 

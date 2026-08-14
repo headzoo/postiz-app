@@ -13,6 +13,7 @@ import { Organization, User } from '@prisma/client';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import { FollowerMemberQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-member.query.dto';
 import { UpdateFollowerGradeDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-grade.dto';
+import { RefreshFollowerRelationshipScoreDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-relationship-score.dto';
 import {
   CreateFollowerNoteDto,
   UpdateFollowerNoteDto,
@@ -43,6 +44,20 @@ export class FollowersController {
       user,
       integrationId,
       query.externalId
+    );
+  }
+
+  @Post('/:integrationId/member/relationship-score')
+  refreshFollowerMemberRelationshipScore(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Body() body: RefreshFollowerRelationshipScoreDto
+  ) {
+    return this._integrationService.refreshFollowerMemberRelationshipScore(
+      org,
+      integrationId,
+      body.externalId,
+      body.direction
     );
   }
 

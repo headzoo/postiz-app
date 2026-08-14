@@ -49,6 +49,9 @@ module.exports = {
     ],
   },
   moduleNameMapper: {
+    '\\.css$': '<rootDir>/jest.style.mock.js',
+    '^overlayscrollbars-react$':
+      '<rootDir>/jest.overlayscrollbars-react.mock.js',
     '^canvas$': '<rootDir>/jest.canvas.mock.js',
     '^@gitroom/nestjs-libraries/(.*)$':
       '<rootDir>/libraries/nestjs-libraries/src/$1',

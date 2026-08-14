@@ -9,6 +9,7 @@ import { useToaster } from '@gitroom/react/toaster/toaster';
 import clsx from 'clsx';
 import { VideoFrame } from '@gitroom/react/helpers/video.frame';
 import { Pagination } from '@gitroom/frontend/components/media/media.component';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 
 const ThirdPartyMediaLibraryBrowser: FC<{
   integration: any;
@@ -89,7 +90,10 @@ const ThirdPartyMediaLibraryBrowser: FC<{
         {integration.title}: {integration.name}
       </div>
       <div className="flex-1 relative">
-        <div className="absolute left-0 top-0 w-full h-full overflow-x-hidden overflow-y-auto scrollbar scrollbar-thumb-newColColor scrollbar-track-newBgColorInner">
+        <CustomScrollArea
+          className="absolute inset-0"
+          contentClassName="pe-[16px]"
+        >
           {isLoading && (
             <div className="grid grid-cols-4 gap-[8px]">
               {[...new Array(8)].map((_, i) => (
@@ -148,7 +152,7 @@ const ThirdPartyMediaLibraryBrowser: FC<{
               })}
             </div>
           )}
-        </div>
+        </CustomScrollArea>
       </div>
       {(data?.pages || 0) > 1 && (
         <Pagination
