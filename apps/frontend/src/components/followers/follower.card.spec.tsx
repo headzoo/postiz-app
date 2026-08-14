@@ -131,7 +131,7 @@ describe('FollowerCard', () => {
   });
 
   it('renders directional effort rows and triage badge on the card', () => {
-    render(
+    const { container } = render(
       <FollowerCard
         follower={{
           ...baseFollower,
@@ -162,6 +162,13 @@ describe('FollowerCard', () => {
       .getAllByText(/Grade|Them|You/)
       .map((node) => node.textContent);
     expect(labels).toEqual(['Grade', 'Them', 'You']);
+    const scores = container.querySelector(
+      '[data-follower-metrics-row] > .grid-cols-\\[auto_auto\\]'
+    );
+    expect(scores).toBeTruthy();
+    expect(scores?.children[0].textContent).toBe('Grade');
+    expect(scores?.children[2].textContent).toBe('Them');
+    expect(scores?.children[4].textContent).toBe('You');
   });
 
   it('places scores and counts in the same two-column row', () => {

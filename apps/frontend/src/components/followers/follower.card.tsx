@@ -262,34 +262,28 @@ export const FollowerCard: FC<{
                 )}
               >
                 {hasRelationshipEffort && (
-                  <div className="flex flex-col gap-[6px]">
-                    <div className="flex items-center gap-[8px] text-[12px]">
-                      <span className="shrink-0 text-textItemBlur">
-                        {t('followers_card_grade', 'Grade')}
-                      </span>
-                      <RelationshipStars
-                        grade={follower.myGrade ?? null}
-                        compact={true}
-                      />
-                    </div>
-                    <div className="flex items-center gap-[8px] text-[12px]">
-                      <span className="shrink-0 text-textItemBlur">
-                        {t('followers_card_them', 'Them')}
-                      </span>
-                      <RelationshipStars
-                        grade={follower.reciprocationStars ?? null}
-                        compact={true}
-                      />
-                    </div>
-                    <div className="flex items-center gap-[8px] text-[12px]">
-                      <span className="shrink-0 text-textItemBlur">
-                        {t('followers_card_you', 'You')}
-                      </span>
-                      <RelationshipStars
-                        grade={follower.effortStars ?? null}
-                        compact={true}
-                      />
-                    </div>
+                  <div className="grid grid-cols-[auto_auto] items-center gap-x-[8px] gap-y-[6px] text-[12px]">
+                    <span className="text-textItemBlur">
+                      {t('followers_card_grade', 'Grade')}
+                    </span>
+                    <RelationshipStars
+                      grade={follower.myGrade ?? null}
+                      compact={true}
+                    />
+                    <span className="text-textItemBlur">
+                      {t('followers_card_them', 'Them')}
+                    </span>
+                    <RelationshipStars
+                      grade={follower.reciprocationStars ?? null}
+                      compact={true}
+                    />
+                    <span className="text-textItemBlur">
+                      {t('followers_card_you', 'You')}
+                    </span>
+                    <RelationshipStars
+                      grade={follower.effortStars ?? null}
+                      compact={true}
+                    />
                   </div>
                 )}
                 {hasMetricsGrid && (

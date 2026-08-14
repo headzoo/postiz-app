@@ -141,12 +141,12 @@ export const FollowerRelationshipChart: FC<{
                 const gradeLabel =
                   snapshot.grade == null
                     ? t(
-                        'followers_grade_not_enough_activity',
-                        'No grade (not enough tracked activity)'
-                      )
+                      'followers_grade_not_enough_activity',
+                      'No grade (not enough tracked activity)'
+                    )
                     : t('followers_chart_grade_value', 'Grade: {{grade}}', {
-                        grade: snapshot.grade,
-                      });
+                      grade: snapshot.grade,
+                    });
                 return [
                   formulaLabel,
                   gradeLabel,
@@ -215,7 +215,7 @@ export const FollowerRelationshipChart: FC<{
           {history.map((snapshot) => (
             <tr
               key={snapshot.snapshotAt}
-              className="border-b border-newTableBorder/60"
+              className="border-b border-newTableBorder"
             >
               <td className="py-[8px] pe-[12px] text-newTextColor">
                 {newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')}
