@@ -54,6 +54,7 @@ describe('IntegrationService followers', () => {
       getFollowersByMyGrade: jest.fn(),
       getFollowersByProjectedField: jest.fn(),
       getAudienceFollowers: jest.fn(),
+      getAudienceLeads: jest.fn(),
       getFollowerInteractionMetrics: jest.fn().mockResolvedValue(new Map()),
       getFollowerNoteCounts: jest.fn().mockResolvedValue(new Map()),
     };
@@ -1864,6 +1865,128 @@ describe('IntegrationService followers', () => {
     ).toHaveBeenCalledWith(
       expect.objectContaining({ triage: 'hot_lead' })
     );
+  });
+
+  it('routes the lead audience through non-follower inbound members', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getAudienceLeads.mockResolvedValue({
+      items: [
+        {
+          externalId: 'lead-1',
+          name: 'Lead One',
+          username: null,
+          picture: null,
+          profileUrl: null,
+          bio: null,
+          followersCount: null,
+          followingCount: null,
+          followedAt: null,
+          accountCreatedAt: null,
+          inboundInteractionCount: 2,
+          lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        audience: 'lead',
+      })
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'lead-1',
+          name: 'Lead One',
+          interactionCount: 2,
+          lastInteractionAt: '2026-08-14T12:00:00.000Z',
+        }),
+      ],
+      hasMore: false,
+    });
+    expect(followers).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getAudienceLeads
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        integrationId: 'channel-a',
+        direction: 'desc',
+        limit: 24,
+      })
+    );
+    expect(
+      (service as any)._channelInteractionRepository.getAudienceFollowers
+    ).not.toHaveBeenCalled();
+  });
+
+  it('rejects combining lead audience with a triage filter', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        audience: 'lead',
+        triage: 'hot_lead',
+      })
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects replaying a lead cursor under a follower triage filter', async () => {
+    const cursor = `follower-lead:v1:${Buffer.from(JSON.stringify({
+      version: 1,
+      organizationId: 'org-a',
+      integrationId: 'channel-a',
+      direction: 'desc',
+      audience: 'lead',
+      lastInboundAt: '2026-08-14T12:00:00.000Z',
+      externalId: 'lead-1',
+    })).toString('base64url')}`;
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+        triage: 'hot_lead',
+        cursor,
+      })
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it('maps projected effort metadata from their-effort sorting', async () => {

@@ -72,6 +72,7 @@ import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/p
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 import {
   AudienceFollowerCursor,
+  AudienceLeadCursor,
   ChannelInteractionRepository,
   GradeFollowerCursor,
   LikesCountFollowerCursor,
@@ -345,6 +346,26 @@ export class IntegrationService {
       ...query,
       ...(search ? { search } : { search: undefined }),
     };
+    if (normalizedQuery.audience && normalizedQuery.triage) {
+      throw new HttpException('Invalid follower query', HttpStatus.BAD_REQUEST);
+    }
+    if (normalizedQuery.audience === 'lead') {
+      if (normalizedQuery.cursor && this.isHttpUrl(normalizedQuery.cursor)) {
+        throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+      }
+      this.assertFollowerCursorQueryIdentity(
+        normalizedQuery.cursor,
+        search,
+        undefined,
+        'lead'
+      );
+      return this.getLeadAudiencePage(
+        org.id,
+        user.id,
+        integration,
+        normalizedQuery
+      );
+    }
     const sort = this.validateFollowerQuery(provider, normalizedQuery);
     if (sort?.scope === 'database') {
       return this.getDatabaseFollowerPage(
@@ -931,6 +952,9 @@ export class IntegrationService {
 
     const search = normalizeFollowerSearch(query.search);
     this.assertFollowerCursorQueryIdentity(query.cursor, search, query.triage);
+    if (query.cursor?.startsWith('follower-lead:v1:')) {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
     const isAudienceCursor = !!query.cursor?.startsWith('follower-audience:v1:');
     const isRankCursor = !!query.cursor?.startsWith('follower-rank:v1:');
     const isNotesCursor = !!query.cursor?.startsWith('follower-notes:v1:');
@@ -1119,6 +1143,60 @@ export class IntegrationService {
         : {}),
       window,
       tracking,
+    };
+  }
+
+  private async getLeadAudiencePage(
+    organizationId: string,
+    userId: string,
+    integration: Integration,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? 'desc';
+    const cursor = query.cursor
+      ? this.decodeLeadAudienceCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        direction,
+        query.search
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getAudienceLeads({
+      organizationId,
+      integrationId: integration.id,
+      userId,
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+      ...(query.search ? { search: query.search } : {}),
+    });
+    const items = ranked.items.map((row) => ({
+      ...this.mapAudienceMemberProfile(row),
+      interactionCount: row.inboundInteractionCount,
+      ...(row.lastInboundAt
+        ? { lastInteractionAt: row.lastInboundAt.toISOString() }
+        : {}),
+    }));
+    const last = ranked.items.at(-1);
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeLeadAudienceCursor({
+            organizationId,
+            integrationId: integration.id,
+            direction,
+            search: query.search,
+            audience: 'lead',
+            lastInboundAt: last.lastInboundAt
+              ? last.lastInboundAt.toISOString()
+              : null,
+            externalId: last.externalId,
+          }),
+        }
+        : {}),
     };
   }
 
@@ -1671,6 +1749,56 @@ export class IntegrationService {
     }
   }
 
+  private encodeLeadAudienceCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    direction: 'asc' | 'desc';
+    search?: string;
+    audience: 'lead';
+  } & AudienceLeadCursor) {
+    return `follower-lead:v1:${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeLeadAudienceCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    direction: 'asc' | 'desc',
+    search: string | undefined
+  ): AudienceLeadCursor {
+    try {
+      if (!value.startsWith('follower-lead:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(
+          value.slice('follower-lead:v1:'.length),
+          'base64url'
+        ).toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.direction !== direction ||
+        cursor.search !== search ||
+        cursor.audience !== 'lead' ||
+        (cursor.lastInboundAt !== null &&
+          (typeof cursor.lastInboundAt !== 'string' ||
+            Number.isNaN(Date.parse(cursor.lastInboundAt)))) ||
+        typeof cursor.externalId !== 'string'
+      ) {
+        throw new Error();
+      }
+      return {
+        lastInboundAt: cursor.lastInboundAt,
+        externalId: cursor.externalId,
+      };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+  }
+
   private encodeLikesCountFollowerCursor(cursor: {
     organizationId: string;
     integrationId: string;
@@ -1873,7 +2001,8 @@ export class IntegrationService {
   private assertFollowerCursorQueryIdentity(
     value: string | undefined,
     search: string | undefined,
-    triage: FollowerQuery['triage'] | undefined
+    triage: FollowerQuery['triage'] | undefined,
+    audience?: FollowerQuery['audience']
   ) {
     const internalPrefixes = [
       'follower-audience:v1:',
@@ -1883,6 +2012,7 @@ export class IntegrationService {
       'follower-relationship-grade:v1:',
       'follower-my-grade:v1:',
       'follower-projection:v1:',
+      'follower-lead:v1:',
     ];
     if (!value || !internalPrefixes.some((prefix) => value.startsWith(prefix))) {
       return;
@@ -1892,7 +2022,11 @@ export class IntegrationService {
       const cursor = JSON.parse(
         Buffer.from(encoded, 'base64url').toString('utf8')
       );
-      if (cursor.search !== search || cursor.triage !== triage) {
+      if (
+        cursor.search !== search ||
+        cursor.triage !== triage ||
+        cursor.audience !== audience
+      ) {
         throw new Error();
       }
     } catch {

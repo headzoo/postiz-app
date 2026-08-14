@@ -149,7 +149,7 @@ describe('FollowerCard', () => {
     expect(screen.getByText('Grade')).toBeTruthy();
     expect(screen.getByText('Them')).toBeTruthy();
     expect(screen.getByText('You')).toBeTruthy();
-    expect(screen.getByText('Hot lead')).toBeTruthy();
+    expect(screen.getByText('Hot')).toBeTruthy();
     expect(screen.queryByText('Your grade')).toBeNull();
     expect(screen.queryByText('Their effort')).toBeNull();
     expect(screen.queryByText('Your effort')).toBeNull();

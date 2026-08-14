@@ -7,8 +7,24 @@ import {
   Max,
   MaxLength,
   Min,
+  Validate,
+  ValidationArguments,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
 } from 'class-validator';
 import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+
+@ValidatorConstraint({ name: 'exclusiveAudienceTriage', async: false })
+class ExclusiveAudienceTriageConstraint implements ValidatorConstraintInterface {
+  validate(_: unknown, args: ValidationArguments) {
+    const object = args.object as FollowersQueryDto;
+    return !(object.audience && object.triage);
+  }
+
+  defaultMessage() {
+    return 'audience and triage cannot be combined';
+  }
+}
 
 export class FollowersQueryDto {
   @IsOptional()
@@ -47,4 +63,9 @@ export class FollowersQueryDto {
   @IsOptional()
   @IsIn(['hot_lead', 'mutual', 'over_invested', 'quiet', 'engaged_not_yet'])
   triage?: 'hot_lead' | 'mutual' | 'over_invested' | 'quiet' | 'engaged_not_yet';
+
+  @IsOptional()
+  @IsIn(['lead'])
+  @Validate(ExclusiveAudienceTriageConstraint)
+  audience?: 'lead';
 }

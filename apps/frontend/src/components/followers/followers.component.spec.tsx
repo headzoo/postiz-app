@@ -3,8 +3,12 @@
  */
 
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
-import { FollowersComponent } from './followers.component';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import {
+  FollowersComponent,
+  buildFollowersPageHref,
+  parseFollowerViewPath,
+} from './followers.component';
 import {
   Follower,
   FollowerChannel,
@@ -12,7 +16,10 @@ import {
 } from './use.followers';
 
 const openModal = jest.fn();
+const replace = jest.fn();
 const useFollowersMock = jest.fn();
+let mockPathname = '/followers';
+let mockSearchParams = new URLSearchParams();
 let followersPage = {
   items: [] as Follower[],
   hasMore: false,
@@ -42,7 +49,27 @@ const channel: FollowerChannel = {
 };
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), replace }),
+  usePathname: () => mockPathname,
+  useSearchParams: () => mockSearchParams,
+}));
+
+jest.mock('next/link', () => ({
+  __esModule: true,
+  default: ({
+    href,
+    children,
+    scroll: _scroll,
+    ...props
+  }: {
+    href: string;
+    children: React.ReactNode;
+    scroll?: boolean;
+  }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 jest.mock('@gitroom/react/translation/get.transation.service.client', () => ({
@@ -182,10 +209,41 @@ jest.mock('@gitroom/frontend/components/followers/use.followers', () => {
   };
 });
 
+describe('follower page href helpers', () => {
+  it('maps triage slugs and query params', () => {
+    expect(parseFollowerViewPath('/followers')).toEqual({
+      slug: undefined,
+      triage: undefined,
+      audience: undefined,
+    });
+    expect(parseFollowerViewPath('/followers/hot')).toEqual({
+      slug: 'hot',
+      triage: 'hot_lead',
+      audience: undefined,
+    });
+    expect(parseFollowerViewPath('/followers/lead')).toEqual({
+      slug: 'lead',
+      triage: undefined,
+      audience: 'lead',
+    });
+    expect(
+      buildFollowersPageHref({
+        slug: 'engaged',
+        search: 'alex',
+        sort: 'their_effort',
+        direction: 'asc',
+      })
+    ).toBe('/followers/engaged?search=alex&sort=their_effort&direction=asc');
+  });
+});
+
 describe('FollowersComponent', () => {
   beforeEach(() => {
     openModal.mockClear();
+    replace.mockClear();
     useFollowersMock.mockReset();
+    mockPathname = '/followers';
+    mockSearchParams = new URLSearchParams();
     followersPage = {
       items: [],
       hasMore: false,
@@ -202,33 +260,130 @@ describe('FollowersComponent', () => {
   it('renders triage chips with accessible pressed state', () => {
     render(<FollowersComponent />);
 
-    const allChip = screen.getByRole('button', { name: 'All' });
-    const hotLeadChip = screen.getByRole('button', { name: 'Hot lead' });
+    const allChip = screen.getByRole('link', { name: 'All' });
+    const hotLeadChip = screen.getByRole('link', { name: 'Hot' });
 
     expect(allChip.getAttribute('aria-pressed')).toBe('true');
     expect(hotLeadChip.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('passes the selected triage filter to useFollowers and clears it for All', () => {
+  it('points triage chips at real follower URLs', () => {
     render(<FollowersComponent />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Engaged' }));
-    expect(useFollowersMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ triage: 'engaged_not_yet', cursor: undefined })
+    expect(screen.getByRole('link', { name: 'All' }).getAttribute('href')).toBe(
+      '/followers'
     );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hot lead' }));
-    expect(useFollowersMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ triage: 'hot_lead', cursor: undefined })
+    expect(screen.getByRole('link', { name: 'Engaged' }).getAttribute('href')).toBe(
+      '/followers/engaged'
     );
-
-    fireEvent.click(screen.getByRole('button', { name: 'All' }));
-    expect(useFollowersMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ triage: undefined, cursor: undefined })
+    expect(screen.getByRole('link', { name: 'Hot' }).getAttribute('href')).toBe(
+      '/followers/hot'
+    );
+    expect(screen.getByRole('link', { name: 'Mutual' }).getAttribute('href')).toBe(
+      '/followers/mutual'
+    );
+    expect(screen.getByRole('link', { name: 'Costly' }).getAttribute('href')).toBe(
+      '/followers/costly'
+    );
+    expect(screen.getByRole('link', { name: 'Quiet' }).getAttribute('href')).toBe(
+      '/followers/quiet'
+    );
+    expect(screen.getByRole('link', { name: /^Lead$/ }).getAttribute('href')).toBe(
+      '/followers/lead'
     );
   });
 
-  it('resets pagination when the triage filter changes', () => {
+  it('hydrates triage from /followers/hot', () => {
+    mockPathname = '/followers/hot';
+    render(<FollowersComponent />);
+
+    expect(screen.getByRole('link', { name: 'Hot' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+    expect(useFollowersMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ triage: 'hot_lead', audience: undefined })
+    );
+  });
+
+  it('hydrates the lead audience from /followers/lead and clears triage', () => {
+    mockPathname = '/followers/lead';
+    render(<FollowersComponent />);
+
+    expect(useFollowersMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        audience: 'lead',
+        triage: undefined,
+      })
+    );
+  });
+
+  it('hydrates search, sort, and direction from query params', () => {
+    mockSearchParams = new URLSearchParams({
+      search: 'alex',
+      sort: 'their_effort',
+      direction: 'asc',
+    });
+    render(<FollowersComponent />);
+
+    expect((screen.getByLabelText('Search') as HTMLInputElement).value).toBe(
+      'alex'
+    );
+    expect((screen.getByLabelText('Sort by') as HTMLSelectElement).value).toBe(
+      'their_effort'
+    );
+    expect((screen.getByLabelText('Direction') as HTMLSelectElement).value).toBe(
+      'asc'
+    );
+    expect(useFollowersMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        search: 'alex',
+        sort: 'their_effort',
+        direction: 'asc',
+      })
+    );
+  });
+
+  it('preserves search, sort, and direction on triage chip hrefs', () => {
+    mockSearchParams = new URLSearchParams({
+      search: 'alex',
+      sort: 'their_effort',
+      direction: 'asc',
+    });
+    render(<FollowersComponent />);
+
+    expect(screen.getByRole('link', { name: 'Hot' }).getAttribute('href')).toBe(
+      '/followers/hot?search=alex&sort=their_effort&direction=asc'
+    );
+  });
+
+  it('writes search to the query string after debounce', () => {
+    jest.useFakeTimers();
+    render(<FollowersComponent />);
+
+    fireEvent.change(screen.getByLabelText('Search'), {
+      target: { value: 'alex' },
+    });
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(replace).toHaveBeenCalledWith('/followers?search=alex');
+    jest.useRealTimers();
+  });
+
+  it('writes sort and direction to the query string', () => {
+    render(<FollowersComponent />);
+
+    fireEvent.change(screen.getByLabelText('Sort by'), {
+      target: { value: 'their_effort' },
+    });
+
+    expect(replace).toHaveBeenCalledWith(
+      '/followers?sort=their_effort&direction=desc'
+    );
+  });
+
+  it('resets pagination when the triage path changes', () => {
     followersPage = {
       items: [{ id: 'follower-1', name: 'Alex Example' }],
       hasMore: true,
@@ -236,14 +391,15 @@ describe('FollowersComponent', () => {
       nextCursor: 'cursor-2',
     } as typeof followersPage & { nextCursor: string };
 
-    render(<FollowersComponent />);
+    const { rerender } = render(<FollowersComponent />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(useFollowersMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ cursor: 'cursor-2' })
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Quiet' }));
+    mockPathname = '/followers/quiet';
+    rerender(<FollowersComponent />);
     expect(useFollowersMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ triage: 'quiet', cursor: undefined })
     );
@@ -251,9 +407,8 @@ describe('FollowersComponent', () => {
   });
 
   it('shows a triage-specific empty state when a filter has no matches', () => {
+    mockPathname = '/followers/mutual';
     render(<FollowersComponent />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Mutual' }));
 
     expect(
       screen.getByText('No followers match this triage filter')
@@ -261,6 +416,18 @@ describe('FollowersComponent', () => {
     expect(
       screen.getByText(
         'No followers match the Mutual filter on this channel. Try another filter or clear it to see everyone.'
+      )
+    ).toBeTruthy();
+  });
+
+  it('shows a lead-specific empty state', () => {
+    mockPathname = '/followers/lead';
+    render(<FollowersComponent />);
+
+    expect(screen.getByText('No leads on this channel')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Leads are people who interacted with this channel but do not currently follow it.'
       )
     ).toBeTruthy();
   });

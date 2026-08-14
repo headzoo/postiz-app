@@ -234,6 +234,7 @@ export type FollowerQuery = {
   window?: ChannelInteractionWindow;
   search?: string;
   triage?: FollowerTriageFilter;
+  audience?: 'lead';
 };
 
 export type FollowerTriageFilter = RelationshipTriage | 'engaged_not_yet';

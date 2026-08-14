@@ -3,7 +3,8 @@
 import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import { useDebounce } from 'use-debounce';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Button } from '@gitroom/react/form/button';
 import { Input } from '@gitroom/react/form/input';
@@ -38,38 +39,101 @@ import {
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
 
+const FOLLOWER_VIEW_BY_SLUG: Record<
+  string,
+  { triage?: FollowerTriageFilter; audience?: 'lead' }
+> = {
+  engaged: { triage: 'engaged_not_yet' },
+  hot: { triage: 'hot_lead' },
+  mutual: { triage: 'mutual' },
+  costly: { triage: 'over_invested' },
+  quiet: { triage: 'quiet' },
+  lead: { audience: 'lead' },
+};
+
 const TRIAGE_FILTER_OPTIONS: {
+  slug?: string;
   value?: FollowerTriageFilter;
+  audience?: 'lead';
   key: string;
   defaultLabel: string;
 }[] = [
     { key: 'followers_triage_filter_all', defaultLabel: 'All' },
     {
+      slug: 'engaged',
       value: 'engaged_not_yet',
       key: 'followers_triage_filter_engaged_not_yet',
       defaultLabel: 'Engaged',
     },
     {
+      slug: 'hot',
       value: 'hot_lead',
       key: 'followers_triage_hot_lead',
-      defaultLabel: 'Hot lead',
+      defaultLabel: 'Hot',
     },
     {
+      slug: 'mutual',
       value: 'mutual',
       key: 'followers_triage_mutual',
       defaultLabel: 'Mutual',
     },
     {
+      slug: 'costly',
       value: 'over_invested',
       key: 'followers_triage_over_invested',
-      defaultLabel: 'Over-invested',
+      defaultLabel: 'Costly',
     },
     {
+      slug: 'quiet',
       value: 'quiet',
       key: 'followers_triage_quiet',
       defaultLabel: 'Quiet',
     },
+    {
+      slug: 'lead',
+      audience: 'lead' as const,
+      key: 'followers_audience_lead',
+      defaultLabel: 'Lead',
+    },
   ];
+
+export const parseFollowerViewPath = (pathname: string) => {
+  const slug = pathname.match(/^\/followers(?:\/([^/?]+))?/)?.[1];
+  if (!slug) {
+    return { slug: undefined, triage: undefined, audience: undefined };
+  }
+  const view = FOLLOWER_VIEW_BY_SLUG[slug];
+  if (!view) {
+    return { slug: undefined, triage: undefined, audience: undefined };
+  }
+  return { slug, triage: view.triage, audience: view.audience };
+};
+
+export const buildFollowersPageHref = ({
+  slug,
+  search,
+  sort,
+  direction,
+}: {
+  slug?: string;
+  search?: string;
+  sort?: string;
+  direction?: FollowerSortDirection;
+}) => {
+  const path = slug ? `/followers/${slug}` : '/followers';
+  const params = new URLSearchParams();
+  if (search) {
+    params.set('search', search);
+  }
+  if (sort) {
+    params.set('sort', sort);
+  }
+  if (direction) {
+    params.set('direction', direction);
+  }
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+};
 
 const INTERACTION_KIND_LABELS: Record<string, { key: string; defaultLabel: string }> = {
   like: { key: 'followers_interaction_kind_like', defaultLabel: 'Likes' },
@@ -258,16 +322,30 @@ const TrackingNotice: FC<{
 export const FollowersComponent: FC = () => {
   const t = useT();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const modal = useModals();
+  const { slug, triage, audience } = useMemo(
+    () => parseFollowerViewPath(pathname || '/followers'),
+    [pathname]
+  );
+  const urlSearch = searchParams.get('search') ?? '';
+  const urlSort = searchParams.get('sort') || undefined;
+  const urlDirectionParam = searchParams.get('direction');
+  const urlDirection: FollowerSortDirection | undefined =
+    urlDirectionParam === 'asc' || urlDirectionParam === 'desc'
+      ? urlDirectionParam
+      : undefined;
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
-  const [sort, setSort] = useState<string>();
-  const [direction, setDirection] = useState<FollowerSortDirection>();
+  const [sort, setSort] = useState<string | undefined>(urlSort);
+  const [direction, setDirection] = useState<FollowerSortDirection | undefined>(
+    urlDirection
+  );
   const [window, setWindow] = useState<ChannelInteractionWindow>(
     DEFAULT_FOLLOWER_INTERACTION_WINDOW
   );
   const [limit, setLimit] = useState<number>(24);
-  const [search, setSearch] = useState('');
-  const [triage, setTriage] = useState<FollowerTriageFilter | undefined>();
+  const [search, setSearch] = useState(urlSearch);
   const [debouncedSearch] = useDebounce(search, 300);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
@@ -302,12 +380,7 @@ export const FollowersComponent: FC = () => {
     }
 
     setSelectedIntegrationId(nextId);
-    const nextChannel = channels.find((channel) => channel.id === nextId);
-    const defaultSort = nextChannel?.sorts[0];
-    setSort(defaultSort?.key);
-    setDirection(defaultSort?.defaultDirection);
     setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
-    setTriage(undefined);
     setCursorHistory([]);
     setPageNumber(1);
   }, [channels, groupedFollowerIntegrations, selectedIntegrationId]);
@@ -317,7 +390,12 @@ export const FollowersComponent: FC = () => {
     [channels, selectedIntegrationId]
   );
 
-  const effectiveSort = sort ?? selectedChannel?.sorts[0]?.key;
+  const requestedSort = urlSort ?? sort;
+  const effectiveSort = selectedChannel?.sorts.some(
+    (item) => item.key === requestedSort
+  )
+    ? requestedSort
+    : selectedChannel?.sorts[0]?.key;
 
   const activeSort = useMemo(
     () => selectedChannel?.sorts.find((item) => item.key === effectiveSort),
@@ -337,11 +415,7 @@ export const FollowersComponent: FC = () => {
     (channel: FollowerChannel) => {
       setLastChannelId(channel.id);
       setSelectedIntegrationId(channel.id);
-      const defaultSort = channel.sorts[0];
-      setSort(defaultSort?.key);
-      setDirection(defaultSort?.defaultDirection);
       setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
-      setTriage(undefined);
       resetPagination();
     },
     [resetPagination]
@@ -349,8 +423,8 @@ export const FollowersComponent: FC = () => {
 
   const handleSortChange = useCallback(
     (value: string) => {
-      setSort(value);
       const sortOption = selectedChannel?.sorts.find((item) => item.key === value);
+      setSort(value);
       setDirection(sortOption?.defaultDirection);
       resetPagination();
     },
@@ -359,10 +433,11 @@ export const FollowersComponent: FC = () => {
 
   const handleDirectionChange = useCallback(
     (value: FollowerSortDirection) => {
+      setSort(effectiveSort);
       setDirection(value);
       resetPagination();
     },
-    [resetPagination]
+    [effectiveSort, resetPagination]
   );
 
   const handleWindowChange = useCallback(
@@ -381,26 +456,63 @@ export const FollowersComponent: FC = () => {
     [resetPagination]
   );
 
-  const handleTriageChange = useCallback(
-    (value: FollowerTriageFilter | undefined) => {
-      setTriage(value);
-      resetPagination();
-    },
-    [resetPagination]
-  );
+  useEffect(() => {
+    if (urlSearch === trimmedSearch || urlSearch === search.trim()) {
+      return;
+    }
+    setSearch(urlSearch);
+  }, [urlSearch, trimmedSearch, search]);
 
   const previousSearch = useRef(trimmedSearch);
+  const previousSlug = useRef(slug);
   useEffect(() => {
-    if (previousSearch.current === trimmedSearch) {
+    if (previousSearch.current === trimmedSearch && previousSlug.current === slug) {
       return;
     }
     previousSearch.current = trimmedSearch;
+    previousSlug.current = slug;
     resetPagination();
-  }, [trimmedSearch, resetPagination]);
+  }, [trimmedSearch, slug, resetPagination]);
+
+  const querySort = sort || urlSort;
+  const queryDirection = direction || urlDirection;
+
+  useEffect(() => {
+    const nextSearch = trimmedSearch || '';
+    const nextSort = querySort || '';
+    const nextDirection = querySort && queryDirection ? queryDirection : '';
+    if (
+      urlSearch === nextSearch &&
+      (urlSort || '') === nextSort &&
+      (urlDirection || '') === nextDirection
+    ) {
+      return;
+    }
+    router.replace(
+      buildFollowersPageHref({
+        slug,
+        search: nextSearch || undefined,
+        sort: nextSort || undefined,
+        direction: nextDirection || undefined,
+      })
+    );
+  }, [
+    slug,
+    trimmedSearch,
+    querySort,
+    queryDirection,
+    urlSearch,
+    urlSort,
+    urlDirection,
+    router,
+  ]);
 
   const currentCursor = cursorHistory[cursorHistory.length - 1];
+  const requestedDirection = urlDirection ?? direction;
   const effectiveDirection = activeSort
-    ? direction ?? activeSort.defaultDirection
+    ? requestedDirection && activeSort.directions.includes(requestedDirection)
+      ? requestedDirection
+      : activeSort.defaultDirection
     : undefined;
 
   const {
@@ -417,6 +529,7 @@ export const FollowersComponent: FC = () => {
     window: requiresWindow ? window : undefined,
     search: trimmedSearch || undefined,
     triage,
+    audience,
   });
 
   const handleNext = useCallback(() => {
@@ -528,6 +641,22 @@ export const FollowersComponent: FC = () => {
             {t(
               'followers_search_empty_description',
               'Try a different username or display name.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (audience === 'lead') {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t('followers_lead_empty_title', 'No leads on this channel')}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_lead_empty_description',
+              'Leads are people who interacted with this channel but do not currently follow it.'
             )}
           </p>
         </div>
@@ -718,7 +847,7 @@ export const FollowersComponent: FC = () => {
                   name="followers-sort"
                   disableForm={true}
                   hideErrors={true}
-                  value={sort ?? selectedChannel?.sorts[0]?.key ?? ''}
+                  value={effectiveSort ?? ''}
                   onChange={(event) => handleSortChange(event.target.value)}
                 >
                   {selectedChannel?.sorts.map((sortOption) => (
@@ -758,7 +887,7 @@ export const FollowersComponent: FC = () => {
                   name="followers-direction"
                   disableForm={true}
                   hideErrors={true}
-                  value={direction ?? activeSort?.defaultDirection ?? 'desc'}
+                  value={effectiveDirection ?? 'desc'}
                   onChange={(event) =>
                     handleDirectionChange(
                       event.target.value as FollowerSortDirection
@@ -809,12 +938,19 @@ export const FollowersComponent: FC = () => {
           aria-label={t('followers_triage_filter_group', 'Triage filter')}
         >
           {TRIAGE_FILTER_OPTIONS.map((option) => {
-            const isSelected = triage === option.value;
+            const isSelected = option.audience
+              ? audience === option.audience
+              : !audience && triage === option.value;
             return (
-              <button
+              <Link
                 key={option.key}
-                type="button"
-                onClick={() => handleTriageChange(option.value)}
+                href={buildFollowersPageHref({
+                  slug: option.slug,
+                  search: search.trim() || undefined,
+                  sort: querySort,
+                  direction: querySort ? queryDirection : undefined,
+                })}
+                scroll={false}
                 className={clsx(
                   'rounded-[8px] border px-[10px] py-[6px] text-[13px] transition-colors',
                   isSelected
@@ -822,9 +958,10 @@ export const FollowersComponent: FC = () => {
                     : 'border-newBorder bg-newBgColorInner text-textItemBlur hover:bg-newTableHeader hover:text-newTextColor'
                 )}
                 aria-pressed={isSelected}
+                aria-current={isSelected ? 'page' : undefined}
               >
                 {t(option.key, option.defaultLabel)}
-              </button>
+              </Link>
             );
           })}
         </div>

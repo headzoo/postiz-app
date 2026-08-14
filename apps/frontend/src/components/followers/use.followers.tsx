@@ -233,6 +233,7 @@ export type UseFollowersParams = {
   window?: ChannelInteractionWindow;
   search?: string;
   triage?: FollowerTriageFilter;
+  audience?: 'lead';
 };
 
 export const buildFollowersUrl = ({
@@ -244,6 +245,7 @@ export const buildFollowersUrl = ({
   window,
   search,
   triage,
+  audience,
 }: UseFollowersParams & { integrationId: string }) => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) {
@@ -264,6 +266,9 @@ export const buildFollowersUrl = ({
   if (triage) {
     params.set('triage', triage);
   }
+  if (audience) {
+    params.set('audience', audience);
+  }
   return `/followers/${integrationId}?${params.toString()}`;
 };
 
@@ -276,6 +281,7 @@ export const useFollowers = ({
   window,
   search,
   triage,
+  audience,
 }: UseFollowersParams) => {
   const fetch = useFetch();
 
@@ -292,8 +298,19 @@ export const useFollowers = ({
       window,
       search,
       triage,
+      audience,
     });
-  }, [integrationId, cursor, limit, sort, direction, window, search, triage]);
+  }, [
+    integrationId,
+    cursor,
+    limit,
+    sort,
+    direction,
+    window,
+    search,
+    triage,
+    audience,
+  ]);
 
   const load = useCallback(
     async (path: string) => {

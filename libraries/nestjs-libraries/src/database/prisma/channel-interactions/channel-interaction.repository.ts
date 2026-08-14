@@ -104,6 +104,21 @@ export type LikesCountFollowersQuery = {
   triage?: FollowerTriageFilter;
 };
 
+export type AudienceLeadCursor = {
+  lastInboundAt: string | null;
+  externalId: string;
+};
+
+export type AudienceLeadsQuery = {
+  organizationId: string;
+  integrationId: string;
+  userId: string;
+  direction: 'asc' | 'desc';
+  limit: number;
+  cursor?: AudienceLeadCursor;
+  search?: string;
+};
+
 export type FollowerAudienceCounts = {
   noteCount: number;
   likesCount: number;
@@ -241,17 +256,31 @@ export class ChannelInteractionRepository {
         event.counterparty,
         event.membershipUpdate
       );
-      if (
-        event.kind === ChannelInteractionKind.LIKE &&
-        event.direction === ChannelInteractionDirection.INBOUND
-      ) {
+      if (event.direction === ChannelInteractionDirection.INBOUND) {
         await tx.channelAudienceMember.updateMany({
           where: {
             organizationId,
             integrationId,
             externalId: event.counterparty.externalId,
           },
-          data: { likesCount: { increment: 1 } },
+          data: {
+            inboundInteractionCount: { increment: 1 },
+            ...(event.kind === ChannelInteractionKind.LIKE
+              ? { likesCount: { increment: 1 } }
+              : {}),
+          },
+        });
+        await tx.channelAudienceMember.updateMany({
+          where: {
+            organizationId,
+            integrationId,
+            externalId: event.counterparty.externalId,
+            OR: [
+              { lastInboundAt: null },
+              { lastInboundAt: { lt: event.eventAt } },
+            ],
+          },
+          data: { lastInboundAt: event.eventAt },
         });
       }
 
@@ -1370,6 +1399,49 @@ export class ChannelInteractionRepository {
     });
   }
 
+  async getAudienceLeads(query: AudienceLeadsQuery) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+
+      const rows = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          membershipState: {
+            in: [
+              ChannelAudienceMembership.UNKNOWN,
+              ChannelAudienceMembership.NOT_FOLLOWER,
+            ],
+          },
+          inboundInteractionCount: { gt: 0 },
+          ...this.audienceListFilters(
+            this.audienceSearchFilter(query.search),
+            this.leadInboundKeyset(query.cursor, query.direction)
+          ),
+        },
+        orderBy: [
+          { lastInboundAt: { sort: query.direction, nulls: 'last' } },
+          { externalId: query.direction },
+        ],
+        take: query.limit + 1,
+        select: {
+          ...this.audienceMemberListSelect(query.userId),
+          inboundInteractionCount: true,
+          lastInboundAt: true,
+        },
+      });
+
+      return {
+        items: rows.slice(0, query.limit),
+        hasMore: rows.length > query.limit,
+      };
+    });
+  }
+
   async getAudienceFollowers(query: AudienceFollowersQuery) {
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(
@@ -1772,6 +1844,8 @@ export class ChannelInteractionRepository {
       accountCreatedAt: true,
       noteCount: true,
       likesCount: true,
+      inboundInteractionCount: true,
+      lastInboundAt: true,
       relationshipGrade: true,
       relationshipEffortScore: true,
       relationshipReciprocationScore: true,
@@ -1823,6 +1897,35 @@ export class ChannelInteractionRepository {
           likesCount: cursor.likesCount,
           externalId: { [comparison]: cursor.externalId },
         },
+      ],
+    };
+  }
+
+  private leadInboundKeyset(
+    cursor: AudienceLeadCursor | undefined,
+    direction: 'asc' | 'desc'
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (!cursor) {
+      return {};
+    }
+
+    const comparison = direction === 'desc' ? 'lt' : 'gt';
+    if (cursor.lastInboundAt == null) {
+      return {
+        lastInboundAt: null,
+        externalId: { [comparison]: cursor.externalId },
+      };
+    }
+
+    const lastInboundAt = new Date(cursor.lastInboundAt);
+    return {
+      OR: [
+        { lastInboundAt: { [comparison]: lastInboundAt } },
+        {
+          lastInboundAt,
+          externalId: { [comparison]: cursor.externalId },
+        },
+        ...(direction === 'desc' ? [{ lastInboundAt: null }] : []),
       ],
     };
   }

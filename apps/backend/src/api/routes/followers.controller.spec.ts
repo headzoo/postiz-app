@@ -64,6 +64,29 @@ describe('FollowersController', () => {
     );
   });
 
+  it('accepts the lead audience and rejects it combined with triage', async () => {
+    const valid = Object.assign(new FollowersQueryDto(), { audience: 'lead' });
+    const invalidAudience = Object.assign(new FollowersQueryDto(), {
+      audience: 'followers',
+    });
+    const combined = Object.assign(new FollowersQueryDto(), {
+      audience: 'lead',
+      triage: 'hot_lead',
+    });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(invalidAudience)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'audience' }),
+      ])
+    );
+    await expect(validate(combined)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'audience' }),
+      ])
+    );
+  });
+
   it('delegates follower member detail reads with organization and external id', async () => {
     const detail = { follower: { id: 'follower-a', name: 'Follower A' } };
     service.getFollowerMemberDetails.mockResolvedValue(detail);

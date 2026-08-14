@@ -252,7 +252,7 @@ describe('FollowerDetailModal', () => {
     expect(screen.getByRole('radio', { name: '4.5 out of 5' })).toBeTruthy();
     expect(screen.getByText('Reciprocity: 50%')).toBeTruthy();
     expect(screen.getByText('E: 10 · R: 5 · Gap: -5')).toBeTruthy();
-    expect(screen.getByText('Over-invested')).toBeTruthy();
+    expect(screen.getByText('Costly')).toBeTruthy();
     expect(screen.queryByText(/out of 5/i)).toBeNull();
     expect(screen.queryByText('Your effort (E): 10')).toBeNull();
     expect(screen.queryByText('Their reciprocation (R): 5')).toBeNull();

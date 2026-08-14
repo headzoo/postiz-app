@@ -1189,39 +1189,41 @@ model Announcement {
 }
 
 model ChannelAudienceMember {
-  id                           String                             @id @default(cuid())
-  organizationId               String
-  integrationId                String
-  externalId                   String
-  name                         String?
-  username                     String?
-  picture                      String?
-  profileUrl                   String?
-  bio                          String?
-  followersCount               Int?
-  followingCount               Int?
-  membershipState              ChannelAudienceMembership          @default(UNKNOWN)
-  followedAt                   DateTime?
-  accountCreatedAt             DateTime?
-  followerSyncGeneration       String?
-  membershipEvidenceGeneration String?
-  noteCount                    Int                                @default(0)
-  likesCount                   Int                                @default(0)
-  relationshipGrade            Float?
+  id                             String                             @id @default(cuid())
+  organizationId                 String
+  integrationId                  String
+  externalId                     String
+  name                           String?
+  username                       String?
+  picture                        String?
+  profileUrl                     String?
+  bio                            String?
+  followersCount                 Int?
+  followingCount                 Int?
+  membershipState                ChannelAudienceMembership          @default(UNKNOWN)
+  followedAt                     DateTime?
+  accountCreatedAt               DateTime?
+  followerSyncGeneration         String?
+  membershipEvidenceGeneration   String?
+  noteCount                      Int                                @default(0)
+  likesCount                     Int                                @default(0)
+  inboundInteractionCount        Int                                @default(0)
+  lastInboundAt                  DateTime?
+  relationshipGrade              Float?
   relationshipEffortScore        Int?
   relationshipReciprocationScore Int?
   relationshipNetGap             Int?
   relationshipTriage             String?
   relationshipFormulaVersion     Int?
   relationshipSnapshotAt         DateTime?
-  createdAt                    DateTime                           @default(now())
-  updatedAt                    DateTime                           @updatedAt
-  organization                 Organization                       @relation(fields: [organizationId], references: [id])
-  integration                  Integration                        @relation(fields: [integrationId], references: [id])
-  interactionSummaries         ChannelInteractionWindowSummary[]  @relation("AudienceMemberInteractionSummaries")
-  notes                        ChannelAudienceNote[]              @relation("AudienceMemberNotes")
-  personalGrades               ChannelAudienceMemberGrade[]       @relation("AudienceMemberPersonalGrades")
-  gradeSnapshots               ChannelRelationshipGradeSnapshot[] @relation("AudienceMemberGradeSnapshots")
+  createdAt                      DateTime                           @default(now())
+  updatedAt                      DateTime                           @updatedAt
+  organization                   Organization                       @relation(fields: [organizationId], references: [id])
+  integration                    Integration                        @relation(fields: [integrationId], references: [id])
+  interactionSummaries           ChannelInteractionWindowSummary[]  @relation("AudienceMemberInteractionSummaries")
+  notes                          ChannelAudienceNote[]              @relation("AudienceMemberNotes")
+  personalGrades                 ChannelAudienceMemberGrade[]       @relation("AudienceMemberPersonalGrades")
+  gradeSnapshots                 ChannelRelationshipGradeSnapshot[] @relation("AudienceMemberGradeSnapshots")
 
   @@unique([integrationId, externalId])
   @@index([organizationId, integrationId, membershipState])
@@ -1229,6 +1231,7 @@ model ChannelAudienceMember {
   @@index([integrationId, membershipEvidenceGeneration])
   @@index([integrationId, membershipState, noteCount, externalId])
   @@index([integrationId, membershipState, likesCount, externalId])
+  @@index([integrationId, membershipState, lastInboundAt, externalId], map: "ChannelAudienceMember_lead_inbound_keyset_idx")
   @@index([integrationId, membershipState, relationshipGrade, externalId])
   @@index([integrationId, membershipState, relationshipEffortScore, externalId], map: "ChannelAudienceMember_rel_effort_keyset_idx")
   @@index([integrationId, membershipState, relationshipReciprocationScore, externalId], map: "ChannelAudienceMember_rel_reciprocation_keyset_idx")

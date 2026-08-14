@@ -210,14 +210,17 @@ describe('ChannelInteractionRepository', () => {
       expect.arrayContaining([{ created: true }, { created: false }])
     );
     expect(tx.channelInteractionDailyAggregate.upsert).toHaveBeenCalledTimes(1);
-    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledTimes(2);
     expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
       where: {
         organizationId: 'org',
         integrationId: 'integration',
         externalId: 'person-1',
       },
-      data: { likesCount: { increment: 1 } },
+      data: {
+        inboundInteractionCount: { increment: 1 },
+        likesCount: { increment: 1 },
+      },
     });
     expect(tx.channelInteractionDailyAggregate.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -399,8 +402,7 @@ describe('ChannelInteractionRepository', () => {
         }),
       })
     );
-    expect(tx.channelAudienceMember.updateMany).toHaveBeenNthCalledWith(
-      2,
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           AND: expect.arrayContaining([
@@ -1049,11 +1051,47 @@ describe('ChannelInteractionRepository', () => {
         integrationId: 'integration',
         externalId: 'person-1',
       },
-      data: { likesCount: { increment: 1 } },
+      data: {
+        inboundInteractionCount: { increment: 1 },
+        likesCount: { increment: 1 },
+      },
+    });
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+        OR: [
+          { lastInboundAt: null },
+          { lastInboundAt: { lt: event().eventAt } },
+        ],
+      },
+      data: { lastInboundAt: event().eventAt },
     });
   });
 
-  it('does not increment likesCount for outbound likes or non-like events', async () => {
+  it('increments inbound counts for inbound replies without likesCount', async () => {
+    const { repository, tx } = createHarness();
+    const reply = event({
+      providerEventKey: 'reply',
+      kind: ChannelInteractionKind.REPLY,
+    });
+
+    await repository.recordNormalizedEvent('org', 'integration', reply);
+
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      data: {
+        inboundInteractionCount: { increment: 1 },
+      },
+    });
+  });
+
+  it('does not increment inbound or likes counts for outbound likes', async () => {
     const { repository, tx } = createHarness();
 
     await repository.recordNormalizedEvent(
@@ -1062,14 +1100,6 @@ describe('ChannelInteractionRepository', () => {
       event({
         providerEventKey: 'outbound-like',
         direction: ChannelInteractionDirection.OUTBOUND,
-      })
-    );
-    await repository.recordNormalizedEvent(
-      'org',
-      'integration',
-      event({
-        providerEventKey: 'reply',
-        kind: ChannelInteractionKind.REPLY,
       })
     );
 
@@ -1321,6 +1351,133 @@ describe('ChannelInteractionRepository', () => {
         },
       })
     );
+  });
+
+  it('lists non-followers with inbound interactions as leads', async () => {
+    const { repository, tx, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      {
+        externalId: 'lead-2',
+        name: 'Lead Two',
+        inboundInteractionCount: 3,
+        lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
+      },
+      {
+        externalId: 'lead-1',
+        name: 'Lead One',
+        inboundInteractionCount: 1,
+        lastInboundAt: new Date('2026-08-13T12:00:00.000Z'),
+      },
+    ]);
+
+    await expect(
+      repository.getAudienceLeads({
+        organizationId: 'org',
+        integrationId: 'integration',
+        userId: 'user-a',
+        direction: 'desc',
+        limit: 2,
+      })
+    ).resolves.toEqual({
+      items: [
+        {
+          externalId: 'lead-2',
+          name: 'Lead Two',
+          inboundInteractionCount: 3,
+          lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
+        },
+        {
+          externalId: 'lead-1',
+          name: 'Lead One',
+          inboundInteractionCount: 1,
+          lastInboundAt: new Date('2026-08-13T12:00:00.000Z'),
+        },
+      ],
+      hasMore: false,
+    });
+
+    expect(tx.integration.findFirst).toHaveBeenCalled();
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: {
+            in: [
+              ChannelAudienceMembership.UNKNOWN,
+              ChannelAudienceMembership.NOT_FOLLOWER,
+            ],
+          },
+          inboundInteractionCount: { gt: 0 },
+        },
+        orderBy: [
+          { lastInboundAt: { sort: 'desc', nulls: 'last' } },
+          { externalId: 'desc' },
+        ],
+        take: 3,
+      })
+    );
+  });
+
+  it('filters leads by username or name when search is set', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getAudienceLeads({
+      organizationId: 'org',
+      integrationId: 'integration',
+      userId: 'user-a',
+      direction: 'desc',
+      limit: 24,
+      search: 'alex',
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: {
+            in: [
+              ChannelAudienceMembership.UNKNOWN,
+              ChannelAudienceMembership.NOT_FOLLOWER,
+            ],
+          },
+          inboundInteractionCount: { gt: 0 },
+          AND: [
+            {
+              OR: [
+                { username: { contains: 'alex', mode: 'insensitive' } },
+                { name: { contains: 'alex', mode: 'insensitive' } },
+              ],
+            },
+          ],
+        },
+      })
+    );
+  });
+
+  it('uses last inbound keyset pagination for leads', async () => {
+    const { repository } = createHarness();
+
+    expect(
+      (repository as any).leadInboundKeyset(
+        {
+          lastInboundAt: '2026-08-14T12:00:00.000Z',
+          externalId: 'lead-1',
+        },
+        'desc'
+      )
+    ).toEqual({
+      OR: [
+        { lastInboundAt: { lt: new Date('2026-08-14T12:00:00.000Z') } },
+        {
+          lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
+          externalId: { lt: 'lead-1' },
+        },
+        { lastInboundAt: null },
+      ],
+    });
   });
 
   it('filters note-count followers by username or name when search is set', async () => {

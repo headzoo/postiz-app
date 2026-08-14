@@ -13,7 +13,7 @@ const TRIAGE_LABELS: Record<
 > = {
   hot_lead: {
     key: 'followers_triage_hot_lead',
-    defaultLabel: 'Hot lead',
+    defaultLabel: 'Hot',
   },
   mutual: {
     key: 'followers_triage_mutual',
@@ -21,7 +21,7 @@ const TRIAGE_LABELS: Record<
   },
   over_invested: {
     key: 'followers_triage_over_invested',
-    defaultLabel: 'Over-invested',
+    defaultLabel: 'Costly',
   },
   quiet: {
     key: 'followers_triage_quiet',

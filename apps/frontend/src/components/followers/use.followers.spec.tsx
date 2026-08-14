@@ -55,6 +55,15 @@ describe('buildFollowersUrl', () => {
     expect(buildFollowersUrl(baseParams)).toBe('/followers/channel-1?limit=24');
   });
 
+  it('serializes the lead audience into the follower endpoint URL', () => {
+    expect(
+      buildFollowersUrl({
+        ...baseParams,
+        audience: 'lead',
+      })
+    ).toBe('/followers/channel-1?limit=24&audience=lead');
+  });
+
   it('preserves search, sort, direction, and window alongside triage', () => {
     expect(
       buildFollowersUrl({
