@@ -22,6 +22,11 @@ const nextConfig = {
   },
   reactStrictMode: false,
   transpilePackages: ['crypto-hash'],
+  // jsdom (via isomorphic-dompurify on the preview page) reads
+  // default-stylesheet.css from disk. Webpack bundling it into the
+  // server graph makes that path resolve under .next instead of
+  // node_modules and fails `next build` with ENOENT.
+  serverExternalPackages: ['isomorphic-dompurify', 'jsdom'],
   // Enable production sourcemaps for Sentry
   productionBrowserSourceMaps: true,
 
