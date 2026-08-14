@@ -820,7 +820,10 @@ describe('ChannelInteractionRepository', () => {
         take: 100,
         where: expect.objectContaining({
           gradeSnapshots: {
-            none: { snapshotAt: { gt: new Date('2026-07-13T12:00:00.000Z') } },
+            none: {
+              formulaVersion: 2,
+              snapshotAt: { gt: new Date('2026-07-13T12:00:00.000Z') },
+            },
           },
         }),
       })
@@ -835,17 +838,17 @@ describe('ChannelInteractionRepository', () => {
     }));
   });
 
-  it('persists historical grade snapshots idempotently for retry safety', async () => {
+  it('persists v2 history and complete current projections idempotently', async () => {
     const { repository, tx } = createHarness();
     const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
 
     await repository.createRelationshipGradeSnapshots('org', 'integration', snapshotAt, [{
       externalId: 'person-1',
-      effortScore: 0,
-      reciprocationScore: 0,
-      reciprocity: null,
-      grade: null,
-      formulaVersion: 1,
+      effortScore: 12,
+      reciprocationScore: 8,
+      reciprocity: 2 / 3,
+      grade: 2,
+      formulaVersion: 2,
     }]);
 
     expect(tx.channelRelationshipGradeSnapshot.createMany).toHaveBeenCalledWith({
@@ -855,11 +858,11 @@ describe('ChannelInteractionRepository', () => {
         counterpartyExternalId: 'person-1',
         windowStartedAt: new Date('2026-07-13T12:00:00.000Z'),
         snapshotAt,
-        effortScore: 0,
-        reciprocationScore: 0,
-        reciprocity: null,
-        grade: null,
-        formulaVersion: 1,
+        effortScore: 12,
+        reciprocationScore: 8,
+        reciprocity: 2 / 3,
+        grade: 2,
+        formulaVersion: 2,
       }],
       skipDuplicates: true,
     });
@@ -868,8 +871,42 @@ describe('ChannelInteractionRepository', () => {
         organizationId: 'org',
         integrationId: 'integration',
         externalId: 'person-1',
+        OR: [
+          { relationshipSnapshotAt: null },
+          { relationshipSnapshotAt: { lte: snapshotAt } },
+        ],
       },
-      data: { relationshipGrade: null },
+      data: {
+        relationshipGrade: 2,
+        relationshipEffortScore: 12,
+        relationshipReciprocationScore: 8,
+        relationshipNetGap: -4,
+        relationshipTriage: 'over_invested',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: snapshotAt,
+      },
+    });
+  });
+
+  it('requires a recent formula-v2 snapshot before a follower is current', async () => {
+    const { repository, tx } = createHarness();
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await repository.hasDueRelationshipGradeMembers('org', 'integration', snapshotAt);
+
+    expect(tx.channelAudienceMember.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        membershipState: ChannelAudienceMembership.FOLLOWER,
+        gradeSnapshots: {
+          none: {
+            formulaVersion: 2,
+            snapshotAt: { gt: new Date('2026-07-13T12:00:00.000Z') },
+          },
+        },
+      },
+      select: { id: true },
     });
   });
 
@@ -1280,6 +1317,12 @@ describe('ChannelInteractionRepository', () => {
         noteCount: 2,
         likesCount: 4,
         relationshipGrade: 3.5,
+        relationshipEffortScore: 4,
+        relationshipReciprocationScore: 12,
+        relationshipNetGap: 8,
+        relationshipTriage: 'hot_lead',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
         personalGrades: [{ grade: 5 }],
       },
     ]);
@@ -1295,6 +1338,12 @@ describe('ChannelInteractionRepository', () => {
             likesCount: 4,
             relationshipGrade: 3.5,
             myGrade: 5,
+            relationshipEffortScore: 4,
+            relationshipReciprocationScore: 12,
+            relationshipNetGap: 8,
+            relationshipTriage: 'hot_lead',
+            relationshipFormulaVersion: 2,
+            relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
           },
         ],
       ])
@@ -1308,6 +1357,10 @@ describe('ChannelInteractionRepository', () => {
         },
         select: expect.objectContaining({
           relationshipGrade: true,
+          relationshipEffortScore: true,
+          relationshipReciprocationScore: true,
+          relationshipNetGap: true,
+          relationshipTriage: true,
           personalGrades: expect.objectContaining({
             where: { userId: 'user-a' },
           }),
@@ -1413,6 +1466,122 @@ describe('ChannelInteractionRepository', () => {
         }),
         orderBy: [{ grade: 'desc' }, { counterpartyExternalId: 'desc' }],
         take: 3,
+      })
+    );
+  });
+
+  it.each(['hot_lead', 'mutual', 'over_invested', 'quiet'] as const)(
+    'filters the complete audience by denormalized %s triage',
+    async (triage) => {
+      const { repository, audienceMemberFindMany } = createHarness();
+      audienceMemberFindMany.mockResolvedValue([]);
+
+      await repository.getAudienceFollowers({
+        organizationId: 'org',
+        integrationId: 'integration',
+        userId: 'user-a',
+        sortField: 'followedAt',
+        direction: 'desc',
+        limit: 24,
+        triage,
+      });
+
+      expect(audienceMemberFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [{ relationshipTriage: triage }],
+          }),
+        })
+      );
+    }
+  );
+
+  it('defines engaged-not-yet as positive reciprocation and zero effort', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getAudienceFollowers({
+      organizationId: 'org',
+      integrationId: 'integration',
+      userId: 'user-a',
+      sortField: 'followedAt',
+      direction: 'desc',
+      limit: 24,
+      triage: 'engaged_not_yet',
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: [{
+            relationshipReciprocationScore: { gt: 0 },
+            relationshipEffortScore: 0,
+          }],
+        }),
+      })
+    );
+  });
+
+  it.each([
+    ['relationshipReciprocationScore', 'asc'],
+    ['relationshipNetGap', 'desc'],
+  ] as const)('sorts and pages nullable projection %s %s', async (field, direction) => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getFollowersByProjectedField({
+      organizationId: 'org',
+      integrationId: 'integration',
+      userId: 'user-a',
+      field,
+      direction,
+      limit: 2,
+      cursor: { value: 8, externalId: 'person-2' },
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [
+          { [field]: { sort: direction, nulls: 'last' } },
+          { externalId: direction },
+        ],
+        where: expect.objectContaining({
+          AND: [
+            {
+              OR: [
+                { [field]: { [direction === 'desc' ? 'lt' : 'gt']: 8 } },
+                {
+                  [field]: 8,
+                  externalId: {
+                    [direction === 'desc' ? 'lt' : 'gt']: 'person-2',
+                  },
+                },
+                { [field]: null },
+              ],
+            },
+          ],
+        }),
+      })
+    );
+  });
+
+  it('excludes stale formulas from priority-grade sorting', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getFollowersByRelationshipGrade({
+      organizationId: 'org',
+      integrationId: 'integration',
+      userId: 'user-a',
+      direction: 'desc',
+      limit: 24,
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: [{ relationshipFormulaVersion: 2 }],
+        }),
       })
     );
   });

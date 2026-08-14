@@ -3,6 +3,7 @@
 import { FC, useEffect, useRef } from 'react';
 import DrawChart from 'chart.js/auto';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
+import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { FollowerRelationshipSnapshot } from '@gitroom/frontend/components/followers/use.followers';
 
 const formatReciprocity = (value: number | null) => {
@@ -12,9 +13,25 @@ const formatReciprocity = (value: number | null) => {
   return `${Math.round(value * 100)}%`;
 };
 
-const formatGradeLabel = (grade: number | null) => {
+const formatFormulaLabel = (
+  formulaVersion: number,
+  t: (key: string, fallback: string) => string
+) => {
+  if (formulaVersion === 2) {
+    return t('followers_formula_priority_v2', 'Priority (v2)');
+  }
+  return t('followers_formula_reciprocity_v1', 'Reciprocity (v1)');
+};
+
+const formatGradeLabel = (
+  grade: number | null,
+  t: (key: string, fallback: string) => string
+) => {
   if (grade == null) {
-    return 'No grade (not enough tracked activity)';
+    return t(
+      'followers_grade_not_enough_activity',
+      'No grade (not enough tracked activity)'
+    );
   }
   return String(grade);
 };
@@ -22,8 +39,17 @@ const formatGradeLabel = (grade: number | null) => {
 export const FollowerRelationshipChart: FC<{
   history: FollowerRelationshipSnapshot[];
 }> = ({ history }) => {
+  const t = useT();
   const ref = useRef<HTMLCanvasElement | null>(null);
   const chart = useRef<DrawChart | null>(null);
+
+  const hasV1History = history.some((snapshot) => snapshot.formulaVersion === 1);
+  const hasV2History = history.some((snapshot) => snapshot.formulaVersion === 2);
+  const reciprocityLabel = t(
+    'followers_formula_reciprocity_v1',
+    'Reciprocity (v1)'
+  );
+  const priorityLabel = t('followers_formula_priority_v2', 'Priority (v2)');
 
   useEffect(() => {
     if (!ref.current || !history.length) {
@@ -33,9 +59,40 @@ export const FollowerRelationshipChart: FC<{
     const labels = history.map((snapshot) =>
       newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')
     );
-    const grades = history.map(
-      (snapshot) => snapshot.adjustedGrade ?? snapshot.grade
+    const v1Grades = history.map((snapshot) =>
+      snapshot.formulaVersion === 1 ? snapshot.grade : null
     );
+    const v2Grades = history.map((snapshot) =>
+      snapshot.formulaVersion === 2 ? snapshot.grade : null
+    );
+
+    const datasets = [];
+    if (hasV1History) {
+      datasets.push({
+        label: reciprocityLabel,
+        data: v1Grades,
+        borderColor: '#8b5cf6',
+        backgroundColor: 'rgba(139, 92, 246, 0.15)',
+        pointBackgroundColor: '#8b5cf6',
+        pointRadius: 4,
+        tension: 0.2,
+        fill: false,
+        spanGaps: false,
+      });
+    }
+    if (hasV2History) {
+      datasets.push({
+        label: priorityLabel,
+        data: v2Grades,
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37, 99, 235, 0.15)',
+        pointBackgroundColor: '#2563eb',
+        pointRadius: 4,
+        tension: 0.2,
+        fill: false,
+        spanGaps: false,
+      });
+    }
 
     chart.current = new DrawChart(ref.current, {
       type: 'line',
@@ -56,7 +113,7 @@ export const FollowerRelationshipChart: FC<{
             },
             title: {
               display: true,
-              text: 'Grade',
+              text: t('followers_chart_grade_axis', 'Grade'),
             },
           },
           x: {
@@ -68,7 +125,7 @@ export const FollowerRelationshipChart: FC<{
         },
         plugins: {
           legend: {
-            display: false,
+            display: datasets.length > 1,
           },
           tooltip: {
             callbacks: {
@@ -77,17 +134,27 @@ export const FollowerRelationshipChart: FC<{
                 if (!snapshot) {
                   return '';
                 }
-                const displayedGrade =
-                  snapshot.adjustedGrade ?? snapshot.grade;
+                const formulaLabel = formatFormulaLabel(
+                  snapshot.formulaVersion,
+                  t
+                );
                 const gradeLabel =
-                  displayedGrade == null
-                    ? 'No grade (not enough tracked activity)'
-                    : `Grade: ${displayedGrade}`;
+                  snapshot.grade == null
+                    ? t(
+                        'followers_grade_not_enough_activity',
+                        'No grade (not enough tracked activity)'
+                      )
+                    : t('followers_chart_grade_value', 'Grade: {{grade}}', {
+                        grade: snapshot.grade,
+                      });
                 return [
+                  formulaLabel,
                   gradeLabel,
                   `E: ${snapshot.effortScore}`,
                   `R: ${snapshot.reciprocationScore}`,
-                  `Reciprocity: ${formatReciprocity(snapshot.reciprocity)}`,
+                  `${t('followers_grade_reciprocity', 'Reciprocity: {{value}}', {
+                    value: formatReciprocity(snapshot.reciprocity),
+                  })}`,
                 ];
               },
             },
@@ -96,18 +163,7 @@ export const FollowerRelationshipChart: FC<{
       },
       data: {
         labels,
-        datasets: [
-          {
-            label: 'Relationship grade',
-            data: grades,
-            borderColor: '#8b5cf6',
-            backgroundColor: 'rgba(139, 92, 246, 0.15)',
-            pointBackgroundColor: '#8b5cf6',
-            pointRadius: 4,
-            tension: 0.2,
-            fill: false,
-          },
-        ],
+        datasets,
       },
     });
 
@@ -115,7 +171,7 @@ export const FollowerRelationshipChart: FC<{
       chart.current?.destroy();
       chart.current = null;
     };
-  }, [history]);
+  }, [hasV1History, hasV2History, history, priorityLabel, reciprocityLabel, t]);
 
   if (!history.length) {
     return null;
@@ -128,15 +184,21 @@ export const FollowerRelationshipChart: FC<{
       </div>
       <table
         className="w-full border-collapse text-[13px] text-textItemBlur"
-        aria-label="Grade history"
+        aria-label={t(
+          'followers_relationship_history_table',
+          'Relationship history'
+        )}
       >
         <thead>
           <tr className="border-b border-newTableBorder text-left text-[12px] uppercase tracking-wide text-newTextColor">
             <th scope="col" className="py-[8px] pe-[12px] font-[600]">
-              Date
+              {t('followers_history_date', 'Date')}
             </th>
             <th scope="col" className="py-[8px] pe-[12px] font-[600]">
-              Grade
+              {t('followers_history_formula', 'Formula')}
+            </th>
+            <th scope="col" className="py-[8px] pe-[12px] font-[600]">
+              {t('followers_history_grade', 'Grade')}
             </th>
             <th scope="col" className="py-[8px] pe-[12px] font-[600]">
               E
@@ -145,7 +207,7 @@ export const FollowerRelationshipChart: FC<{
               R
             </th>
             <th scope="col" className="py-[8px] font-[600]">
-              Reciprocity
+              {t('followers_history_reciprocity', 'Reciprocity')}
             </th>
           </tr>
         </thead>
@@ -159,7 +221,10 @@ export const FollowerRelationshipChart: FC<{
                 {newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')}
               </td>
               <td className="py-[8px] pe-[12px]">
-                {formatGradeLabel(snapshot.adjustedGrade ?? snapshot.grade)}
+                {formatFormulaLabel(snapshot.formulaVersion, t)}
+              </td>
+              <td className="py-[8px] pe-[12px]">
+                {formatGradeLabel(snapshot.grade, t)}
               </td>
               <td className="py-[8px] pe-[12px]">{snapshot.effortScore}</td>
               <td className="py-[8px] pe-[12px]">

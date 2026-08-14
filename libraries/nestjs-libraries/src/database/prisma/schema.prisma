@@ -1208,6 +1208,12 @@ model ChannelAudienceMember {
   noteCount                    Int                                @default(0)
   likesCount                   Int                                @default(0)
   relationshipGrade            Float?
+  relationshipEffortScore        Int?
+  relationshipReciprocationScore Int?
+  relationshipNetGap             Int?
+  relationshipTriage             String?
+  relationshipFormulaVersion     Int?
+  relationshipSnapshotAt         DateTime?
   createdAt                    DateTime                           @default(now())
   updatedAt                    DateTime                           @updatedAt
   organization                 Organization                       @relation(fields: [organizationId], references: [id])
@@ -1224,6 +1230,11 @@ model ChannelAudienceMember {
   @@index([integrationId, membershipState, noteCount, externalId])
   @@index([integrationId, membershipState, likesCount, externalId])
   @@index([integrationId, membershipState, relationshipGrade, externalId])
+  @@index([integrationId, membershipState, relationshipEffortScore, externalId], map: "ChannelAudienceMember_rel_effort_keyset_idx")
+  @@index([integrationId, membershipState, relationshipReciprocationScore, externalId], map: "ChannelAudienceMember_rel_reciprocation_keyset_idx")
+  @@index([integrationId, membershipState, relationshipNetGap, externalId], map: "ChannelAudienceMember_rel_net_gap_keyset_idx")
+  @@index([integrationId, membershipState, relationshipTriage, externalId], map: "ChannelAudienceMember_rel_triage_keyset_idx")
+  @@index([integrationId, membershipState, relationshipFormulaVersion, relationshipSnapshotAt], map: "ChannelAudienceMember_rel_formula_due_idx")
   @@index([integrationId])
   @@index([organizationId])
 }

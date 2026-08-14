@@ -30,12 +30,46 @@ import {
   FollowerChannel,
   FollowerPageTracking,
   FollowerSortDirection,
+  FollowerTriageFilter,
   Follower,
   useFollowerChannels,
   useFollowers,
 } from '@gitroom/frontend/components/followers/use.followers';
 
 const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
+
+const TRIAGE_FILTER_OPTIONS: {
+  value?: FollowerTriageFilter;
+  key: string;
+  defaultLabel: string;
+}[] = [
+  { key: 'followers_triage_filter_all', defaultLabel: 'All' },
+  {
+    value: 'engaged_not_yet',
+    key: 'followers_triage_filter_engaged_not_yet',
+    defaultLabel: "Engaged but I haven't",
+  },
+  {
+    value: 'hot_lead',
+    key: 'followers_triage_hot_lead',
+    defaultLabel: 'Hot lead',
+  },
+  {
+    value: 'mutual',
+    key: 'followers_triage_mutual',
+    defaultLabel: 'Mutual',
+  },
+  {
+    value: 'over_invested',
+    key: 'followers_triage_over_invested',
+    defaultLabel: 'Over-invested',
+  },
+  {
+    value: 'quiet',
+    key: 'followers_triage_quiet',
+    defaultLabel: 'Quiet',
+  },
+];
 
 const INTERACTION_KIND_LABELS: Record<string, { key: string; defaultLabel: string }> = {
   like: { key: 'followers_interaction_kind_like', defaultLabel: 'Likes' },
@@ -233,6 +267,7 @@ export const FollowersComponent: FC = () => {
   );
   const [limit, setLimit] = useState<number>(24);
   const [search, setSearch] = useState('');
+  const [triage, setTriage] = useState<FollowerTriageFilter | undefined>();
   const [debouncedSearch] = useDebounce(search, 300);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
@@ -272,6 +307,7 @@ export const FollowersComponent: FC = () => {
     setSort(defaultSort?.key);
     setDirection(defaultSort?.defaultDirection);
     setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
+    setTriage(undefined);
     setCursorHistory([]);
     setPageNumber(1);
   }, [channels, groupedFollowerIntegrations, selectedIntegrationId]);
@@ -305,6 +341,7 @@ export const FollowersComponent: FC = () => {
       setSort(defaultSort?.key);
       setDirection(defaultSort?.defaultDirection);
       setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
+      setTriage(undefined);
       resetPagination();
     },
     [resetPagination]
@@ -344,6 +381,14 @@ export const FollowersComponent: FC = () => {
     [resetPagination]
   );
 
+  const handleTriageChange = useCallback(
+    (value: FollowerTriageFilter | undefined) => {
+      setTriage(value);
+      resetPagination();
+    },
+    [resetPagination]
+  );
+
   const previousSearch = useRef(trimmedSearch);
   useEffect(() => {
     if (previousSearch.current === trimmedSearch) {
@@ -371,6 +416,7 @@ export const FollowersComponent: FC = () => {
     direction: effectiveDirection,
     window: requiresWindow ? window : undefined,
     search: trimmedSearch || undefined,
+    triage,
   });
 
   const handleNext = useCallback(() => {
@@ -399,7 +445,7 @@ export const FollowersComponent: FC = () => {
         title: '',
         withCloseButton: false,
         classNames: {
-          modal: 'w-[100%] max-w-[720px] text-textColor',
+          modal: 'w-[100%] max-w-[960px] text-textColor',
         },
         children: (
           <FollowerDetailModal
@@ -482,6 +528,33 @@ export const FollowersComponent: FC = () => {
             {t(
               'followers_search_empty_description',
               'Try a different username or display name.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (triage) {
+      const activeFilter = TRIAGE_FILTER_OPTIONS.find(
+        (option) => option.value === triage
+      );
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t(
+              'followers_triage_empty_title',
+              'No followers match this triage filter'
+            )}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_triage_empty_description',
+              'No followers match the {{filter}} filter on this channel. Try another filter or clear it to see everyone.',
+              {
+                filter: activeFilter
+                  ? t(activeFilter.key, activeFilter.defaultLabel)
+                  : triage,
+              }
             )}
           </p>
         </div>
@@ -729,6 +802,32 @@ export const FollowersComponent: FC = () => {
             )}
           </p>
         )}
+
+        <div
+          className="flex flex-wrap gap-[8px]"
+          role="group"
+          aria-label={t('followers_triage_filter_group', 'Triage filter')}
+        >
+          {TRIAGE_FILTER_OPTIONS.map((option) => {
+            const isSelected = triage === option.value;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => handleTriageChange(option.value)}
+                className={clsx(
+                  'rounded-[8px] border px-[10px] py-[6px] text-[13px] transition-colors',
+                  isSelected
+                    ? 'border-newTableText bg-newTableHeader text-newTextColor'
+                    : 'border-newBorder bg-newBgColorInner text-textItemBlur hover:bg-newTableHeader hover:text-newTextColor'
+                )}
+                aria-pressed={isSelected}
+              >
+                {t(option.key, option.defaultLabel)}
+              </button>
+            );
+          })}
+        </div>
 
         {isInteractionsSort && (
           <TrackingNotice tracking={tracking} showFreshness={isTrackingReady} />

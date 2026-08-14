@@ -52,6 +52,7 @@ describe('IntegrationService followers', () => {
       getFollowersByLikesCount: jest.fn(),
       getFollowersByRelationshipGrade: jest.fn(),
       getFollowersByMyGrade: jest.fn(),
+      getFollowersByProjectedField: jest.fn(),
       getAudienceFollowers: jest.fn(),
       getFollowerInteractionMetrics: jest.fn().mockResolvedValue(new Map()),
       getFollowerNoteCounts: jest.fn().mockResolvedValue(new Map()),
@@ -429,6 +430,145 @@ describe('IntegrationService followers', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
+  it('maps relationship projection on interaction-ranked pages', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (service as any)._channelInteractionRepository.getRankedFollowers.mockResolvedValue({
+      items: [{
+        counterpartyExternalId: 'follower-a',
+        interactionCount: 5,
+        interactionScore: 14,
+        lastInteractionAt: new Date('2026-08-12T12:00:00.000Z'),
+        audienceMember: { name: 'Follower A' },
+      }],
+      hasMore: false,
+      rollup: {
+        activeGeneration: 'generation-a',
+        computedAt: new Date('2026-08-12T12:00:00.000Z'),
+      },
+      followerSync: {
+        activeGeneration: 'followers-a',
+        status: 'IN_PROGRESS',
+        completedAt: new Date(),
+      },
+      subscriptions: [{ state: 'ACTIVE' }],
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowerNoteCounts.mockResolvedValue(
+      new Map([
+        [
+          'follower-a',
+          {
+            noteCount: 1,
+            likesCount: 2,
+            relationshipGrade: 4,
+            myGrade: null,
+            relationshipEffortScore: 4,
+            relationshipReciprocationScore: 12,
+            relationshipNetGap: 8,
+            relationshipTriage: 'hot_lead',
+            relationshipFormulaVersion: 2,
+            relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
+          },
+        ],
+      ])
+    );
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'interactions',
+        direction: 'desc',
+        window: 'month',
+      })
+    ).resolves.toMatchObject({
+      items: [{
+        id: 'follower-a',
+        effortScore: 4,
+        reciprocationScore: 12,
+        netGap: 8,
+        effortStars: 1.5,
+        reciprocationStars: 2,
+        relationshipTriage: 'hot_lead',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: '2026-08-12T12:00:00.000Z',
+      }],
+    });
+  });
+
+  it('maps relationship projection on provider recent pages', async () => {
+    const followers = jest.fn().mockResolvedValue({
+      items: [{ id: 'follower-a', name: 'Follower A' }],
+      hasMore: false,
+    });
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [
+          {
+            key: 'recent',
+            label: 'Recent',
+            directions: ['desc'],
+            defaultDirection: 'desc',
+          },
+        ],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowerNoteCounts.mockResolvedValue(
+      new Map([
+        [
+          'follower-a',
+          {
+            noteCount: 0,
+            likesCount: 0,
+            relationshipGrade: 4,
+            myGrade: null,
+            relationshipEffortScore: 4,
+            relationshipReciprocationScore: 12,
+            relationshipNetGap: 8,
+            relationshipTriage: 'hot_lead',
+            relationshipFormulaVersion: 2,
+            relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
+          },
+        ],
+      ])
+    );
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+      })
+    ).resolves.toMatchObject({
+      items: [{
+        id: 'follower-a',
+        effortScore: 4,
+        reciprocationScore: 12,
+        netGap: 8,
+        effortStars: 1.5,
+        reciprocationStars: 2,
+        relationshipTriage: 'hot_lead',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: '2026-08-12T12:00:00.000Z',
+      }],
+    });
+  });
+
   it('uses the database note-count path for notes sorting without a window', async () => {
     const followers = jest.fn();
     const service = createService([integration], {
@@ -760,6 +900,9 @@ describe('IntegrationService followers', () => {
           reciprocity: 1,
           grade: 5,
           adjustedGrade: 5,
+          effortStars: 2,
+          reciprocationStars: 2,
+          triage: 'mutual',
           formulaVersion: 1,
         },
         history: [
@@ -771,6 +914,9 @@ describe('IntegrationService followers', () => {
             reciprocity: 0.5,
             grade: 3,
             adjustedGrade: 3,
+            effortStars: 1.5,
+            reciprocationStars: 1,
+            triage: 'quiet',
             formulaVersion: 1,
           },
           {
@@ -781,6 +927,9 @@ describe('IntegrationService followers', () => {
             reciprocity: 1,
             grade: 5,
             adjustedGrade: 5,
+            effortStars: 2,
+            reciprocationStars: 2,
+            triage: 'mutual',
             formulaVersion: 1,
           },
         ],
@@ -801,7 +950,7 @@ describe('IntegrationService followers', () => {
     ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a', 'user-a');
   });
 
-  it('applies a personal grade as a half-star boost or drop around the computed grade', async () => {
+  it('keeps personal grade independent from relationship snapshot grades', async () => {
     const service = createService([integration], {
       supported: { followers: jest.fn() },
     });
@@ -844,6 +993,12 @@ describe('IntegrationService followers', () => {
           grade: 4,
           adjustedGrade: 5,
         },
+        history: [
+          {
+            grade: 4,
+            adjustedGrade: 5,
+          },
+        ],
       },
     });
   });
@@ -1558,6 +1713,134 @@ describe('IntegrationService followers', () => {
         limit: 24,
       })
     );
+  });
+
+  it('routes a triage filter through the complete synced audience', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getAudienceFollowers.mockResolvedValue({
+      items: [],
+      hasMore: false,
+    });
+
+    await service.getFollowers(org, user, 'channel-a', {
+      limit: 24,
+      sort: 'recent',
+      direction: 'desc',
+      triage: 'hot_lead',
+    });
+
+    expect(followers).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getAudienceFollowers
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ triage: 'hot_lead' })
+    );
+  });
+
+  it('maps projected effort metadata from their-effort sorting', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowersByProjectedField.mockResolvedValue({
+      items: [{
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+        noteCount: 0,
+        likesCount: 0,
+        relationshipGrade: 4,
+        relationshipEffortScore: 4,
+        relationshipReciprocationScore: 12,
+        relationshipNetGap: 8,
+        relationshipTriage: 'hot_lead',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
+        personalGrades: [],
+      }],
+      hasMore: false,
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'their_effort',
+        direction: 'desc',
+      })
+    ).resolves.toMatchObject({
+      items: [{
+        effortScore: 4,
+        reciprocationScore: 12,
+        netGap: 8,
+        effortStars: 1.5,
+        reciprocationStars: 2,
+        relationshipTriage: 'hot_lead',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: '2026-08-12T12:00:00.000Z',
+      }],
+    });
+  });
+
+  it('rejects replaying an audience cursor under another triage filter', async () => {
+    const cursor = `follower-audience:v1:${Buffer.from(JSON.stringify({
+      version: 1,
+      organizationId: 'org-a',
+      integrationId: 'channel-a',
+      sort: 'recent',
+      direction: 'desc',
+      triage: 'hot_lead',
+      sortField: 'followedAt',
+      sortValue: null,
+      externalId: 'follower-a',
+    })).toString('base64url')}`;
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+        triage: 'mutual',
+        cursor,
+      })
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it('rejects an audience cursor when search is missing', async () => {

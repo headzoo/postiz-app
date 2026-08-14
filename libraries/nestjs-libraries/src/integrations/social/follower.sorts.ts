@@ -39,7 +39,7 @@ export const FOLLOWER_DATABASE_LIKES_SORT: FollowerSort = {
 
 export const FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT: FollowerSort = {
   key: 'relationship_grade',
-  label: 'Relationship grade',
+  label: 'Priority grade',
   directions: ['asc', 'desc'],
   defaultDirection: 'desc',
   scope: 'database',
@@ -47,7 +47,23 @@ export const FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT: FollowerSort = {
 
 export const FOLLOWER_DATABASE_MY_GRADE_SORT: FollowerSort = {
   key: 'my_grade',
-  label: 'My grade',
+  label: 'Your grade',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+};
+
+export const FOLLOWER_DATABASE_THEIR_EFFORT_SORT: FollowerSort = {
+  key: 'their_effort',
+  label: 'Their effort',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+};
+
+export const FOLLOWER_DATABASE_NET_GAP_SORT: FollowerSort = {
+  key: 'net_gap',
+  label: 'Net effort gap',
   directions: ['asc', 'desc'],
   defaultDirection: 'desc',
   scope: 'database',

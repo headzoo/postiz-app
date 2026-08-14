@@ -9,6 +9,9 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/posts/posts.repository.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/logs/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/channel-interactions/**/*.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/database/prisma/integrations/integration.followers.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/integrations/social/follower.sorts.spec.ts',
+    '<rootDir>/apps/backend/src/api/routes/followers.controller.spec.ts',
     '<rootDir>/apps/backend/src/api/routes/channel-webhooks.controller.spec.ts',
     '<rootDir>/apps/orchestrator/src/activities/post.activity.spec.ts',
     '<rootDir>/apps/frontend/src/components/settings/logs.component.spec.tsx',
@@ -28,6 +31,7 @@ module.exports = {
     '<rootDir>/apps/frontend/src/components/agents/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/launches/channels.sidebar.spec.tsx',
     '<rootDir>/apps/frontend/src/components/launches/helpers/last-channel.spec.ts',
+    '<rootDir>/apps/frontend/src/components/followers/**/*.spec.tsx',
   ],
   transform: {
     '^.+\\.tsx?$': [

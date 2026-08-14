@@ -1,5 +1,9 @@
 import {
   compareFollowers,
+  FOLLOWER_DATABASE_MY_GRADE_SORT,
+  FOLLOWER_DATABASE_NET_GAP_SORT,
+  FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT,
+  FOLLOWER_DATABASE_THEIR_EFFORT_SORT,
   getAudienceFollowerSortField,
   normalizeFollowerSearch,
   sortFollowers,
@@ -61,5 +65,22 @@ describe('follower.sorts', () => {
         'asc'
       )
     ).toBeGreaterThan(0);
+  });
+
+  it('advertises effort-first database sorts without removing grade keys', () => {
+    expect(FOLLOWER_DATABASE_THEIR_EFFORT_SORT).toMatchObject({
+      key: 'their_effort',
+      label: 'Their effort',
+      scope: 'database',
+    });
+    expect(FOLLOWER_DATABASE_NET_GAP_SORT).toMatchObject({
+      key: 'net_gap',
+      label: 'Net effort gap',
+      scope: 'database',
+    });
+    expect(FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT.label).toBe(
+      'Priority grade'
+    );
+    expect(FOLLOWER_DATABASE_MY_GRADE_SORT.label).toBe('Your grade');
   });
 });

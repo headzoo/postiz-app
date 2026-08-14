@@ -39,6 +39,19 @@ export type ChannelInteractionKind =
   | 'follow'
   | 'mention';
 
+export type RelationshipTriage =
+  | 'quiet'
+  | 'hot_lead'
+  | 'over_invested'
+  | 'mutual';
+
+export type FollowerTriageFilter =
+  | 'engaged_not_yet'
+  | 'hot_lead'
+  | 'mutual'
+  | 'over_invested'
+  | 'quiet';
+
 export type ChannelInteractionKindCoverage = {
   kind: ChannelInteractionKind;
   inbound: ChannelInteractionCoverageLevel;
@@ -95,6 +108,14 @@ export type Follower = {
   noteCount?: number;
   likesCount?: number;
   relationshipGrade?: number | null;
+  effortScore?: number | null;
+  reciprocationScore?: number | null;
+  netGap?: number | null;
+  effortStars?: number | null;
+  reciprocationStars?: number | null;
+  relationshipTriage?: RelationshipTriage | null;
+  relationshipFormulaVersion?: number | null;
+  relationshipSnapshotAt?: string | null;
   myGrade?: number | null;
   adjustedGrade?: number | null;
 };
@@ -130,13 +151,16 @@ export type FollowerRelationshipSnapshot = {
   reciprocity: number | null;
   grade: number | null;
   adjustedGrade: number | null;
+  effortStars: number;
+  reciprocationStars: number;
+  triage: RelationshipTriage;
   formulaVersion: number;
 };
 
 export type FollowerRelationship = {
   windowDays: 30;
   cadenceDays: 30;
-  formulaVersion: 1;
+  formulaVersion: number;
   current: FollowerRelationshipSnapshot | null;
   history: FollowerRelationshipSnapshot[];
 };
@@ -208,9 +232,10 @@ export type UseFollowersParams = {
   direction?: FollowerSortDirection;
   window?: ChannelInteractionWindow;
   search?: string;
+  triage?: FollowerTriageFilter;
 };
 
-const buildFollowersUrl = ({
+export const buildFollowersUrl = ({
   integrationId,
   cursor,
   limit,
@@ -218,6 +243,7 @@ const buildFollowersUrl = ({
   direction,
   window,
   search,
+  triage,
 }: UseFollowersParams & { integrationId: string }) => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) {
@@ -235,6 +261,9 @@ const buildFollowersUrl = ({
   if (search) {
     params.set('search', search);
   }
+  if (triage) {
+    params.set('triage', triage);
+  }
   return `/followers/${integrationId}?${params.toString()}`;
 };
 
@@ -246,6 +275,7 @@ export const useFollowers = ({
   direction,
   window,
   search,
+  triage,
 }: UseFollowersParams) => {
   const fetch = useFetch();
 
@@ -261,8 +291,9 @@ export const useFollowers = ({
       direction,
       window,
       search,
+      triage,
     });
-  }, [integrationId, cursor, limit, sort, direction, window, search]);
+  }, [integrationId, cursor, limit, sort, direction, window, search, triage]);
 
   const load = useCallback(
     async (path: string) => {

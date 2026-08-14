@@ -43,4 +43,8 @@ export class FollowersQueryDto {
   @IsString()
   @MaxLength(64)
   search?: string;
+
+  @IsOptional()
+  @IsIn(['hot_lead', 'mutual', 'over_invested', 'quiet', 'engaged_not_yet'])
+  triage?: 'hot_lead' | 'mutual' | 'over_invested' | 'quiet' | 'engaged_not_yet';
 }

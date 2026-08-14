@@ -8,13 +8,20 @@ import {
   ChannelInteractionWindow,
   Prisma,
 } from '@prisma/client';
-import { ChannelInteractionSubscriptionReconciliationResult } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import {
+  ChannelInteractionSubscriptionReconciliationResult,
+  FollowerTriageFilter,
+} from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { AudienceFollowerSortField } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
   PrismaRepository,
   PrismaTransaction,
 } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { getChannelInteractionScore } from './channel-interaction.scoring';
+import {
+  getChannelInteractionScore,
+  getRelationshipTriage,
+  RELATIONSHIP_FORMULA_VERSION,
+} from './channel-interaction.scoring';
 
 export type AudienceProfile = {
   externalId: string;
@@ -62,6 +69,7 @@ export type RankedFollowersQuery = {
   limit: number;
   cursor?: RankedFollowerCursor;
   search?: string;
+  triage?: FollowerTriageFilter;
 };
 
 export type NoteCountFollowerCursor = {
@@ -77,6 +85,7 @@ export type NoteCountFollowersQuery = {
   limit: number;
   cursor?: NoteCountFollowerCursor;
   search?: string;
+  triage?: FollowerTriageFilter;
 };
 
 export type LikesCountFollowerCursor = {
@@ -92,6 +101,7 @@ export type LikesCountFollowersQuery = {
   limit: number;
   cursor?: LikesCountFollowerCursor;
   search?: string;
+  triage?: FollowerTriageFilter;
 };
 
 export type FollowerAudienceCounts = {
@@ -99,6 +109,12 @@ export type FollowerAudienceCounts = {
   likesCount: number;
   relationshipGrade: number | null;
   myGrade: number | null;
+  relationshipEffortScore: number | null;
+  relationshipReciprocationScore: number | null;
+  relationshipNetGap: number | null;
+  relationshipTriage: string | null;
+  relationshipFormulaVersion: number | null;
+  relationshipSnapshotAt: Date | null;
 };
 
 export type AudienceFollowerCursor = {
@@ -111,7 +127,8 @@ export type AudienceFollowersQuery = {
   organizationId: string;
   integrationId: string;
   userId: string;
-  search: string;
+  search?: string;
+  triage?: FollowerTriageFilter;
   sortField: AudienceFollowerSortField;
   direction: 'asc' | 'desc';
   limit: number;
@@ -131,6 +148,24 @@ export type GradeFollowersQuery = {
   limit: number;
   cursor?: GradeFollowerCursor;
   search?: string;
+  triage?: FollowerTriageFilter;
+};
+
+export type ProjectedFollowerCursor = {
+  value: number | null;
+  externalId: string;
+};
+
+export type ProjectedFollowersQuery = {
+  organizationId: string;
+  integrationId: string;
+  userId: string;
+  field: 'relationshipReciprocationScore' | 'relationshipNetGap';
+  direction: 'asc' | 'desc';
+  limit: number;
+  cursor?: ProjectedFollowerCursor;
+  search?: string;
+  triage?: FollowerTriageFilter;
 };
 
 export type FollowerInteractionMetrics = {
@@ -782,6 +817,7 @@ export class ChannelInteractionRepository {
               integrationId: query.integrationId,
               membershipState: ChannelAudienceMembership.FOLLOWER,
               ...this.audienceSearchFilter(query.search),
+              ...this.triageFilter(query.triage),
             },
           },
           ...this.rankedFollowerKeyset(query.cursor, query.direction),
@@ -873,7 +909,12 @@ export class ChannelInteractionRepository {
         channelAudienceMembers: {
           some: {
             membershipState: ChannelAudienceMembership.FOLLOWER,
-            gradeSnapshots: { none: { snapshotAt: { gt: dueCutoff } } },
+            gradeSnapshots: {
+              none: {
+                formulaVersion: RELATIONSHIP_FORMULA_VERSION,
+                snapshotAt: { gt: dueCutoff },
+              },
+            },
           },
         },
         ...(after ? { id: { gt: after } } : {}),
@@ -902,7 +943,12 @@ export class ChannelInteractionRepository {
           organizationId,
           integrationId,
           membershipState: ChannelAudienceMembership.FOLLOWER,
-          gradeSnapshots: { none: { snapshotAt: { gt: dueCutoff } } },
+          gradeSnapshots: {
+            none: {
+              formulaVersion: RELATIONSHIP_FORMULA_VERSION,
+              snapshotAt: { gt: dueCutoff },
+            },
+          },
         },
         orderBy: { id: 'asc' },
         take,
@@ -984,8 +1030,24 @@ export class ChannelInteractionRepository {
               organizationId,
               integrationId,
               externalId: snapshot.externalId,
+              OR: [
+                { relationshipSnapshotAt: null },
+                { relationshipSnapshotAt: { lte: snapshotAt } },
+              ],
             },
-            data: { relationshipGrade: snapshot.grade },
+            data: {
+              relationshipGrade: snapshot.grade,
+              relationshipEffortScore: snapshot.effortScore,
+              relationshipReciprocationScore: snapshot.reciprocationScore,
+              relationshipNetGap:
+                snapshot.reciprocationScore - snapshot.effortScore,
+              relationshipTriage: getRelationshipTriage(
+                snapshot.effortScore,
+                snapshot.reciprocationScore
+              ),
+              relationshipFormulaVersion: snapshot.formulaVersion,
+              relationshipSnapshotAt: snapshotAt,
+            },
           })
         )
       );
@@ -1004,7 +1066,10 @@ export class ChannelInteractionRepository {
         integrationId,
         membershipState: ChannelAudienceMembership.FOLLOWER,
         gradeSnapshots: {
-          none: { snapshotAt: { gt: this.relationshipDueCutoff(snapshotAt) } },
+          none: {
+            formulaVersion: RELATIONSHIP_FORMULA_VERSION,
+            snapshotAt: { gt: this.relationshipDueCutoff(snapshotAt) },
+          },
         },
       },
       select: { id: true },
@@ -1231,6 +1296,7 @@ export class ChannelInteractionRepository {
           membershipState: ChannelAudienceMembership.FOLLOWER,
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
+            this.triageFilter(query.triage),
             this.noteCountFollowerKeyset(query.cursor, query.direction)
           ),
         },
@@ -1264,6 +1330,7 @@ export class ChannelInteractionRepository {
           membershipState: ChannelAudienceMembership.FOLLOWER,
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
+            this.triageFilter(query.triage),
             this.likesCountFollowerKeyset(query.cursor, query.direction)
           ),
         },
@@ -1297,6 +1364,7 @@ export class ChannelInteractionRepository {
           membershipState: ChannelAudienceMembership.FOLLOWER,
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
+            this.triageFilter(query.triage),
             this.audienceFollowerKeyset(query.cursor, query.direction)
           ),
         },
@@ -1330,6 +1398,8 @@ export class ChannelInteractionRepository {
           membershipState: ChannelAudienceMembership.FOLLOWER,
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
+            this.triageFilter(query.triage),
+            { relationshipFormulaVersion: RELATIONSHIP_FORMULA_VERSION },
             this.nullableGradeFollowerKeyset(
               query.cursor,
               query.direction,
@@ -1345,6 +1415,43 @@ export class ChannelInteractionRepository {
         select: this.audienceMemberListSelect(query.userId),
       });
 
+      return {
+        items: rows.slice(0, query.limit),
+        hasMore: rows.length > query.limit,
+      };
+    });
+  }
+
+  async getFollowersByProjectedField(query: ProjectedFollowersQuery) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+      const field = query.field;
+      const rows = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          ...this.audienceListFilters(
+            this.audienceSearchFilter(query.search),
+            this.triageFilter(query.triage),
+            this.nullableProjectedFollowerKeyset(
+              query.cursor,
+              query.direction,
+              field
+            )
+          ),
+        },
+        orderBy: [
+          { [field]: { sort: query.direction, nulls: 'last' } },
+          { externalId: query.direction },
+        ],
+        take: query.limit + 1,
+        select: this.audienceMemberListSelect(query.userId),
+      });
       return {
         items: rows.slice(0, query.limit),
         hasMore: rows.length > query.limit,
@@ -1376,6 +1483,12 @@ export class ChannelInteractionRepository {
         noteCount: number;
         likesCount: number;
         relationshipGrade: number | null;
+        relationshipEffortScore: number | null;
+        relationshipReciprocationScore: number | null;
+        relationshipNetGap: number | null;
+        relationshipTriage: string | null;
+        relationshipFormulaVersion: number | null;
+        relationshipSnapshotAt: Date | null;
         personalGrades: Array<{ grade: number }>;
       }> = [];
 
@@ -1389,6 +1502,7 @@ export class ChannelInteractionRepository {
               is: {
                 membershipState: ChannelAudienceMembership.FOLLOWER,
                 ...this.audienceSearchFilter(query.search),
+                ...this.triageFilter(query.triage),
               },
             },
             ...this.myGradeGradedKeyset(query.cursor, query.direction),
@@ -1422,6 +1536,7 @@ export class ChannelInteractionRepository {
             personalGrades: { none: { userId: query.userId } },
             ...this.audienceListFilters(
               this.audienceSearchFilter(query.search),
+              this.triageFilter(query.triage),
               this.myGradeUngradedKeyset(
                 query.cursor,
                 query.direction,
@@ -1471,6 +1586,12 @@ export class ChannelInteractionRepository {
           likesCount: row.likesCount,
           relationshipGrade: row.relationshipGrade,
           myGrade: row.personalGrades[0]?.grade ?? null,
+          relationshipEffortScore: row.relationshipEffortScore,
+          relationshipReciprocationScore: row.relationshipReciprocationScore,
+          relationshipNetGap: row.relationshipNetGap,
+          relationshipTriage: row.relationshipTriage,
+          relationshipFormulaVersion: row.relationshipFormulaVersion,
+          relationshipSnapshotAt: row.relationshipSnapshotAt,
         },
       ])
     );
@@ -1537,6 +1658,21 @@ export class ChannelInteractionRepository {
         { name: { contains: search, mode: 'insensitive' } },
       ],
     };
+  }
+
+  private triageFilter(
+    triage?: FollowerTriageFilter
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (!triage) {
+      return {};
+    }
+    if (triage === 'engaged_not_yet') {
+      return {
+        relationshipReciprocationScore: { gt: 0 },
+        relationshipEffortScore: 0,
+      };
+    }
+    return { relationshipTriage: triage };
   }
 
   private audienceListFilters(
@@ -1616,6 +1752,12 @@ export class ChannelInteractionRepository {
       noteCount: true,
       likesCount: true,
       relationshipGrade: true,
+      relationshipEffortScore: true,
+      relationshipReciprocationScore: true,
+      relationshipNetGap: true,
+      relationshipTriage: true,
+      relationshipFormulaVersion: true,
+      relationshipSnapshotAt: true,
       personalGrades: {
         where: { userId },
         select: { grade: true },
@@ -1686,6 +1828,33 @@ export class ChannelInteractionRepository {
         { [field]: { [comparison]: cursor.grade } },
         {
           [field]: cursor.grade,
+          externalId: { [comparison]: cursor.externalId },
+        },
+        { [field]: null },
+      ],
+    };
+  }
+
+  private nullableProjectedFollowerKeyset(
+    cursor: ProjectedFollowerCursor | undefined,
+    direction: 'asc' | 'desc',
+    field: ProjectedFollowersQuery['field']
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (!cursor) {
+      return {};
+    }
+    const comparison = direction === 'desc' ? 'lt' : 'gt';
+    if (cursor.value == null) {
+      return {
+        [field]: null,
+        externalId: { [comparison]: cursor.externalId },
+      };
+    }
+    return {
+      OR: [
+        { [field]: { [comparison]: cursor.value } },
+        {
+          [field]: cursor.value,
           externalId: { [comparison]: cursor.externalId },
         },
         { [field]: null },

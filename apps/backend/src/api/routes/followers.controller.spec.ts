@@ -1,4 +1,11 @@
+jest.mock(
+  '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service',
+  () => ({ IntegrationService: class IntegrationService { } })
+);
+
 import { FollowersController } from './followers.controller';
+import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
+import { validate } from 'class-validator';
 
 describe('FollowersController', () => {
   const org = { id: 'org-a' } as any;
@@ -33,6 +40,7 @@ describe('FollowersController', () => {
       cursor: 'opaque-cursor',
       sort: 'recent',
       direction: 'desc' as const,
+      triage: 'hot_lead' as const,
     };
     service.getFollowers.mockResolvedValue({ items: [], hasMore: false });
 
@@ -40,6 +48,18 @@ describe('FollowersController', () => {
       controller.getFollowers(org, user, 'channel-a', query)
     ).resolves.toEqual({ items: [], hasMore: false });
     expect(service.getFollowers).toHaveBeenCalledWith(org, user, 'channel-a', query);
+  });
+
+  it('accepts only the follower triage filter allowlist', async () => {
+    const valid = Object.assign(new FollowersQueryDto(), { triage: 'engaged_not_yet' });
+    const invalid = Object.assign(new FollowersQueryDto(), { triage: 'arbitrary' });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(invalid)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'triage' }),
+      ])
+    );
   });
 
   it('delegates follower member detail reads with organization and external id', async () => {

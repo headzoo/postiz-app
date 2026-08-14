@@ -92,11 +92,6 @@ export const RelationshipStars: FC<{
             )}
           </span>
         ))}
-        {grade != null && !compact && (
-          <span className="ms-[6px] text-[14px] text-newTextColor">
-            {grade} out of 5
-          </span>
-        )}
       </div>
     );
   };

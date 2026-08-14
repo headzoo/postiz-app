@@ -4,6 +4,8 @@ import {
   calculateRelationshipGrade,
   ChannelInteractionService,
   getChannelInteractionScore,
+  getRelationshipTriage,
+  scoreToStars,
 } from './channel-interaction.service';
 
 jest.mock(
@@ -63,28 +65,57 @@ describe('ChannelInteractionService', () => {
     expect(getChannelInteractionScore('follow', 'outbound')).toBe(5);
   });
 
-  it('calculates the version-one relationship grade at its edge cases', () => {
-    expect(calculateRelationshipGrade(0, 0)).toEqual({
-      reciprocity: null,
-      grade: null,
-      formulaVersion: 1,
-    });
-    expect(calculateRelationshipGrade(10, 0)).toEqual({
-      reciprocity: 0,
-      grade: 1,
-      formulaVersion: 1,
-    });
-    expect(calculateRelationshipGrade(8, 6)).toEqual({
-      reciprocity: 0.75,
-      grade: 4,
-      formulaVersion: 1,
-    });
-    expect(calculateRelationshipGrade(10, 10)).toEqual({
-      reciprocity: 1,
-      grade: 5,
-      formulaVersion: 1,
-    });
+  it.each([
+    [0, 0, null, null],
+    [0, 8, 0, 2],
+    [8, 0, 0, 1],
+    [8, 6, 0.75, 2],
+    [10, 10, 1, 3],
+    [0, 40, 0, 5],
+    [40, 0, 0, 1],
+    [20, 20, 1, 5],
+    [80, 40, 0.5, 5],
+  ])(
+    'calculates formula-v2 relationship grade for effort %i and reciprocation %i',
+    (effortScore, reciprocationScore, reciprocity, grade) => {
+      expect(calculateRelationshipGrade(effortScore, reciprocationScore)).toEqual({
+        reciprocity,
+        grade,
+        formulaVersion: 2,
+      });
+    }
+  );
+
+  it.each([
+    [0, 1],
+    [5, 1.5],
+    [20, 3],
+    [40, 5],
+    [80, 5],
+  ])('converts capped scores to half stars', (score, stars) => {
+    expect(scoreToStars(score)).toBe(stars);
+  });
+
+  it.each([
+    [0, 0, 'quiet'],
+    [7, 7, 'quiet'],
+    [0, 8, 'hot_lead'],
+    [8, 12, 'hot_lead'],
+    [8, 0, 'over_invested'],
+    [12, 8, 'over_invested'],
+    [8, 8, 'mutual'],
+  ])(
+    'classifies relationship triage for effort %i and reciprocation %i',
+    (effortScore, reciprocationScore, triage) => {
+      expect(getRelationshipTriage(effortScore, reciprocationScore)).toBe(triage);
+    }
+  );
+
+  it('rejects invalid relationship scores', () => {
     expect(() => calculateRelationshipGrade(-1, 0)).toThrow(RangeError);
+    expect(() => calculateRelationshipGrade(0.5, 0)).toThrow(RangeError);
+    expect(() => scoreToStars(-1)).toThrow(RangeError);
+    expect(() => scoreToStars(0.5)).toThrow(RangeError);
   });
 
   it('applies a personal grade as a half-star offset around a 3-star neutral', () => {
@@ -119,7 +150,7 @@ describe('ChannelInteractionService', () => {
         reciprocationScore: 0,
         reciprocity: null,
         grade: null,
-        formulaVersion: 1,
+        formulaVersion: 2,
       }]
     );
   });

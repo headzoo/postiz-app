@@ -41,6 +41,8 @@ export {
   applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
   getChannelInteractionScore,
+  getRelationshipTriage,
+  scoreToStars,
 } from './channel-interaction.scoring';
 
 const MAX_DELIVERY_EVENTS = 500;

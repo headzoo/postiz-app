@@ -4,8 +4,55 @@ import { FC, KeyboardEvent, MouseEvent } from 'react';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { Follower } from '@gitroom/frontend/components/followers/use.followers';
+import { Follower, RelationshipTriage } from '@gitroom/frontend/components/followers/use.followers';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
+
+const TRIAGE_LABELS: Record<
+  RelationshipTriage,
+  { key: string; defaultLabel: string }
+> = {
+  hot_lead: {
+    key: 'followers_triage_hot_lead',
+    defaultLabel: 'Hot lead',
+  },
+  mutual: {
+    key: 'followers_triage_mutual',
+    defaultLabel: 'Mutual',
+  },
+  over_invested: {
+    key: 'followers_triage_over_invested',
+    defaultLabel: 'Over-invested',
+  },
+  quiet: {
+    key: 'followers_triage_quiet',
+    defaultLabel: 'Quiet',
+  },
+};
+
+const TRIAGE_STYLES: Record<RelationshipTriage, string> = {
+  hot_lead: 'border-amber-500/40 text-amber-500',
+  mutual: 'border-green-500/40 text-green-500',
+  over_invested: 'border-red-400/40 text-red-400',
+  quiet: 'border-newTableBorder text-textItemBlur',
+};
+
+export const RelationshipTriageBadge: FC<{
+  triage: RelationshipTriage;
+}> = ({ triage }) => {
+  const t = useT();
+  const label = TRIAGE_LABELS[triage];
+
+  return (
+    <span
+      className={clsx(
+        'inline-flex w-fit shrink-0 items-center rounded-full border px-[8px] py-[2px] text-[11px] font-[600]',
+        TRIAGE_STYLES[triage]
+      )}
+    >
+      {t(label.key, label.defaultLabel)}
+    </span>
+  );
+};
 
 const formatDate = (value: string) => {
   const date = new Date(value);
@@ -62,6 +109,10 @@ export const FollowerCard: FC<{
     hasInfluenceScore;
   const hasSecondaryInteractionMetrics =
     Number.isFinite(follower.interactionScore) || !!lastInteractionAt;
+  const hasRelationshipEffort =
+    follower.effortStars !== undefined ||
+    follower.reciprocationStars !== undefined ||
+    follower.relationshipTriage != null;
 
   const handleCardClick = () => {
     onOpen?.();
@@ -147,6 +198,9 @@ export const FollowerCard: FC<{
                 <h3 className="text-[15px] font-[600] text-newTextColor truncate">
                   {follower.name}
                 </h3>
+                {follower.relationshipTriage && (
+                  <RelationshipTriageBadge triage={follower.relationshipTriage} />
+                )}
                 {handle &&
                   (follower.profileUrl ? (
                     <a
@@ -257,24 +311,25 @@ export const FollowerCard: FC<{
                   )}
                 </div>
               )}
-            {(follower.adjustedGrade !== undefined ||
-              follower.relationshipGrade !== undefined ||
-              follower.myGrade !== undefined) && (
+            {hasRelationshipEffort && (
                 <div className="mt-[8px] flex flex-col gap-[6px]">
                   <div className="flex items-center gap-[8px] text-[12px]">
                     <span className="shrink-0 text-textItemBlur">
-                      {t('followers_relationship_grade', 'Relationship grade')}
+                      {t('followers_their_effort', 'Their effort')}
                     </span>
                     <RelationshipStars
-                      grade={follower.adjustedGrade ?? follower.relationshipGrade ?? null}
+                      grade={follower.reciprocationStars ?? null}
                       compact={true}
                     />
                   </div>
                   <div className="flex items-center gap-[8px] text-[12px]">
                     <span className="shrink-0 text-textItemBlur">
-                      {t('followers_my_grade', 'My grade')}
+                      {t('followers_your_effort', 'Your effort')}
                     </span>
-                    <RelationshipStars grade={follower.myGrade ?? null} compact={true} />
+                    <RelationshipStars
+                      grade={follower.effortStars ?? null}
+                      compact={true}
+                    />
                   </div>
                 </div>
               )}

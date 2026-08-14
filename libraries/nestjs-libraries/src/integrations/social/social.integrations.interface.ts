@@ -1,4 +1,5 @@
 import { Integration } from '@prisma/client';
+import { RelationshipTriage } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.scoring';
 
 export interface ClientInformation {
   client_id: string;
@@ -198,6 +199,14 @@ export type Follower = {
   noteCount?: number;
   likesCount?: number;
   relationshipGrade?: number | null;
+  effortScore?: number | null;
+  reciprocationScore?: number | null;
+  netGap?: number | null;
+  effortStars?: number | null;
+  reciprocationStars?: number | null;
+  relationshipTriage?: RelationshipTriage | null;
+  relationshipFormulaVersion?: number | null;
+  relationshipSnapshotAt?: string | null;
   myGrade?: number | null;
   adjustedGrade?: number | null;
 };
@@ -224,7 +233,10 @@ export type FollowerQuery = {
   direction?: FollowerSortDirection;
   window?: ChannelInteractionWindow;
   search?: string;
+  triage?: FollowerTriageFilter;
 };
+
+export type FollowerTriageFilter = RelationshipTriage | 'engaged_not_yet';
 
 export type ChannelInteractionTrackingState =
   | 'unconfigured'
@@ -309,13 +321,16 @@ export type FollowerRelationshipSnapshot = {
   reciprocity: number | null;
   grade: number | null;
   adjustedGrade: number | null;
+  effortStars: number;
+  reciprocationStars: number;
+  triage: RelationshipTriage;
   formulaVersion: number;
 };
 
 export type FollowerRelationship = {
   windowDays: 30;
   cadenceDays: 30;
-  formulaVersion: 1;
+  formulaVersion: number;
   current: FollowerRelationshipSnapshot | null;
   history: FollowerRelationshipSnapshot[];
 };

@@ -130,11 +130,14 @@ describe('FollowerCard', () => {
     expect(screen.getByText('likes')).toBeTruthy();
   });
 
-  it('renders relationship and personal grades on the card', () => {
+  it('renders directional effort rows and triage badge on the card', () => {
     render(
       <FollowerCard
         follower={{
           ...baseFollower,
+          effortStars: 2,
+          reciprocationStars: 1.5,
+          relationshipTriage: 'hot_lead',
           relationshipGrade: 3,
           myGrade: 2,
           adjustedGrade: 4,
@@ -143,9 +146,13 @@ describe('FollowerCard', () => {
       />
     );
 
-    expect(screen.getByText('Relationship grade')).toBeTruthy();
-    expect(screen.getByText('My grade')).toBeTruthy();
-    expect(screen.getByRole('img', { name: '4 out of 5' })).toBeTruthy();
+    expect(screen.getByText('Their effort')).toBeTruthy();
+    expect(screen.getByText('Your effort')).toBeTruthy();
+    expect(screen.getByText('Hot lead')).toBeTruthy();
+    expect(screen.queryByText('Relationship grade')).toBeNull();
+    expect(screen.queryByText('My grade')).toBeNull();
+    expect(screen.queryByText(/out of 5/i)).toBeNull();
+    expect(screen.getByRole('img', { name: '1.5 out of 5' })).toBeTruthy();
     expect(screen.getByRole('img', { name: '2 out of 5' })).toBeTruthy();
   });
 

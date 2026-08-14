@@ -10,6 +10,7 @@ import {
   useDecisionModal,
 } from '@gitroom/frontend/components/layout/new-modal';
 import { FollowerRelationshipChart } from '@gitroom/frontend/components/followers/follower.relationship.chart';
+import { RelationshipTriageBadge } from '@gitroom/frontend/components/followers/follower.card';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import {
   ChannelInteractionKind,
@@ -269,8 +270,6 @@ const FollowerDetailContent: FC<{
 
   const current = detail.relationship.current;
   const chartHistory = detail.relationship.history;
-  const displayedGrade = current?.adjustedGrade ?? current?.grade ?? null;
-  const computedGrade = current?.grade ?? null;
 
   const handleSelectGrade = useCallback(
     async (grade: number) => {
@@ -425,27 +424,22 @@ const FollowerDetailContent: FC<{
       </div>
 
       <section className="flex flex-col gap-[12px]">
-        <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-3">
           <div className="flex flex-col gap-[8px]">
             <h4 className="text-[16px] font-[600] text-newTextColor">
-              {t('followers_relationship_grade', 'Relationship grade')}
+              {t('followers_their_effort', 'Their effort')}
             </h4>
-            <RelationshipStars grade={displayedGrade} />
-            {computedGrade != null &&
-              displayedGrade != null &&
-              computedGrade !== displayedGrade && (
-                <p className="text-[13px] text-textItemBlur">
-                  {t(
-                    'followers_computed_grade',
-                    'Computed grade: {{grade}} out of 5',
-                    { grade: computedGrade }
-                  )}
-                </p>
-              )}
+            <RelationshipStars grade={current?.reciprocationStars ?? null} />
           </div>
           <div className="flex flex-col gap-[8px]">
             <h4 className="text-[16px] font-[600] text-newTextColor">
-              {t('followers_my_grade', 'My grade')}
+              {t('followers_your_effort', 'Your effort')}
+            </h4>
+            <RelationshipStars grade={current?.effortStars ?? null} />
+          </div>
+          <div className="flex flex-col gap-[8px]">
+            <h4 className="text-[16px] font-[600] text-newTextColor">
+              {t('followers_your_grade', 'Your grade')}
             </h4>
             <RelationshipStars
               grade={detail.myGrade}
@@ -459,33 +453,40 @@ const FollowerDetailContent: FC<{
           </div>
         </div>
         {current && (
-          <div className="grid grid-cols-1 gap-[8px] text-[13px] sm:grid-cols-2">
-            <p className="text-textItemBlur">
+          <div className="flex flex-col gap-[8px] text-[13px] text-textItemBlur">
+            <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[6px]">
+              <p>
+                {t(
+                  'followers_grade_snapshot',
+                  'Snapshot {{date}} · {{days}}-day window',
+                  {
+                    date: formatShortDate(current.snapshotAt) || current.snapshotAt,
+                    days: detail.relationship.windowDays,
+                  }
+                )}
+              </p>
+              <p>
+                {t('followers_grade_reciprocity', 'Reciprocity: {{value}}', {
+                  value: formatReciprocity(current.reciprocity),
+                })}
+              </p>
+              {current.triage && (
+                <RelationshipTriageBadge triage={current.triage} />
+              )}
+            </div>
+            <p>
               {t(
-                'followers_grade_snapshot',
-                'Snapshot {{date}} · {{days}}-day window',
+                'followers_grade_score_metadata',
+                'E: {{effort}} · R: {{reciprocation}} · Gap: {{gap}}',
                 {
-                  date: formatShortDate(current.snapshotAt) || current.snapshotAt,
-                  days: detail.relationship.windowDays,
+                  effort: current.effortScore,
+                  reciprocation: current.reciprocationScore,
+                  gap:
+                    current.reciprocationScore - current.effortScore >= 0
+                      ? `+${current.reciprocationScore - current.effortScore}`
+                      : String(current.reciprocationScore - current.effortScore),
                 }
               )}
-            </p>
-            <p className="text-textItemBlur">
-              {t('followers_grade_effort', 'Your effort (E): {{score}}', {
-                score: current.effortScore,
-              })}
-            </p>
-            <p className="text-textItemBlur">
-              {t(
-                'followers_grade_reciprocation',
-                'Their reciprocation (R): {{score}}',
-                { score: current.reciprocationScore }
-              )}
-            </p>
-            <p className="text-textItemBlur">
-              {t('followers_grade_reciprocity', 'Reciprocity: {{value}}', {
-                value: formatReciprocity(current.reciprocity),
-              })}
             </p>
           </div>
         )}

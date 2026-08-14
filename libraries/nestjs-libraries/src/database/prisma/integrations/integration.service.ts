@@ -31,12 +31,20 @@ import {
   FOLLOWER_DATABASE_MY_GRADE_SORT,
   FOLLOWER_DATABASE_NOTES_SORT,
   FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT,
+  FOLLOWER_DATABASE_THEIR_EFFORT_SORT,
+  FOLLOWER_DATABASE_NET_GAP_SORT,
   getAudienceFollowerSortField,
   isPageScopedFollowerSort,
   normalizeFollowerSearch,
   sortFollowers,
 } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
-import { applyPersonalRelationshipGrade } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.scoring';
+import {
+  applyPersonalRelationshipGrade,
+  getRelationshipTriage,
+  RELATIONSHIP_FORMULA_VERSION,
+  RelationshipTriage,
+  scoreToStars,
+} from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.scoring';
 import {
   ChannelFollowerSyncStatus,
   ChannelInteractionTrackingState,
@@ -67,6 +75,7 @@ import {
   GradeFollowerCursor,
   LikesCountFollowerCursor,
   NoteCountFollowerCursor,
+  ProjectedFollowerCursor,
   RankedFollowerCursor,
 } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
 
@@ -347,7 +356,7 @@ export class IntegrationService {
       );
     }
 
-    if (search) {
+    if (search || query.triage) {
       return this.getAudienceFollowerPage(
         org.id,
         user.id,
@@ -545,6 +554,12 @@ export class IntegrationService {
         accountCreatedAt: Date | null;
         noteCount: number;
         likesCount?: number;
+        relationshipEffortScore: number | null;
+        relationshipReciprocationScore: number | null;
+        relationshipNetGap: number | null;
+        relationshipTriage: string | null;
+        relationshipFormulaVersion: number | null;
+        relationshipSnapshotAt: Date | null;
       };
       snapshots: Array<{
         snapshotAt: Date;
@@ -617,7 +632,8 @@ export class IntegrationService {
       relationship: {
         windowDays: 30,
         cadenceDays: 30,
-        formulaVersion: 1,
+        formulaVersion:
+          history.at(-1)?.formulaVersion ?? RELATIONSHIP_FORMULA_VERSION,
         current: history.length ? history[history.length - 1] : null,
         history,
       },
@@ -640,6 +656,12 @@ export class IntegrationService {
     noteCount?: number;
     likesCount?: number;
     relationshipGrade?: number | null;
+    relationshipEffortScore?: number | null;
+    relationshipReciprocationScore?: number | null;
+    relationshipNetGap?: number | null;
+    relationshipTriage?: string | null;
+    relationshipFormulaVersion?: number | null;
+    relationshipSnapshotAt?: Date | null;
     myGrade?: number | null;
     personalGrades?: Array<{ grade: number }>;
   }): Follower {
@@ -669,6 +691,7 @@ export class IntegrationService {
         ? { likesCount: member.likesCount }
         : {}),
       ...this.followerGradeFields(member),
+      ...this.followerRelationshipFields(member),
     });
   }
 
@@ -684,6 +707,47 @@ export class IntegrationService {
       myGrade,
       adjustedGrade: applyPersonalRelationshipGrade(relationshipGrade, myGrade),
     };
+  }
+
+  private followerRelationshipFields(member?: {
+    relationshipEffortScore?: number | null;
+    relationshipReciprocationScore?: number | null;
+    relationshipNetGap?: number | null;
+    relationshipTriage?: string | null;
+    relationshipFormulaVersion?: number | null;
+    relationshipSnapshotAt?: Date | null;
+  }) {
+    const effortScore = member?.relationshipEffortScore ?? null;
+    const reciprocationScore = member?.relationshipReciprocationScore ?? null;
+    const hasProjection =
+      Number.isSafeInteger(effortScore) &&
+      effortScore! >= 0 &&
+      Number.isSafeInteger(reciprocationScore) &&
+      reciprocationScore! >= 0;
+    if (!hasProjection) {
+      return {};
+    }
+    return {
+      effortScore,
+      reciprocationScore,
+      netGap: member?.relationshipNetGap ??
+        reciprocationScore! - effortScore!,
+      effortStars: scoreToStars(effortScore!),
+      reciprocationStars: scoreToStars(reciprocationScore!),
+      relationshipTriage:
+        this.isRelationshipTriage(member?.relationshipTriage)
+          ? member!.relationshipTriage
+          : getRelationshipTriage(effortScore!, reciprocationScore!),
+      relationshipFormulaVersion: member?.relationshipFormulaVersion ?? null,
+      relationshipSnapshotAt:
+        member?.relationshipSnapshotAt?.toISOString() ?? null,
+    };
+  }
+
+  private isRelationshipTriage(value: unknown): value is RelationshipTriage {
+    return ['quiet', 'hot_lead', 'over_invested', 'mutual'].includes(
+      String(value)
+    );
   }
 
   private mapFollowerMemberNote(note: {
@@ -740,15 +804,18 @@ export class IntegrationService {
     };
   }
 
-  private mapFollowerRelationshipSnapshot(snapshot: {
-    snapshotAt: Date;
-    windowStartedAt: Date;
-    effortScore: number;
-    reciprocationScore: number;
-    reciprocity: number | null;
-    grade: number | null;
-    formulaVersion: number;
-  }, myGrade: number | null): FollowerRelationshipSnapshot {
+  private mapFollowerRelationshipSnapshot(
+    snapshot: {
+      snapshotAt: Date;
+      windowStartedAt: Date;
+      effortScore: number;
+      reciprocationScore: number;
+      reciprocity: number | null;
+      grade: number | null;
+      formulaVersion: number;
+    },
+    myGrade?: number | null
+  ): FollowerRelationshipSnapshot {
     return {
       snapshotAt: snapshot.snapshotAt.toISOString(),
       windowStartedAt: snapshot.windowStartedAt.toISOString(),
@@ -757,6 +824,12 @@ export class IntegrationService {
       reciprocity: snapshot.reciprocity,
       grade: snapshot.grade,
       adjustedGrade: applyPersonalRelationshipGrade(snapshot.grade, myGrade),
+      effortStars: scoreToStars(snapshot.effortScore),
+      reciprocationStars: scoreToStars(snapshot.reciprocationScore),
+      triage: getRelationshipTriage(
+        snapshot.effortScore,
+        snapshot.reciprocationScore
+      ),
       formulaVersion: snapshot.formulaVersion,
     };
   }
@@ -770,20 +843,29 @@ export class IntegrationService {
     }
 
     const search = normalizeFollowerSearch(query.search);
+    this.assertFollowerCursorQueryIdentity(query.cursor, search, query.triage);
     const isAudienceCursor = !!query.cursor?.startsWith('follower-audience:v1:');
     const isRankCursor = !!query.cursor?.startsWith('follower-rank:v1:');
     const isNotesCursor = !!query.cursor?.startsWith('follower-notes:v1:');
     const isLikesCursor = !!query.cursor?.startsWith('follower-likes:v1:');
+    const isProjectionCursor =
+      !!query.cursor?.startsWith('follower-projection:v1:');
     const isGradeCursor =
       !!query.cursor?.startsWith('follower-relationship-grade:v1:') ||
       !!query.cursor?.startsWith('follower-my-grade:v1:');
 
-    if (isAudienceCursor && !search) {
+    if (isAudienceCursor && !search && !query.triage) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
 
     if (!query.sort && !query.direction) {
-      if (isRankCursor || isNotesCursor || isLikesCursor || isGradeCursor) {
+      if (
+        isRankCursor ||
+        isNotesCursor ||
+        isLikesCursor ||
+        isGradeCursor ||
+        isProjectionCursor
+      ) {
         throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
       }
       return undefined;
@@ -807,7 +889,13 @@ export class IntegrationService {
       }
       return sort;
     }
-    if (isRankCursor || isNotesCursor || isLikesCursor || isGradeCursor) {
+    if (
+      isRankCursor ||
+      isNotesCursor ||
+      isLikesCursor ||
+      isGradeCursor ||
+      isProjectionCursor
+    ) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
     return sort;
@@ -839,6 +927,18 @@ export class IntegrationService {
     if (sort.key === FOLLOWER_DATABASE_MY_GRADE_SORT.key) {
       return this.getMyGradeFollowerPage(organizationId, userId, integration, query, sort);
     }
+    if (
+      sort.key === FOLLOWER_DATABASE_THEIR_EFFORT_SORT.key ||
+      sort.key === FOLLOWER_DATABASE_NET_GAP_SORT.key
+    ) {
+      return this.getProjectedFollowerPage(
+        organizationId,
+        userId,
+        integration,
+        query,
+        sort
+      );
+    }
 
     const direction = query.direction ?? sort.defaultDirection;
     const window = query.window!;
@@ -859,6 +959,7 @@ export class IntegrationService {
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
+      ...(query.triage ? { triage: query.triage } : {}),
     });
     if (cursor && ranked.rollup?.activeGeneration !== cursor.generation) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -903,6 +1004,9 @@ export class IntegrationService {
         noteCount: audienceCounts.get(row.counterpartyExternalId)?.noteCount ?? 0,
         likesCount: audienceCounts.get(row.counterpartyExternalId)?.likesCount ?? 0,
         ...this.followerGradeFields(audienceCounts.get(row.counterpartyExternalId)),
+        ...this.followerRelationshipFields(
+          audienceCounts.get(row.counterpartyExternalId)
+        ),
       })
     );
     const last = items.at(-1);
@@ -917,6 +1021,8 @@ export class IntegrationService {
             window,
             direction,
             generation: ranked.rollup.activeGeneration,
+            search: query.search,
+            triage: query.triage,
             interactionCount: last.interactionCount!,
             interactionScore: last.interactionScore!,
             lastInteractionAt: last.lastInteractionAt || null,
@@ -937,7 +1043,7 @@ export class IntegrationService {
     query: FollowerQuery,
     sort?: FollowerSort
   ): Promise<FollowerPage> {
-    const search = query.search!;
+    const search = query.search;
     const direction = query.direction ?? sort?.defaultDirection ?? 'desc';
     const sortKey = sort?.key ?? 'recent';
     const sortField = getAudienceFollowerSortField(sortKey);
@@ -949,6 +1055,7 @@ export class IntegrationService {
         sortKey,
         direction,
         search,
+        query.triage,
         sortField
       )
       : undefined;
@@ -956,7 +1063,8 @@ export class IntegrationService {
       organizationId,
       integrationId: integration.id,
       userId,
-      search,
+      ...(search ? { search } : {}),
+      ...(query.triage ? { triage: query.triage } : {}),
       sortField,
       direction,
       limit: query.limit,
@@ -975,6 +1083,7 @@ export class IntegrationService {
             sort: sortKey,
             direction,
             search,
+            triage: query.triage,
             sortField,
             sortValue: this.audienceCursorSortValue(last, sortField),
             externalId: last.externalId,
@@ -1016,6 +1125,7 @@ export class IntegrationService {
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
+      ...(query.triage ? { triage: query.triage } : {}),
     });
 
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -1029,6 +1139,8 @@ export class IntegrationService {
             organizationId,
             integrationId: integration.id,
             direction,
+            search: query.search,
+            triage: query.triage,
             noteCount: last.noteCount!,
             externalId: last.id,
           }),
@@ -1061,6 +1173,7 @@ export class IntegrationService {
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
+      ...(query.triage ? { triage: query.triage } : {}),
     });
 
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -1074,6 +1187,8 @@ export class IntegrationService {
             organizationId,
             integrationId: integration.id,
             direction,
+            search: query.search,
+            triage: query.triage,
             likesCount: last.likesCount!,
             externalId: last.id,
           }),
@@ -1108,6 +1223,7 @@ export class IntegrationService {
         limit: query.limit,
         ...(cursor ? { cursor } : {}),
         ...(query.search ? { search: query.search } : {}),
+        ...(query.triage ? { triage: query.triage } : {}),
       });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -1122,10 +1238,69 @@ export class IntegrationService {
               organizationId,
               integrationId: integration.id,
               direction,
+              search: query.search,
+              triage: query.triage,
               grade: last.relationshipGrade ?? null,
               externalId: last.externalId,
             }
           ),
+        }
+        : {}),
+    };
+  }
+
+  private async getProjectedFollowerPage(
+    organizationId: string,
+    userId: string,
+    integration: Integration,
+    query: FollowerQuery,
+    sort: FollowerSort
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? sort.defaultDirection;
+    const field = sort.key === FOLLOWER_DATABASE_THEIR_EFFORT_SORT.key
+      ? 'relationshipReciprocationScore' as const
+      : 'relationshipNetGap' as const;
+    const cursor = query.cursor
+      ? this.decodeProjectedFollowerCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        sort.key,
+        direction,
+        query.search,
+        query.triage
+      )
+      : undefined;
+    const ranked =
+      await this._channelInteractionRepository.getFollowersByProjectedField({
+        organizationId,
+        integrationId: integration.id,
+        userId,
+        field,
+        direction,
+        limit: query.limit,
+        ...(cursor ? { cursor } : {}),
+        ...(query.search ? { search: query.search } : {}),
+        ...(query.triage ? { triage: query.triage } : {}),
+      });
+    const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
+    const last = ranked.items.at(-1);
+    const value = last?.[field] ?? null;
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeProjectedFollowerCursor({
+            organizationId,
+            integrationId: integration.id,
+            sort: sort.key,
+            direction,
+            search: query.search,
+            triage: query.triage,
+            value,
+            externalId: last.externalId,
+          }),
         }
         : {}),
     };
@@ -1156,6 +1331,7 @@ export class IntegrationService {
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
+      ...(query.triage ? { triage: query.triage } : {}),
     });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -1168,6 +1344,8 @@ export class IntegrationService {
             organizationId,
             integrationId: integration.id,
             direction,
+            search: query.search,
+            triage: query.triage,
             grade: last.personalGrades[0]?.grade ?? null,
             externalId: last.externalId,
           }),
@@ -1316,6 +1494,8 @@ export class IntegrationService {
     window: NonNullable<FollowerQuery['window']>;
     direction: 'asc' | 'desc';
     generation: string;
+    search?: string;
+    triage?: FollowerQuery['triage'];
   } & RankedFollowerCursor) {
     return `follower-rank:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -1362,6 +1542,8 @@ export class IntegrationService {
     organizationId: string;
     integrationId: string;
     direction: 'asc' | 'desc';
+    search?: string;
+    triage?: FollowerQuery['triage'];
   } & NoteCountFollowerCursor) {
     return `follower-notes:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -1406,6 +1588,8 @@ export class IntegrationService {
     organizationId: string;
     integrationId: string;
     direction: 'asc' | 'desc';
+    search?: string;
+    triage?: FollowerQuery['triage'];
   } & LikesCountFollowerCursor) {
     return `follower-likes:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -1452,11 +1636,63 @@ export class IntegrationService {
       organizationId: string;
       integrationId: string;
       direction: 'asc' | 'desc';
+      search?: string;
+      triage?: FollowerQuery['triage'];
     } & GradeFollowerCursor
   ) {
     return `${prefix}${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
     ).toString('base64url')}`;
+  }
+
+  private encodeProjectedFollowerCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    sort: string;
+    direction: 'asc' | 'desc';
+    search?: string;
+    triage?: FollowerQuery['triage'];
+  } & ProjectedFollowerCursor) {
+    return `follower-projection:v1:${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeProjectedFollowerCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    sort: string,
+    direction: 'asc' | 'desc',
+    search?: string,
+    triage?: FollowerQuery['triage']
+  ): ProjectedFollowerCursor {
+    try {
+      if (!value.startsWith('follower-projection:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(
+          value.slice('follower-projection:v1:'.length),
+          'base64url'
+        ).toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.sort !== sort ||
+        cursor.direction !== direction ||
+        cursor.search !== search ||
+        cursor.triage !== triage ||
+        typeof cursor.externalId !== 'string' ||
+        (cursor.value !== null &&
+          !(typeof cursor.value === 'number' && Number.isSafeInteger(cursor.value)))
+      ) {
+        throw new Error();
+      }
+      return { value: cursor.value, externalId: cursor.externalId };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
   }
 
   private decodeGradeFollowerCursor(
@@ -1496,7 +1732,8 @@ export class IntegrationService {
     integrationId: string;
     sort: string;
     direction: 'asc' | 'desc';
-    search: string;
+    search?: string;
+    triage?: FollowerQuery['triage'];
     sortField: AudienceFollowerSortField;
   } & AudienceFollowerCursor) {
     return `follower-audience:v1:${Buffer.from(
@@ -1510,7 +1747,8 @@ export class IntegrationService {
     integrationId: string,
     sort: string,
     direction: 'asc' | 'desc',
-    search: string,
+    search: string | undefined,
+    triage: FollowerQuery['triage'] | undefined,
     sortField: AudienceFollowerSortField
   ): AudienceFollowerCursor {
     try {
@@ -1528,6 +1766,7 @@ export class IntegrationService {
         cursor.sort !== sort ||
         cursor.direction !== direction ||
         cursor.search !== search ||
+        cursor.triage !== triage ||
         cursor.sortField !== sortField ||
         typeof cursor.externalId !== 'string' ||
         !this.isAudienceCursorSortValue(cursor.sortField, cursor.sortValue)
@@ -1539,6 +1778,36 @@ export class IntegrationService {
         sortValue: cursor.sortValue,
         externalId: cursor.externalId,
       };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  private assertFollowerCursorQueryIdentity(
+    value: string | undefined,
+    search: string | undefined,
+    triage: FollowerQuery['triage'] | undefined
+  ) {
+    const internalPrefixes = [
+      'follower-audience:v1:',
+      'follower-rank:v1:',
+      'follower-notes:v1:',
+      'follower-likes:v1:',
+      'follower-relationship-grade:v1:',
+      'follower-my-grade:v1:',
+      'follower-projection:v1:',
+    ];
+    if (!value || !internalPrefixes.some((prefix) => value.startsWith(prefix))) {
+      return;
+    }
+    try {
+      const encoded = value.slice(value.lastIndexOf(':') + 1);
+      const cursor = JSON.parse(
+        Buffer.from(encoded, 'base64url').toString('utf8')
+      );
+      if (cursor.search !== search || cursor.triage !== triage) {
+        throw new Error();
+      }
     } catch {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
@@ -1617,6 +1886,7 @@ export class IntegrationService {
           noteCount: counts?.noteCount ?? 0,
           likesCount: counts?.likesCount ?? 0,
           ...this.followerGradeFields(counts),
+          ...this.followerRelationshipFields(counts),
           ...(metric
             ? {
               interactionScore: metric.interactionScore,
@@ -1770,6 +2040,35 @@ export class IntegrationService {
       ...(follower.adjustedGrade === null || Number.isFinite(follower.adjustedGrade)
         ? { adjustedGrade: follower.adjustedGrade }
         : {}),
+      ...(follower.effortScore === null || Number.isSafeInteger(follower.effortScore)
+        ? { effortScore: follower.effortScore }
+        : {}),
+      ...(follower.reciprocationScore === null ||
+        Number.isSafeInteger(follower.reciprocationScore)
+        ? { reciprocationScore: follower.reciprocationScore }
+        : {}),
+      ...(follower.netGap === null || Number.isSafeInteger(follower.netGap)
+        ? { netGap: follower.netGap }
+        : {}),
+      ...(follower.effortStars === null || Number.isFinite(follower.effortStars)
+        ? { effortStars: follower.effortStars }
+        : {}),
+      ...(follower.reciprocationStars === null ||
+        Number.isFinite(follower.reciprocationStars)
+        ? { reciprocationStars: follower.reciprocationStars }
+        : {}),
+      ...(follower.relationshipTriage === null ||
+        this.isRelationshipTriage(follower.relationshipTriage)
+        ? { relationshipTriage: follower.relationshipTriage }
+        : {}),
+      ...(follower.relationshipFormulaVersion === null ||
+        Number.isSafeInteger(follower.relationshipFormulaVersion)
+        ? { relationshipFormulaVersion: follower.relationshipFormulaVersion }
+        : {}),
+      ...(follower.relationshipSnapshotAt === null ||
+        typeof follower.relationshipSnapshotAt === 'string'
+        ? { relationshipSnapshotAt: follower.relationshipSnapshotAt }
+        : {}),
     };
   }
 
@@ -1800,6 +2099,14 @@ export class IntegrationService {
     }
     if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_MY_GRADE_SORT.key)) {
       sorts.push(FOLLOWER_DATABASE_MY_GRADE_SORT);
+    }
+    if (
+      !sorts.some((sort) => sort.key === FOLLOWER_DATABASE_THEIR_EFFORT_SORT.key)
+    ) {
+      sorts.push(FOLLOWER_DATABASE_THEIR_EFFORT_SORT);
+    }
+    if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_NET_GAP_SORT.key)) {
+      sorts.push(FOLLOWER_DATABASE_NET_GAP_SORT);
     }
     return sorts;
   }

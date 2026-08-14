@@ -102,6 +102,9 @@ const detail: FollowerMemberDetail = {
       reciprocity: 0.5,
       grade: 3.5,
       adjustedGrade: 3.5,
+      effortStars: 2,
+      reciprocationStars: 1.5,
+      triage: 'over_invested',
       formulaVersion: 1,
     },
     history: [
@@ -113,6 +116,9 @@ const detail: FollowerMemberDetail = {
         reciprocity: null,
         grade: null,
         adjustedGrade: null,
+        effortStars: 1,
+        reciprocationStars: 1,
+        triage: 'quiet',
         formulaVersion: 1,
       },
       {
@@ -123,6 +129,9 @@ const detail: FollowerMemberDetail = {
         reciprocity: 0.5,
         grade: 3.5,
         adjustedGrade: 3.5,
+        effortStars: 2,
+        reciprocationStars: 1.5,
+        triage: 'over_invested',
         formulaVersion: 1,
       },
     ],
@@ -205,18 +214,25 @@ describe('FollowerDetailModal', () => {
     ).toBeTruthy();
   });
 
-  it('renders relationship grade, E/R metrics, and accessible star text', () => {
+  it('renders effort-first relationship details and accessible star labels', () => {
     render(
       <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
     );
 
-    expect(screen.getByText('Relationship grade')).toBeTruthy();
-    expect(screen.getByText('My grade')).toBeTruthy();
-    expect(screen.getByRole('img', { name: '3.5 out of 5' })).toBeTruthy();
+    expect(screen.getByText('Their effort')).toBeTruthy();
+    expect(screen.getByText('Your effort')).toBeTruthy();
+    expect(screen.getByText('Your grade')).toBeTruthy();
+    expect(screen.queryByText('Relationship grade')).toBeNull();
+    expect(screen.queryByText('My grade')).toBeNull();
+    expect(screen.getByRole('img', { name: '1.5 out of 5' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '2 out of 5' })).toBeTruthy();
     expect(screen.getByRole('radio', { name: '4.5 out of 5' })).toBeTruthy();
-    expect(screen.getByText('Your effort (E): 10')).toBeTruthy();
-    expect(screen.getByText('Their reciprocation (R): 5')).toBeTruthy();
     expect(screen.getByText('Reciprocity: 50%')).toBeTruthy();
+    expect(screen.getByText('E: 10 · R: 5 · Gap: -5')).toBeTruthy();
+    expect(screen.getByText('Over-invested')).toBeTruthy();
+    expect(screen.queryByText(/out of 5/i)).toBeNull();
+    expect(screen.queryByText('Your effort (E): 10')).toBeNull();
+    expect(screen.queryByText('Their reciprocation (R): 5')).toBeNull();
   });
 
   it('renders accessible grade history for every snapshot', () => {
@@ -224,7 +240,7 @@ describe('FollowerDetailModal', () => {
       <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
     );
 
-    const table = screen.getByRole('table', { name: 'Grade history' });
+    const table = screen.getByRole('table', { name: 'Relationship history' });
     const rows = within(table).getAllByRole('row');
 
     expect(rows).toHaveLength(3);
@@ -232,22 +248,6 @@ describe('FollowerDetailModal', () => {
       screen.getByText('No grade (not enough tracked activity)')
     ).toBeTruthy();
     expect(screen.getByText('3.5')).toBeTruthy();
-  });
-
-  it('shows no-backfill and partial coverage caveats', () => {
-    render(
-      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
-    );
-
-    expect(
-      screen.getByText(/Earlier provider activity is not backfilled/i)
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/Grades may be incomplete/i)
-    ).toBeTruthy();
-    expect(
-      screen.getByText('Inbound reposts are partially tracked')
-    ).toBeTruthy();
   });
 
   it('creates notes and revalidates detail', async () => {
@@ -314,7 +314,7 @@ describe('FollowerDetailModal', () => {
     });
   });
 
-  it('shows empty stars when no grade exists', () => {
+  it('shows empty effort stars when no relationship snapshot exists', () => {
     useSWR.mockReturnValue({
       data: {
         ...detail,
@@ -338,14 +338,15 @@ describe('FollowerDetailModal', () => {
       <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
     );
 
-    expect(screen.getByRole('img', { name: 'No grade yet' })).toBeTruthy();
+    expect(screen.getAllByRole('img', { name: 'No grade yet' })).toHaveLength(2);
+    expect(screen.getByRole('radio', { name: '4.5 out of 5' })).toBeTruthy();
     expect(screen.queryByText('Not enough tracked activity')).toBeNull();
     expect(
       screen.queryByText(/does not support interaction tracking/i)
     ).toBeNull();
   });
 
-  it('shows empty stars when current grade is null', () => {
+  it('shows effort stars when computed grade is null but scores exist', () => {
     useSWR.mockReturnValue({
       data: {
         ...detail,
@@ -368,7 +369,8 @@ describe('FollowerDetailModal', () => {
       <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
     );
 
-    expect(screen.getByRole('img', { name: 'No grade yet' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '1.5 out of 5' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '2 out of 5' })).toBeTruthy();
     expect(screen.queryByText('Not enough tracked activity')).toBeNull();
   });
 
@@ -392,32 +394,6 @@ describe('FollowerDetailModal', () => {
       );
       expect(mutate).toHaveBeenCalled();
     });
-  });
-
-  it('shows the adjusted relationship grade and computed hint', () => {
-    useSWR.mockReturnValue({
-      data: {
-        ...detail,
-        myGrade: 5,
-        relationship: {
-          ...detail.relationship,
-          current: {
-            ...detail.relationship.current!,
-            adjustedGrade: 5,
-          },
-        },
-      },
-      error: undefined,
-      isLoading: false,
-      mutate,
-    });
-
-    render(
-      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
-    );
-
-    expect(screen.getByRole('img', { name: '5 out of 5' })).toBeTruthy();
-    expect(screen.getByText('Computed grade: 3.5 out of 5')).toBeTruthy();
   });
 
   it('preserves note draft after a failed save', async () => {
