@@ -16,6 +16,7 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/x.provider.interactions.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/temporal/infinite.workflow.register.spec.ts',
     '<rootDir>/libraries/helpers/src/utils/posts.list.minify.spec.ts',
+    '<rootDir>/libraries/helpers/src/utils/count.length.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/imgflip/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/media/media.service.spec.ts',
     '<rootDir>/apps/orchestrator/src/workflows/pipeline-workflows/**/*.spec.ts',

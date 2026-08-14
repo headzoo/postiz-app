@@ -12,6 +12,7 @@ import { XDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/x.
 import { Input } from '@gitroom/react/form/input';
 import { Checkbox } from '@gitroom/react/form/checkbox';
 import { MediaComponent } from '@gitroom/frontend/components/media/media.component';
+import { xMaxLength } from '@gitroom/helpers/utils/count.length';
 
 const whoCanReply = [
   {
@@ -139,10 +140,5 @@ export default withProvider({
   SettingsComponent: SettingsComponent,
   CustomPreviewComponent: undefined,
   dto: XDto,
-  maximumCharacters: (settings) => {
-    if (settings?.[0]?.value) {
-      return 4000;
-    }
-    return 280;
-  },
+  maximumCharacters: (settings) => xMaxLength(settings),
 });

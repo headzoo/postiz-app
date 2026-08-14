@@ -249,7 +249,14 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
 
   const initialSnapshotRef = useRef<string | null>(null);
   const baselineReadyRef = useRef(false);
-  const isEditingExistingPost = !!existingData?.group;
+  const isEditingExistingPost = !!existingData?.integration;
+  const rootPost = existingData?.posts?.[0];
+  const isAlreadyScheduled =
+    rootPost?.state === 'QUEUE' ||
+    (rootPost?.state === 'DRAFT' && !!rootPost?.publishDate);
+  const isPublished = rootPost?.state === 'PUBLISHED';
+  const hideScheduleControls =
+    isEditingExistingPost && (isAlreadyScheduled || isPublished);
 
   const getComposerSnapshot = useCallback(() => {
     const normalizeContent = (content: string) =>
@@ -359,7 +366,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
           'are_you_sure_you_want_to_close_this_modal_all_data_will_be_lost',
           'Are you sure you want to close this modal? (all data will be lost)'
         ),
-        t('yes_close_it', 'Yes, close it!')
+        t('continue', 'Continue'),
+        undefined,
+        t('cancel', 'Cancel')
       )
     ) {
       closeComposer();
@@ -944,7 +953,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                 )}
               </>
             )}
-            {!pipelineMode && <DatePicker onChange={setDate} date={date} />}
+            {!pipelineMode && !hideScheduleControls && (
+                <DatePicker onChange={setDate} date={date} />
+              )}
             {pipelineMode && (
               <div className="max-w-[250px] text-[13px] text-textColor">
                 <div className="font-[600]">{selectedPipeline!.name}</div>
@@ -962,7 +973,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                 disabled={
                   selectedIntegrations.length === 0 || loading || locked
                 }
-                onClick={schedule('draft')}
+                onClick={schedule(
+                  isEditingExistingPost ? 'update' : 'draft'
+                )}
                 className="relative cursor-pointer disabled:cursor-not-allowed px-[20px] h-[44px] bg-btnSimple justify-center items-center flex rounded-[8px] text-[15px] font-[600]"
               >
                 {loading && (
@@ -971,7 +984,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                   </div>
                 )}
                 <div className={clsx(loading && 'invisible')}>
-                  {t('save_as_draft', 'Save as Draft')}
+                  {isEditingExistingPost
+                    ? t('save', 'Save')
+                    : t('save_as_draft', 'Save as Draft')}
                 </div>
               </button>
             )}
@@ -986,7 +1001,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                 Save Set
               </button>
             )}
-            {!addEditSets && (
+            {!addEditSets && !hideScheduleControls && (
               <div className="group cursor-pointer relative">
                 <button
                   disabled={

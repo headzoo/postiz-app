@@ -27,7 +27,7 @@ declare global {
      * Returns the provider's resolved character limit (number) or null when
      * the provider doesn't declare one. Resolution uses the seeded
      * __PROVIDER_INIT__.integration.additionalSettings (e.g. X bumps to
-     * 4000 when {title:'Verified', value:true} is present).
+     * 25000 when {title:'Premium', value:true} is present).
      */
     __getProviderMaxCharacters__?: () => number | null;
   }

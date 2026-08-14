@@ -61,7 +61,15 @@ export const InformationComponent: FC<{
   totalAllowedChars: number;
   isPicture: boolean;
   text?: string;
-}> = ({ totalChars, totalAllowedChars, chars, isPicture, text }) => {
+  truncationWarningAbove?: number;
+}> = ({
+  totalChars,
+  totalAllowedChars,
+  chars,
+  isPicture,
+  text,
+  truncationWarningAbove,
+}) => {
   const t = useT();
   const { isGlobal, selectedIntegrations, internal, currentIntegration } =
     useLaunchStore(
@@ -91,6 +99,11 @@ export const InformationComponent: FC<{
 
   const showStripLinkWarning = stripLinkNames.length > 0;
 
+  const showTruncationWarning =
+    typeof truncationWarningAbove === 'number' &&
+    totalChars > truncationWarningAbove &&
+    totalChars <= totalAllowedChars;
+
   const isInternal = useMemo(() => {
     if (!isGlobal) {
       return [];
@@ -106,10 +119,6 @@ export const InformationComponent: FC<{
 
   const isValid = useMemo(() => {
     if (showStripLinkWarning) {
-      return false;
-    }
-
-    if (!isPicture && !totalChars) {
       return false;
     }
 
@@ -138,10 +147,14 @@ export const InformationComponent: FC<{
     totalAllowedChars,
     totalChars,
     isInternal,
-    isPicture,
     chars,
     showStripLinkWarning,
   ]);
+
+  const showDetails =
+    (isGlobal && selectedIntegrations.length > 0) ||
+    !isValid ||
+    showTruncationWarning;
 
   const globalDisplayLimit = useMemo(() => {
     if (!isGlobal || !selectedIntegrations.length) {
@@ -187,7 +200,7 @@ export const InformationComponent: FC<{
           {totalChars}/{globalDisplayLimit}
         </div>
       )}
-      {((isGlobal && selectedIntegrations.length) || !isValid) && (
+      {showDetails && (
         <svg
           className={clsx('group-hover:rotate-180', !isValid && 'text-white')}
           xmlns="http://www.w3.org/2000/svg"
@@ -202,7 +215,7 @@ export const InformationComponent: FC<{
           />
         </svg>
       )}
-      {((isGlobal && selectedIntegrations.length) || !isValid) && (
+      {showDetails && (
         <div
           className={clsx(
             'z-[300] hidden rounded-[12px] bg-newBgColorInner group-hover:flex absolute end-0 bottom-[100%] mb-[5px] p-[12px] flex-col',
@@ -274,6 +287,22 @@ export const InformationComponent: FC<{
             >
               {t('links_will_be_removed_from', 'Links will be removed from')}:{' '}
               {stripLinkNames.join(', ')}
+            </div>
+          )}
+          {showTruncationWarning && (
+            <div
+              className={clsx(
+                'text-sm text-[#FBBF24] whitespace-nowrap',
+                ((isGlobal && selectedIntegrations.length) ||
+                  (!isPicture && !totalChars) ||
+                  showStripLinkWarning) &&
+                  'mt-[12px]'
+              )}
+            >
+              {t(
+                'x_posts_over_280_truncated',
+                'Posts over 280 characters will be truncated for non-Premium X viewers'
+              )}
             </div>
           )}
         </div>

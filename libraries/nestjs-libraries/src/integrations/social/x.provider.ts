@@ -46,6 +46,7 @@ import { stripLinks as removeLinks } from '@gitroom/helpers/utils/strip.links';
 import { XDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/x.dto';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { xMaxLength } from '@gitroom/helpers/utils/count.length';
 
 // Travels through the workflow history between postPending, checkPostStatus
 // and finalizePost - keep it small JSON (media ids and the tweet content).
@@ -216,17 +217,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   };
 
   maxLength(additionalSettings?: any, settings?: any) {
-    // Articles are long-form content, the tweet character limit doesn't apply.
-    if (settings?.post_type === 'article') {
-      return 100000;
-    }
-
-    // Accepts either the parsed additionalSettings array (from validation) or a
-    // plain boolean (legacy callers). "Verified" => premium => higher limit.
-    const isTwitterPremium = Array.isArray(additionalSettings)
-      ? !!additionalSettings.find((p: any) => p?.title === 'Verified')?.value
-      : !!additionalSettings;
-    return isTwitterPremium ? 4000 : 280;
+    return xMaxLength(additionalSettings, settings?.post_type);
   }
 
   profileUrl(integration: Integration) {
@@ -1720,7 +1711,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     );
 
     const {
-      data: { username, verified, profile_image_url, name, id },
+      data: { username, profile_image_url, name, id },
     } = await client.v2.me({
       'user.fields': [
         'username',
@@ -1741,10 +1732,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       username,
       additionalSettings: [
         {
-          title: 'Verified',
-          description: 'Is this a verified user? (Premium)',
+          title: 'Premium',
+          description:
+            'Enable if this account has X Premium (up to 25,000 characters). Posts over 280 characters are truncated for non-Premium viewers.',
           type: 'checkbox' as const,
-          value: verified,
+          value: false,
         },
       ],
     };

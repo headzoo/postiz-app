@@ -47,6 +47,10 @@ import Paragraph from '@tiptap/extension-paragraph';
 import HardBreak from '@tiptap/extension-hard-break';
 import Underline from '@tiptap/extension-underline';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
+import {
+  weightedLength,
+  X_TRUNCATION_WARNING_LENGTH,
+} from '@gitroom/helpers/utils/count.length';
 import { History } from '@tiptap/extension-history';
 import { BulletList, ListItem } from '@tiptap/extension-list';
 import { Bullets } from '@gitroom/frontend/components/new-launch/bullets.component';
@@ -679,6 +683,12 @@ export const Editor: FC<{
     return stripHtmlValidation('normal', props.value || '', true);
   }, [props.value]);
 
+  const displayedChars = useMemo(() => {
+    return identifier === 'x'
+      ? weightedLength(valueWithoutHtml)
+      : valueWithoutHtml.length;
+  }, [identifier, valueWithoutHtml]);
+
   const addText = useCallback(
     (emoji: string) => {
       editorRef?.current?.editor?.commands?.insertContent(emoji);
@@ -818,9 +828,15 @@ export const Editor: FC<{
                     <InformationComponent
                       isPicture={pictures?.length > 0}
                       chars={chars}
-                      totalChars={valueWithoutHtml.length}
+                      totalChars={displayedChars}
                       totalAllowedChars={props.totalChars}
                       text={valueWithoutHtml}
+                      truncationWarningAbove={
+                        identifier === 'x' &&
+                        (props.totalChars || 0) > X_TRUNCATION_WARNING_LENGTH
+                          ? X_TRUNCATION_WARNING_LENGTH
+                          : undefined
+                      }
                     />
                   }
                   toolBar={

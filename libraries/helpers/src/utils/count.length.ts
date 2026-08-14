@@ -1,6 +1,11 @@
 // @ts-ignore
 import twitter from 'twitter-text';
 
+export const X_STANDARD_MAX_LENGTH = 280;
+export const X_PREMIUM_MAX_LENGTH = 25000;
+export const X_TRUNCATION_WARNING_LENGTH = 280;
+export const X_ARTICLE_MAX_LENGTH = 100000;
+
 export const textSlicer = (
   integrationType: string,
   end: number,
@@ -36,4 +41,29 @@ export const textSlicer = (
 
 export const weightedLength = (text: string): number => {
   return twitter.parseTweet(text).weightedLength;
+};
+
+export const isXPremium = (additionalSettings?: unknown): boolean => {
+  if (Array.isArray(additionalSettings)) {
+    return additionalSettings.some(
+      (setting: { title?: string; value?: unknown }) =>
+        (setting?.title === 'Premium' || setting?.title === 'Verified') &&
+        !!setting?.value
+    );
+  }
+
+  return !!additionalSettings;
+};
+
+export const xMaxLength = (
+  additionalSettings?: unknown,
+  postType?: string
+): number => {
+  if (postType === 'article') {
+    return X_ARTICLE_MAX_LENGTH;
+  }
+
+  return isXPremium(additionalSettings)
+    ? X_PREMIUM_MAX_LENGTH
+    : X_STANDARD_MAX_LENGTH;
 };
