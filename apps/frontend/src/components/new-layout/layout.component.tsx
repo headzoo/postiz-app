@@ -2,7 +2,7 @@
 
 import React, { ReactNode, useCallback, useEffect } from 'react';
 import { Logo } from '@gitroom/frontend/components/new-layout/logo';
-import { Plus_Jakarta_Sans } from 'next/font/google';
+import { jakartaSans } from '@gitroom/frontend/app/fonts';
 
 import clsx from 'clsx';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
@@ -37,12 +37,6 @@ import { TrialTracker } from '@gitroom/frontend/components/layout/gtm.component'
 import { setSentryUser } from '@gitroom/react/sentry/initialize.sentry.client';
 import { NewPost } from '@gitroom/frontend/components/launches/new.post';
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
-
-const jakartaSans = Plus_Jakarta_Sans({
-  weight: ['600', '500', '700'],
-  style: ['normal', 'italic'],
-  subsets: ['latin'],
-});
 
 export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const fetch = useFetch();
