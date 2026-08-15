@@ -104,12 +104,24 @@ describe('LogsSettings', () => {
 
     expect(screen.getAllByText('Created Post').length).toBeGreaterThan(0);
     expect(screen.getByText('Status')).toBeTruthy();
+    expect(screen.getByText('Event')).toBeTruthy();
+    expect(screen.queryByText('Event type')).toBeNull();
     expect(screen.queryByText('Method')).toBeNull();
-    expect(screen.getByText('outbound')).toBeTruthy();
+    expect(screen.getByText('Outbound')).toBeTruthy();
     expect(screen.getByText('My X')).toBeTruthy();
-    expect(screen.getByText('@me')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '@me' })).toHaveAttribute(
+      'href',
+      'https://x.com/me'
+    );
+    expect(screen.getByRole('link', { name: '@me' })).toHaveAttribute(
+      'target',
+      '_blank'
+    );
     expect(screen.getByText('CRM')).toBeTruthy();
-    expect(screen.getByText('@example.com')).toBeTruthy();
+    expect(screen.getByRole('link', { name: '@example.com' })).toHaveAttribute(
+      'href',
+      'https://example.com'
+    );
     fireEvent.click(screen.getByRole('button', { name: 'View' }));
     expect(openModal).toHaveBeenCalledTimes(1);
   });

@@ -47,6 +47,23 @@ const webhookEventLabel = (eventType?: string | null) => {
   return WEBHOOK_EVENT_LABELS[eventType] || eventType;
 };
 
+const formatWebhookDirection = (direction: string) =>
+  direction.charAt(0).toUpperCase() + direction.slice(1).toLowerCase();
+
+const webhookIdentityUrl = (username?: string | null) => {
+  if (!username) {
+    return undefined;
+  }
+  const handle = username.replace(/^@+/, '').trim();
+  if (!handle || /[\s/]/.test(handle)) {
+    return undefined;
+  }
+  if (handle.includes('.')) {
+    return `https://${handle}`;
+  }
+  return `https://x.com/${encodeURIComponent(handle)}`;
+};
+
 const LogIdentity: FC<{
   displayName?: string | null;
   username?: string | null;
@@ -54,13 +71,25 @@ const LogIdentity: FC<{
   if (!displayName && !username) {
     return <span>—</span>;
   }
+  const profileUrl = webhookIdentityUrl(username);
   return (
     <div className="min-w-0">
       {displayName ? (
         <div className="truncate">{displayName}</div>
       ) : null}
       {username ? (
-        <div className="truncate opacity-60 text-[12px]">@{username}</div>
+        profileUrl ? (
+          <a
+            href={profileUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="truncate opacity-60 text-[12px] hover:underline hover:opacity-80 block"
+          >
+            @{username}
+          </a>
+        ) : (
+          <div className="truncate opacity-60 text-[12px]">@{username}</div>
+        )
       ) : null}
     </div>
   );
@@ -311,11 +340,11 @@ const LogTable: FC<{
     <div className="border border-newTableBorder rounded-[8px] overflow-hidden">
       <div className="grid grid-cols-[170px_90px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] bg-newTableHeader text-[12px] uppercase opacity-70 border-b border-newTableBorder">
         <div>{t('created', 'Created')}</div>
-        <div>{t('log_status', 'Status')}</div>
+        <div className="text-center">{t('log_status', 'Status')}</div>
         <div>{t('direction', 'Direction')}</div>
         <div>{t('source', 'Source')}</div>
         <div>{t('target', 'Target')}</div>
-        <div>{t('event_type', 'Event type')}</div>
+        <div>{t('event', 'Event')}</div>
         <div className="text-right">{t('actions', 'Actions')}</div>
       </div>
       {webhooks.items.map((row) => (
@@ -324,8 +353,8 @@ const LogTable: FC<{
           className="grid grid-cols-[170px_90px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] text-[13px] border-b border-newTableBorder last:border-b-0 items-center"
         >
           <div>{new Date(row.createdAt).toLocaleString()}</div>
-          <div>{row.statusCode ?? row.error ?? '—'}</div>
-          <div>{row.direction.toLowerCase()}</div>
+          <div className="text-center">{row.statusCode ?? row.error ?? '—'}</div>
+          <div>{formatWebhookDirection(row.direction)}</div>
           <LogIdentity
             displayName={row.sourceDisplayName}
             username={row.sourceUsername}
