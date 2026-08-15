@@ -102,7 +102,8 @@ type XActivitySubscriptionSpec = DesiredChannelInteractionSubscription & {
   | 'follow.unfollow'
   | 'post.create'
   | 'post.delete'
-  | 'post.mention.create';
+  | 'post.mention.create'
+  | 'post.repost.create';
   filterDirection?: ChannelInteractionDirection;
 };
 
@@ -174,6 +175,18 @@ const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
     eventKey: 'post.mention.create',
     eventType: 'post.mention.create',
     direction: 'inbound',
+  },
+  {
+    eventKey: 'post.repost.create',
+    eventType: 'post.repost.create',
+    direction: 'inbound',
+    filterDirection: 'inbound',
+  },
+  {
+    eventKey: 'post.repost.create',
+    eventType: 'post.repost.create',
+    direction: 'outbound',
+    filterDirection: 'outbound',
   },
 ];
 
@@ -446,7 +459,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       return this.normalizePostDelete(payload, connectedAccountId, receivedAt);
     }
 
-    if (eventType === 'post.create' || eventType === 'post.mention.create') {
+    if (
+      eventType === 'post.create' ||
+      eventType === 'post.mention.create' ||
+      eventType === 'post.repost.create'
+    ) {
       return this.normalizeTweetInteraction(
         payload,
         includes,
@@ -492,7 +509,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     tweet: any,
     includes: any,
     connectedAccountId: string,
-    eventType: 'post.create' | 'post.mention.create',
+    eventType: 'post.create' | 'post.mention.create' | 'post.repost.create',
     eventUuid: string | undefined,
     receivedAt: string
   ): {
@@ -507,7 +524,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     const eventAt = this.xEventTimestamp(tweet, receivedAt);
     const events: NormalizedChannelInteractionEvent[] = [];
     const outbound =
-      eventType === 'post.create' && actor.externalId === connectedAccountId;
+      (eventType === 'post.create' || eventType === 'post.repost.create') &&
+      actor.externalId === connectedAccountId;
     const references = Array.isArray(tweet?.referenced_tweets)
       ? tweet.referenced_tweets
       : [];
@@ -854,13 +872,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       { kind: 'follow', inbound: 'supported', outbound: 'supported' },
       { kind: 'reply', inbound: 'supported', outbound: 'supported' },
       { kind: 'mention', inbound: 'supported', outbound: 'supported' },
-      {
-        kind: 'repost',
-        inbound: 'partial',
-        outbound: 'supported',
-        reason:
-          'X Activity API has no dedicated repost event; inbound reposts are only observed when delivered through subscribed post events',
-      },
+      { kind: 'repost', inbound: 'supported', outbound: 'supported' },
     ];
   }
 
@@ -1021,22 +1033,15 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             throw new XWebhookApiError('invalid_request');
           }
           const attachedWebhookId = this.xSubscriptionWebhookId(active);
-          // Tag-only PUTs clear delivery back to "Stream only". Only touch
-          // delivery when X reports a missing or different webhook.
-          if (!attachedWebhookId && !createdThisPass) {
+          // A PUT carrying a tag resets delivery back to "Stream only", so we
+          // never PATCH delivery in place. Whenever the attached webhook is
+          // missing or points at a different endpoint, delete and recreate the
+          // subscription with our webhook attached from the start.
+          if (!createdThisPass && attachedWebhookId !== endpoint.remoteWebhookId) {
             await this.deleteXActivitySubscription(remoteIdentifier);
             active = await this.createXActivitySubscription(
               spec,
               integration.internalId,
-              endpoint.remoteWebhookId,
-              tag
-            );
-          } else if (
-            attachedWebhookId &&
-            attachedWebhookId !== endpoint.remoteWebhookId
-          ) {
-            active = await this.attachXActivityWebhook(
-              { ...active, subscription_id: remoteIdentifier },
               endpoint.remoteWebhookId,
               tag
             );
@@ -1201,40 +1206,6 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     if (Array.isArray(data)) return data[0];
     if (data && 'subscription' in data) return data.subscription;
     return data as XActivitySubscription | undefined;
-  }
-
-  private async attachXActivityWebhook(
-    subscription: XActivitySubscription,
-    webhookId: string,
-    tag: string
-  ) {
-    const subscriptionId = this.boundedId(subscription.subscription_id);
-    if (!subscriptionId) {
-      throw new XWebhookApiError('invalid_request');
-    }
-    const updated = await this.xWebhookApi<{
-      data?: XActivitySubscription | { subscription?: XActivitySubscription };
-    }>(
-      `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(
-        subscriptionId
-      )}`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          webhook_id: webhookId,
-          tag,
-        }),
-      },
-      'bearer'
-    );
-    return {
-      ...subscription,
-      ...this.xActivitySubscriptionFromResponse(updated),
-      subscription_id: subscriptionId,
-      webhook_id: webhookId,
-      tag,
-    };
   }
 
   private async deleteXActivitySubscription(

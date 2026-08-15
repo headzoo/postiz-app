@@ -227,6 +227,45 @@ describe('XProvider interaction webhooks', () => {
     });
   });
 
+  it('normalizes inbound reposts delivered on the dedicated repost event', async () => {
+    const capability = new XProvider().channelInteractionWebhooks;
+    const repost = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.repost.create',
+          {
+            id: 'repost-in',
+            author_id: '8',
+            created_at: '2024-01-01T00:00:02.000Z',
+            referenced_tweets: [{ type: 'retweeted', id: 'original' }],
+          },
+          {
+            direction: 'inbound',
+            eventUuid: 'event-repost-in',
+            includes: {
+              users: [user('8'), user('42')],
+              tweets: [{ id: 'original', author_id: '42' }],
+            },
+          }
+        )
+      )
+    );
+    expect(repost).toMatchObject({
+      accepted: true,
+      connectedAccountId: '42',
+      events: [
+        {
+          kind: 'repost',
+          direction: 'inbound',
+          counterparty: { externalId: '8' },
+          relatedObjectId: 'original',
+          metadata: { referenceType: 'repost' },
+          eventType: 'post.repost.create',
+        },
+      ],
+    });
+  });
+
   it('imports standalone outbound posts and marks platform deletes', async () => {
     const capability = new XProvider().channelInteractionWebhooks;
     const created = await capability.verifyAndNormalizeDelivery(
@@ -416,7 +455,7 @@ describe('XProvider interaction webhooks', () => {
     ).resolves.toEqual({ accepted: false, statusCode: 413 });
   });
 
-  it('declares documented remote records and partial inbound repost coverage', () => {
+  it('declares documented remote records and full repost coverage', () => {
     const capability = new XProvider().channelInteractionWebhooks;
     expect(capability.getDesiredSubscriptions({} as any)).toEqual([
       { eventKey: 'like.create', direction: 'inbound' },
@@ -426,12 +465,14 @@ describe('XProvider interaction webhooks', () => {
       { eventKey: 'post.create', direction: 'outbound' },
       { eventKey: 'post.delete', direction: 'outbound' },
       { eventKey: 'post.mention.create', direction: 'inbound' },
+      { eventKey: 'post.repost.create', direction: 'inbound' },
+      { eventKey: 'post.repost.create', direction: 'outbound' },
     ]);
     expect(capability.getInteractionCoverage()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'repost',
-          inbound: 'partial',
+          inbound: 'supported',
           outbound: 'supported',
         }),
       ])
@@ -448,6 +489,8 @@ describe('XProvider interaction webhooks', () => {
       ['post.create', undefined],
       ['post.delete', undefined],
       ['post.mention.create', undefined],
+      ['post.repost.create', 'inbound'],
+      ['post.repost.create', 'outbound'],
     ].map(([eventType, direction], index) => ({
       subscription_id: String(index + 1),
       event_type: eventType,
@@ -551,19 +594,27 @@ describe('XProvider interaction webhooks', () => {
       expect.stringMatching(/\/activity\/subscriptions\/duplicate-b$/),
       expect.objectContaining({ method: 'DELETE' })
     );
+    // The surviving subscription is attached to a stale webhook. Rather than a
+    // tag-bearing PUT (which resets delivery to "Stream only"), reconciliation
+    // deletes it and recreates it with the current webhook attached.
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/activity\/subscriptions\/duplicate-a$/),
-      expect.objectContaining({
-        method: 'PUT',
-        headers: expect.objectContaining({
-          Authorization: 'Bearer app-bearer',
-        }),
-        body: JSON.stringify({
-          webhook_id: '123',
-          tag: 'postiz:42:follow.follow:inbound',
-        }),
-      })
+      expect.objectContaining({ method: 'DELETE' })
     );
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, options]) =>
+          String(url).endsWith('/activity/subscriptions') &&
+          options?.method === 'POST' &&
+          String((options as RequestInit).body).includes(
+            '"event_type":"follow.follow"'
+          ) &&
+          String((options as RequestInit).body).includes('"webhook_id":"123"')
+      )
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.some(([, options]) => options?.method === 'PUT')
+    ).toBe(false);
 
     fetchMock.mockClear();
     await expect(
@@ -660,6 +711,8 @@ describe('XProvider interaction webhooks', () => {
       'post.create',
       'post.delete',
       'post.mention.create',
+      'post.repost.create',
+      'post.repost.create',
     ]);
   });
 
