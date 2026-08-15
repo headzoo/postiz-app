@@ -1,12 +1,16 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   BadBody,
   RefreshToken,
@@ -21,6 +25,8 @@ import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/s
 import { Integration } from '@prisma/client';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 
+dayjs.extend(utc);
+
 @Rules(
   [
     'TikTok can have one video or one picture or multiple pictures, it cannot be without an attachment.',
@@ -31,6 +37,10 @@ import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorato
 )
 export class TiktokProvider extends SocialAbstract implements SocialProvider {
   identifier = 'tiktok';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   name = 'Tiktok';
   isBetweenSteps = false;
   convertToJPEG = true;
@@ -1074,6 +1084,45 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       console.error('Error fetching TikTok analytics:', err);
       return [];
     }
+  }
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const response = await fetch(
+      'https://open.tiktokapis.com/v2/user/info/?fields=follower_count,following_count,likes_count,video_count',
+      { headers: { Authorization: `Bearer ${request.accessToken}` } }
+    );
+    const body = await response.json();
+    if (!response.ok || (body?.error && body.error.code !== 'ok')) {
+      throw new Error('TikTok analytics request failed');
+    }
+    const user = body?.data?.user || {};
+    const definitions = [
+      ['follower_count', 'followers', 'Followers'],
+      ['following_count', 'following', 'Following'],
+      ['likes_count', 'total_likes', 'Total Likes'],
+      ['video_count', 'videos', 'Videos'],
+    ] as const;
+    const day = dayjs.utc(request.snapshotAt).format('YYYY-MM-DD');
+
+    return paginateDailyAnalyticsCapture(
+      request,
+      { fromDay: day, toDay: day },
+      definitions.flatMap(([field, metricKey, label]) =>
+        typeof user[field] === 'number'
+          ? [
+              {
+                metricKey,
+                label,
+                valueMode: 'latest' as const,
+                value: user[field],
+                day,
+              },
+            ]
+          : []
+      )
+    );
   }
 
   async missing(

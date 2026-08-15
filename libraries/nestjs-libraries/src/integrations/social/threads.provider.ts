@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -9,6 +12,7 @@ import {
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { timer } from '@gitroom/helpers/utils/timer';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   BadBody,
   SocialAbstract,
@@ -19,8 +23,14 @@ import { Integration } from '@prisma/client';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 
+dayjs.extend(utc);
+
 export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   identifier = 'threads';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   name = 'Threads';
   isBetweenSteps = false;
   scopes = [
@@ -746,6 +756,51 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
               date: dayjs(v.end_time).format('YYYY-MM-DD'),
             })),
       })) || []
+    );
+  }
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const toDay = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
+    const fromDay = dayjs
+      .utc(request.fromDay || dayjs.utc(request.snapshotAt).subtract(180, 'day'))
+      .startOf('day');
+    const until = toDay.endOf('day').unix();
+    const since = fromDay.unix();
+    const response = await fetch(
+      `https://graph.threads.net/v1.0/${request.integration.internalId}/threads_insights?metric=views,likes,replies,reposts,quotes&access_token=${request.accessToken}&period=day&since=${since}&until=${until}`
+    );
+    const body = await response.json();
+    if (!response.ok || body?.error) {
+      throw new Error('Threads analytics request failed');
+    }
+    const data = body?.data || [];
+    return paginateDailyAnalyticsCapture(
+      request,
+      {
+        fromDay: fromDay.format('YYYY-MM-DD'),
+        toDay: toDay.format('YYYY-MM-DD'),
+      },
+      data.flatMap((metric: any) =>
+        metric.total_value
+          ? [
+              {
+                metricKey: metric.name,
+                label: capitalize(metric.name),
+                valueMode: 'latest' as const,
+                value: Number(metric.total_value.value),
+                day: toDay.format('YYYY-MM-DD'),
+              },
+            ]
+          : (metric.values || []).map((value: any) => ({
+              metricKey: metric.name,
+              label: capitalize(metric.name),
+              valueMode: 'sum' as const,
+              value: Number(value.value),
+              day: dayjs.utc(value.end_time).format('YYYY-MM-DD'),
+            }))
+      )
     );
   }
 

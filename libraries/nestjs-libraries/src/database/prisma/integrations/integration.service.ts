@@ -80,6 +80,8 @@ import {
   ProjectedFollowerCursor,
   RankedFollowerCursor,
 } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
+import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.service';
+import { ChannelAnalyticsRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.repository';
 
 dayjs.extend(utc);
 
@@ -96,7 +98,9 @@ export class IntegrationService {
     private _temporalService: TemporalService,
     private _pipelinePlugService: PipelinePlugService,
     private _channelInteractionService: ChannelInteractionService,
-    private _channelInteractionRepository: ChannelInteractionRepository
+    private _channelInteractionRepository: ChannelInteractionRepository,
+    private _channelAnalyticsService: ChannelAnalyticsService,
+    private _channelAnalyticsRepository: ChannelAnalyticsRepository
   ) { }
 
   async changeActiveCron(orgId: string) {
@@ -2538,97 +2542,13 @@ export class IntegrationService {
   async checkAnalytics(
     org: Organization,
     integration: string,
-    date: string,
-    forceRefresh = false
+    date: number | string
   ): Promise<AnalyticsData[]> {
-    const { analytics } = await this.checkAnalyticsResult(
-      org,
+    return this._channelAnalyticsService.getStoredAnalytics(
+      org.id,
       integration,
-      date,
-      forceRefresh
+      +date as 7 | 30 | 90
     );
-
-    return analytics;
-  }
-
-  private async checkAnalyticsResult(
-    org: Organization,
-    integration: string,
-    date: string,
-    forceRefresh = false
-  ): Promise<{ analytics: AnalyticsData[]; failed: boolean }> {
-    const getIntegration = await this.getIntegrationById(org.id, integration);
-
-    if (!getIntegration) {
-      throw new Error('Invalid integration');
-    }
-
-    if (getIntegration.type !== 'social') {
-      return { analytics: [], failed: false };
-    }
-
-    const integrationProvider = this._integrationManager.getSocialIntegration(
-      getIntegration.providerIdentifier
-    );
-
-    if (
-      dayjs(getIntegration?.tokenExpiration).isBefore(dayjs()) ||
-      forceRefresh
-    ) {
-      const data = await this._refreshIntegrationService.refresh(
-        getIntegration
-      );
-      if (!data) {
-        return { analytics: [], failed: true };
-      }
-
-      const { accessToken } = data;
-
-      if (accessToken) {
-        getIntegration.token = accessToken;
-
-        if (integrationProvider.refreshWait) {
-          await timer(10000);
-        }
-      } else {
-        await this.disconnectChannel(org.id, getIntegration);
-        return { analytics: [], failed: true };
-      }
-    }
-
-    const getIntegrationData = await ioRedis.get(
-      `integration:${org.id}:${integration}:${date}`
-    );
-    if (getIntegrationData) {
-      return { analytics: JSON.parse(getIntegrationData), failed: false };
-    }
-
-    if (integrationProvider.analytics) {
-      try {
-        const loadAnalytics = await integrationProvider.analytics(
-          getIntegration.internalId,
-          getIntegration.token,
-          +date
-        );
-        await ioRedis.set(
-          `integration:${org.id}:${integration}:${date}`,
-          JSON.stringify(loadAnalytics),
-          'EX',
-          !process.env.NODE_ENV || process.env.NODE_ENV === 'development'
-            ? 1
-            : 3600
-        );
-        return { analytics: loadAnalytics, failed: false };
-      } catch (e) {
-        if (e instanceof RefreshToken) {
-          return this.checkAnalyticsResult(org, integration, date, true);
-        }
-
-        return { analytics: [], failed: true };
-      }
-    }
-
-    return { analytics: [], failed: false };
   }
 
   async getDashboardAnalytics(
@@ -2676,21 +2596,33 @@ export class IntegrationService {
             };
           }
 
-          if (!provider?.analytics) {
+          if (!provider?.analyticsSnapshot) {
             return { ...channel, state: 'unsupported' as const, analytics: [] };
           }
 
+          const syncState = await this._channelAnalyticsRepository.getSyncState(
+            org.id,
+            integration.id
+          );
+          if (this._channelAnalyticsService.isChannelUnavailable(syncState)) {
+            return {
+              ...channel,
+              state: 'unavailable' as const,
+              analytics: [],
+            };
+          }
+
           try {
-            const analytics = await this.checkAnalyticsResult(
-              org,
+            const analytics = await this._channelAnalyticsService.getStoredAnalytics(
+              org.id,
               integration.id,
-              String(date)
+              date
             );
 
             return {
               ...channel,
-              state: analytics.failed ? ('unavailable' as const) : ('ok' as const),
-              analytics: analytics.failed ? [] : analytics.analytics,
+              state: 'ok' as const,
+              analytics,
             };
           } catch {
             return { ...channel, state: 'unavailable' as const, analytics: [] };

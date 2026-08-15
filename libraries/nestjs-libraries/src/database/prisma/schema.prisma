@@ -56,6 +56,9 @@ model Organization {
   channelAudienceNotes              ChannelAudienceNote[]
   channelAudienceMemberGrades       ChannelAudienceMemberGrade[]
   channelRelationshipGradeSnapshots ChannelRelationshipGradeSnapshot[]
+  channelAnalyticsDailyPoints       ChannelAnalyticsDailyPoint[]
+  channelAnalyticsPostMetricSnapshots ChannelAnalyticsPostMetricSnapshot[]
+  channelAnalyticsSyncStates        ChannelAnalyticsSyncState[]
   postHttpLogs                      PostHttpLog[]
   webhookHttpLogs                   WebhookHttpLog[]
 
@@ -373,6 +376,9 @@ model Integration {
   channelAudienceNotes              ChannelAudienceNote[]
   channelAudienceMemberGrades       ChannelAudienceMemberGrade[]
   channelRelationshipGradeSnapshots ChannelRelationshipGradeSnapshot[]
+  channelAnalyticsDailyPoints       ChannelAnalyticsDailyPoint[]
+  channelAnalyticsPostMetricSnapshots ChannelAnalyticsPostMetricSnapshot[]
+  channelAnalyticsSyncState         ChannelAnalyticsSyncState?
   postHttpLogs                      PostHttpLog[]
   webhookHttpLogs                   WebhookHttpLog[]
 
@@ -1411,6 +1417,83 @@ enum ChannelFollowerSyncStatus {
   IN_PROGRESS
   COMPLETE
   FAILED
+}
+
+enum ChannelAnalyticsValueMode {
+  SUM
+  AVERAGE
+  LATEST
+}
+
+enum ChannelAnalyticsDisplayUnit {
+  COUNT
+  PERCENTAGE
+  DURATION
+  DECIMAL
+}
+
+model ChannelAnalyticsDailyPoint {
+  id             String                    @id @default(cuid())
+  organizationId String
+  integrationId  String
+  day            DateTime                  @db.Date
+  metricKey      String
+  label          String
+  valueMode      ChannelAnalyticsValueMode
+  displayUnit    ChannelAnalyticsDisplayUnit?
+  value          Decimal                   @db.Decimal(30, 6)
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+  organization   Organization              @relation(fields: [organizationId], references: [id])
+  integration    Integration               @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, day, metricKey])
+  @@index([organizationId, integrationId, day])
+  @@index([integrationId, day])
+}
+
+model ChannelAnalyticsPostMetricSnapshot {
+  id             String                    @id @default(cuid())
+  organizationId String
+  integrationId  String
+  snapshotAt     DateTime
+  externalPostId String
+  metricKey      String
+  label          String
+  valueMode      ChannelAnalyticsValueMode
+  displayUnit    ChannelAnalyticsDisplayUnit?
+  value          Decimal                   @db.Decimal(30, 6)
+  createdAt      DateTime                  @default(now())
+  organization   Organization              @relation(fields: [organizationId], references: [id])
+  integration    Integration               @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, snapshotAt, externalPostId, metricKey])
+  @@index([organizationId, integrationId, snapshotAt])
+  @@index([integrationId, snapshotAt])
+}
+
+model ChannelAnalyticsSyncState {
+  id                         String   @id @default(cuid())
+  organizationId             String
+  integrationId              String   @unique
+  lastSuccessfulSnapshotAt   DateTime?
+  lastCoveredDay             DateTime? @db.Date
+  coverageStartDay           DateTime? @db.Date
+  coverageEndDay             DateTime? @db.Date
+  pendingCoverageSnapshotAt  DateTime?
+  pendingCoverageStartDay    DateTime? @db.Date
+  pendingCoverageEndDay      DateTime? @db.Date
+  nextAttemptAt              DateTime?
+  failureCount               Int      @default(0)
+  failureCategory            String?
+  failureMessage             String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+  organization               Organization @relation(fields: [organizationId], references: [id])
+  integration                Integration  @relation(fields: [integrationId], references: [id])
+
+  @@index([nextAttemptAt, integrationId])
+  @@index([organizationId])
 }
 
 model ChannelAudienceMemberGrade {

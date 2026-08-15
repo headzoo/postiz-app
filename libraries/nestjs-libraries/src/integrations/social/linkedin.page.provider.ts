@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   PostDetails,
   PostResponse,
   SocialProvider,
@@ -8,10 +11,13 @@ import {
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { LinkedinProvider } from '@gitroom/nestjs-libraries/integrations/social/linkedin.provider';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { Integration } from '@prisma/client';
 import { Plug } from '@gitroom/helpers/decorators/plug.decorator';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+
+dayjs.extend(utc);
 
 @Rules(
   'LinkedIn can have maximum one attachment when selecting video, when choosing a carousel on LinkedIn minimum amount of attachment must be two, and only pictures, if uploading a video, LinkedIn can have only one attachment'
@@ -21,6 +27,10 @@ export class LinkedinPageProvider
   implements SocialProvider
 {
   override identifier = 'linkedin-page';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   override name = 'LinkedIn Page';
   override isBetweenSteps = true;
   override refreshWait = true;
@@ -440,6 +450,112 @@ export class LinkedinPageProvider
       ],
       percentageChange: 5,
     }));
+  }
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const toDay = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
+    const fromDay = dayjs
+      .utc(request.fromDay || dayjs.utc(request.snapshotAt).subtract(180, 'day'))
+      .startOf('day');
+    const endDate = toDay.unix() * 1000;
+    const startDate = fromDay.unix() * 1000;
+    const headers = {
+      Authorization: `Bearer ${request.accessToken}`,
+      'Linkedin-Version': '202601',
+      'X-Restli-Protocol-Version': '2.0.0',
+    };
+    const organization = encodeURIComponent(
+      `urn:li:organization:${request.integration.internalId}`
+    );
+    const timeIntervals = `(timeRange:(start:${startDate},end:${endDate}),timeGranularityType:DAY)`;
+    const responses = await Promise.all(
+      [
+        `organizationPageStatistics?q=organization&organization=${organization}&timeIntervals=${timeIntervals}`,
+        `organizationalEntityFollowerStatistics?q=organizationalEntity&organizationalEntity=${organization}&timeIntervals=${timeIntervals}`,
+        `organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity=${organization}&timeIntervals=${timeIntervals}`,
+      ].map((path) =>
+        fetch(`https://api.linkedin.com/v2/${path}`, { headers })
+      )
+    );
+    const [page, followers, shares] = await Promise.all(
+      responses.map((response) => response.json())
+    );
+    if (
+      responses.some((response) => !response.ok) ||
+      [page, followers, shares].some(
+        (body) => body?.serviceErrorCode || body?.message && !body?.elements
+      )
+    ) {
+      throw new Error('LinkedIn analytics request failed');
+    }
+    const points: any[] = [];
+    const push = (
+      element: any,
+      metricKey: string,
+      label: string,
+      value: unknown,
+      valueMode: 'sum' | 'average' = 'sum',
+      displayUnit?: 'percentage',
+      multiplier = 1
+    ) => {
+      if (typeof value === 'number') {
+        points.push({
+          metricKey,
+          label,
+          valueMode,
+          ...(displayUnit ? { displayUnit } : {}),
+          value: value * multiplier,
+          day: dayjs.utc(element.timeRange.start).format('YYYY-MM-DD'),
+        });
+      }
+    };
+    for (const element of page.elements || []) {
+      push(
+        element,
+        'page_views',
+        'Page Views',
+        element.totalPageStatistics?.views?.allPageViews?.pageViews
+      );
+    }
+    for (const element of followers.elements || []) {
+      push(
+        element,
+        'organic_followers',
+        'Organic Followers',
+        element.followerGains?.organicFollowerGain
+      );
+      push(
+        element,
+        'paid_followers',
+        'Paid Followers',
+        element.followerGains?.paidFollowerGain
+      );
+    }
+    for (const element of shares.elements || []) {
+      const statistics = element.totalShareStatistics;
+      push(element, 'clicks', 'Clicks', statistics?.clickCount);
+      push(element, 'shares', 'Shares', statistics?.shareCount);
+      push(
+        element,
+        'engagement_rate',
+        'Engagement Rate',
+        statistics?.engagement,
+        'average',
+        'percentage',
+        100
+      );
+      push(element, 'comments', 'Comments', statistics?.commentCount);
+    }
+    return paginateDailyAnalyticsCapture(
+      request,
+      {
+        fromDay: fromDay.format('YYYY-MM-DD'),
+        toDay: toDay.format('YYYY-MM-DD'),
+      },
+      points
+    );
   }
 
   async postAnalytics(

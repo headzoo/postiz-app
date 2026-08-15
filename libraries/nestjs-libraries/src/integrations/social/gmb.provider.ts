@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   PostDetails,
   PostResponse,
   SocialProvider,
@@ -15,8 +18,11 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import * as process from 'node:process';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 import { GmbSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/gmb.settings.dto';
+
+dayjs.extend(utc);
 
 const clientAndGmb = () => {
   const client = new google.auth.OAuth2({
@@ -41,6 +47,10 @@ const clientAndGmb = () => {
 export class GmbProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3;
   identifier = 'gmb';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   name = 'Google My Business';
   isBetweenSteps = true;
   scopes = [
@@ -632,6 +642,49 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
       console.error('Error fetching GMB analytics:', error);
       return [];
     }
+  }
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const startDate = dayjs
+      .utc(request.fromDay || dayjs.utc(request.snapshotAt).subtract(180, 'day'))
+      .startOf('day');
+    const endDate = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
+    const locationId = request.integration.internalId.split('/locations/')[1];
+    const response = await fetch(
+      `https://businessprofileperformance.googleapis.com/v1/locations/${locationId}:fetchMultiDailyMetricsTimeSeries?dailyMetrics=WEBSITE_CLICKS&dailyMetrics=CALL_CLICKS&dailyMetrics=BUSINESS_DIRECTION_REQUESTS&dailyMetrics=BUSINESS_IMPRESSIONS_DESKTOP_MAPS&dailyMetrics=BUSINESS_IMPRESSIONS_MOBILE_MAPS&dailyRange.startDate.year=${startDate.year()}&dailyRange.startDate.month=${startDate.month() + 1}&dailyRange.startDate.day=${startDate.date()}&dailyRange.endDate.year=${endDate.year()}&dailyRange.endDate.month=${endDate.month() + 1}&dailyRange.endDate.day=${endDate.date()}`,
+      { headers: { Authorization: `Bearer ${request.accessToken}` } }
+    );
+    const data = await response.json();
+    if (!response.ok || data?.error) {
+      throw new Error('Google Business Profile analytics request failed');
+    }
+    const labels: Record<string, string> = {
+      WEBSITE_CLICKS: 'Website Clicks',
+      CALL_CLICKS: 'Phone Calls',
+      BUSINESS_DIRECTION_REQUESTS: 'Direction Requests',
+      BUSINESS_IMPRESSIONS_DESKTOP_MAPS: 'Desktop Map Views',
+      BUSINESS_IMPRESSIONS_MOBILE_MAPS: 'Mobile Map Views',
+    };
+    return paginateDailyAnalyticsCapture(
+      request,
+      {
+        fromDay: startDate.format('YYYY-MM-DD'),
+        toDay: endDate.format('YYYY-MM-DD'),
+      },
+      (
+        data.multiDailyMetricTimeSeries?.[0]?.dailyMetricTimeSeries || []
+      ).flatMap((series: any) =>
+        (series.timeSeries?.datedValues || []).map((datedValue: any) => ({
+          metricKey: String(series.dailyMetric).toLowerCase(),
+          label: labels[series.dailyMetric] || series.dailyMetric,
+          valueMode: 'sum' as const,
+          value: Number(datedValue.value),
+          day: `${datedValue.date.year}-${String(datedValue.date.month).padStart(2, '0')}-${String(datedValue.date.day).padStart(2, '0')}`,
+        }))
+      )
+    );
   }
 
   async postAnalytics(

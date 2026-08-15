@@ -1,5 +1,6 @@
 import {
   AuthTokenDetails,
+  ChannelAnalyticsCaptureRequest,
   PostDetails,
   PostResponse,
   SocialProvider,
@@ -26,6 +27,13 @@ export class InstagramStandaloneProvider
 {
   identifier = 'instagram-standalone';
   name = 'Instagram\n(Standalone)';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      instagramProvider.captureAnalyticsSnapshot(
+        request,
+        'graph.instagram.com'
+      ),
+  };
   isBetweenSteps = false;
   refreshCron = true;
   scopes = [

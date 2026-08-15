@@ -7,6 +7,8 @@ import useSWR from 'swr';
 export type DashboardAnalyticsMetric = {
   label: string;
   data: Array<{ total: number; date: string }>;
+  valueMode?: 'sum' | 'average' | 'latest';
+  displayUnit?: 'count' | 'percentage' | 'duration' | 'decimal';
   average?: boolean;
   percentageChange?: number;
 };

@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -22,9 +25,12 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import * as process from 'node:process';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { createReadStream, statSync } from 'fs';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+
+dayjs.extend(utc);
 
 const clientAndYoutube = () => {
   const client = new google.auth.OAuth2({
@@ -58,6 +64,10 @@ const clientAndYoutube = () => {
 export class YoutubeProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 200; // YouTube has strict upload quotas
   identifier = 'youtube';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   name = 'YouTube';
   isBetweenSteps = true;
   dto = YoutubeSettingsDto;
@@ -1039,6 +1049,96 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
     } catch (err) {
       return [];
     }
+  }
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const { client, youtubeAnalytics } = clientAndYoutube();
+    client.setCredentials({ access_token: request.accessToken });
+    const toDay = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
+    const fromDay = dayjs
+      .utc(
+        request.fromDay || dayjs.utc(request.snapshotAt).subtract(180, 'day')
+      )
+      .startOf('day');
+    const data = (
+      await youtubeAnalytics(client).reports.query({
+        ids: 'channel==MINE',
+        startDate: fromDay.format('YYYY-MM-DD'),
+        endDate: toDay.format('YYYY-MM-DD'),
+        metrics:
+          'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,likes,subscribersLost',
+        dimensions: 'day',
+        sort: 'day',
+      })
+    ).data;
+    if (!data || data.errors) {
+      throw new Error('YouTube analytics request failed');
+    }
+    const columns = data.columnHeaders?.map((column) => column.name) || [];
+    const definitions: Record<
+      string,
+      {
+        metricKey: string;
+        label: string;
+        valueMode: 'sum' | 'average';
+        displayUnit?: 'count' | 'percentage' | 'duration';
+      }
+    > = {
+      views: { metricKey: 'views', label: 'Views', valueMode: 'sum' },
+      estimatedMinutesWatched: {
+        metricKey: 'estimated_minutes_watched',
+        label: 'Estimated Minutes Watched',
+        valueMode: 'sum',
+      },
+      averageViewDuration: {
+        metricKey: 'average_view_duration',
+        label: 'Average View Duration',
+        valueMode: 'average',
+        displayUnit: 'duration',
+      },
+      averageViewPercentage: {
+        metricKey: 'average_view_percentage',
+        label: 'Average View Percentage',
+        valueMode: 'average',
+        displayUnit: 'percentage',
+      },
+      subscribersGained: {
+        metricKey: 'subscribers_gained',
+        label: 'Subscribers Gained',
+        valueMode: 'sum',
+      },
+      subscribersLost: {
+        metricKey: 'subscribers_lost',
+        label: 'Subscribers Lost',
+        valueMode: 'sum',
+      },
+      likes: { metricKey: 'likes', label: 'Likes', valueMode: 'sum' },
+    };
+    return paginateDailyAnalyticsCapture(
+      request,
+      {
+        fromDay: fromDay.format('YYYY-MM-DD'),
+        toDay: toDay.format('YYYY-MM-DD'),
+      },
+      (data.rows || []).flatMap((row) => {
+        const values = Object.fromEntries(
+          columns.map((column, index) => [column, row[index]])
+        );
+        return Object.entries(definitions).flatMap(([column, definition]) =>
+          typeof values[column] === 'number'
+            ? [
+                {
+                  ...definition,
+                  value: values[column] as number,
+                  day: String(values.day),
+                },
+              ]
+            : []
+        );
+      })
+    );
   }
 
   async postAnalytics(

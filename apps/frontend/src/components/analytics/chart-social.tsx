@@ -3,8 +3,9 @@
 import { FC, useEffect, useMemo, useRef } from 'react';
 import DrawChart from 'chart.js/auto';
 import { TotalList } from '@gitroom/frontend/components/analytics/stars.and.forks.interface';
-import { chunk } from 'lodash';
 import useCookie from 'react-use-cookie';
+
+export type AnalyticsValueMode = 'sum' | 'average' | 'latest';
 
 const colorSchemes = {
   purple: {
@@ -24,48 +25,87 @@ const colorSchemes = {
   },
 };
 
-function mergeDataPoints(data: TotalList[], numPoints: number): TotalList[] {
-  const res = chunk(data, Math.ceil(data.length / numPoints));
-  return res.map((row) => {
-    return {
-      date: `${row[0].date} - ${row?.at(-1)?.date}`,
-      total: row.reduce((acc, curr) => acc + curr.total, 0),
-    };
-  });
-}
+export const sortAnalyticsPoints = (data: TotalList[]): TotalList[] =>
+  [...data].sort((a, b) => a.date.localeCompare(b.date));
+
+export const downsampleAnalyticsPoints = (
+  data: TotalList[],
+  valueMode: AnalyticsValueMode,
+  maxBuckets = 7
+): TotalList[] => {
+  const sorted = sortAnalyticsPoints(data);
+  if (sorted.length <= maxBuckets) {
+    return sorted;
+  }
+
+  const chunkSize = Math.ceil(sorted.length / maxBuckets);
+  const buckets: TotalList[] = [];
+
+  for (let index = 0; index < sorted.length; index += chunkSize) {
+    const row = sorted.slice(index, index + chunkSize);
+    const first = row[0];
+    const last = row[row.length - 1];
+    const date =
+      row.length === 1 ? first.date : `${first.date} - ${last.date}`;
+
+    let total: number;
+    if (valueMode === 'sum') {
+      total = row.reduce((acc, curr) => acc + curr.total, 0);
+    } else if (valueMode === 'average') {
+      total = row.reduce((acc, curr) => acc + curr.total, 0) / row.length;
+    } else {
+      total = last.total;
+    }
+
+    buckets.push({ date, total });
+  }
+
+  return buckets;
+};
 
 export const ChartSocial: FC<{
   data: TotalList[];
   color?: 'purple' | 'green' | 'blue';
+  valueMode?: AnalyticsValueMode;
 }> = (props) => {
-  const { data, color = 'purple' } = props;
+  const { data, color = 'purple', valueMode = 'sum' } = props;
   const [mode] = useCookie('mode', 'dark');
 
-  const list = useMemo(() => {
-    const merged = data.length < 7 ? data : mergeDataPoints(data, 7);
-    if (merged.length === 1) {
-      return [
-        // duplicating single datapoints metrics for chart to display a line on analytics
-        merged[0],
-        merged[0],
-      ];
-    }
-    return merged;
-  }, [data]);
+  const list = useMemo(
+    () => downsampleAnalyticsPoints(data, valueMode),
+    [data, valueMode]
+  );
 
-  const ref = useRef<any>(null);
-  const chart = useRef<null | DrawChart>(null);
+  const hasNegativeValues = useMemo(
+    () => list.some((row) => row.total < 0),
+    [list]
+  );
+
+  const isSinglePoint = list.length === 1;
+  const chartType = valueMode === 'sum' ? 'bar' : 'line';
+
+  const ref = useRef<HTMLCanvasElement | null>(null);
+  const chart = useRef<DrawChart | null>(null);
 
   const colors = colorSchemes[color];
 
   useEffect(() => {
-    const ctx = ref.current.getContext('2d');
-    const gradient = ctx.createLinearGradient(0, 0, 0, ref.current.height);
+    const canvas = ref.current;
+    if (!canvas) {
+      return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
     gradient.addColorStop(0, colors.start);
     gradient.addColorStop(1, colors.end);
 
-    chart.current = new DrawChart(ref.current!, {
-      type: 'line',
+    chart.current = new DrawChart(canvas, {
+      type: chartType,
       options: {
         maintainAspectRatio: false,
         responsive: true,
@@ -87,7 +127,7 @@ export const ChartSocial: FC<{
         },
         scales: {
           y: {
-            beginAtZero: true,
+            beginAtZero: !hasNegativeValues,
             display: false,
           },
           x: {
@@ -128,13 +168,14 @@ export const ChartSocial: FC<{
         datasets: [
           {
             borderColor: colors.border,
-            borderWidth: 2,
+            borderWidth: chartType === 'line' ? 2 : 0,
             label: 'Total',
-            backgroundColor: gradient,
-            fill: true,
+            backgroundColor:
+              chartType === 'line' ? gradient : colors.start,
+            fill: chartType === 'line',
             data: list.map((row) => row.total),
             tension: 0.4,
-            pointRadius: 0,
+            pointRadius: isSinglePoint ? 4 : 0,
             pointHoverRadius: 6,
             pointHoverBackgroundColor: colors.border,
             pointHoverBorderColor: mode === 'dark' ? '#1e1d1d' : '#fff',
@@ -143,10 +184,11 @@ export const ChartSocial: FC<{
         ],
       },
     });
+
     return () => {
-      chart?.current?.destroy();
+      chart.current?.destroy();
     };
-  }, [colors, list, mode]);
+  }, [chartType, colors, hasNegativeValues, isSinglePoint, list, mode]);
 
   return <canvas className="w-full h-full" ref={ref} />;
 };

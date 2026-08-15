@@ -26,6 +26,7 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
       await this.handoffPipelineScheduler();
       await this.startChannelInteractionMaintenance();
       await this.startChannelRelationshipGrade();
+      await this.startChannelAnalyticsSnapshot();
     }
   }
 
@@ -120,6 +121,27 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
     } catch (error) {
       if (!this.isAlreadyStarted(error)) {
         this._logger.error('Failed to start Channel relationship grade', error);
+        throw error;
+      }
+    }
+  }
+
+  private async startChannelAnalyticsSnapshot() {
+    const workflow = this._temporalService.client?.getRawClient()?.workflow;
+    if (!workflow) {
+      throw new Error(
+        'Temporal workflow client unavailable during analytics snapshot start'
+      );
+    }
+    try {
+      await workflow.start('channelAnalyticsSnapshotWorkflowV1', {
+        workflowId: 'channel-analytics-snapshot-workflow-v1',
+        taskQueue: 'main',
+        args: [{}],
+      });
+    } catch (error) {
+      if (!this.isAlreadyStarted(error)) {
+        this._logger.error('Failed to start Channel analytics snapshot', error);
         throw error;
       }
     }

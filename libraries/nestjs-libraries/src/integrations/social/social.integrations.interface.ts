@@ -33,7 +33,7 @@ export interface IAuthenticator {
     integrationId: string,
     accessToken: string,
     postId: string,
-    fromDate: number,
+    fromDate: number
   ): Promise<AnalyticsData[]>;
   changeNickname?(
     id: string,
@@ -53,10 +53,94 @@ export interface IAuthenticator {
 
 export interface AnalyticsData {
   label: string;
-  data: Array<{ total: string; date: string }>;
-  percentageChange: number;
+  data: Array<{ total: string | number; date: string }>;
+  valueMode?: ChannelAnalyticsValueMode;
+  displayUnit?: ChannelAnalyticsDisplayUnit;
+  average?: boolean;
+  percentageChange?: number;
 }
 
+export type ChannelAnalyticsValueMode = 'sum' | 'average' | 'latest';
+
+export type ChannelAnalyticsDisplayUnit =
+  | 'count'
+  | 'percentage'
+  | 'duration'
+  | 'decimal';
+
+export type ChannelAnalyticsMetric = {
+  metricKey: string;
+  label: string;
+  valueMode: ChannelAnalyticsValueMode;
+  displayUnit?: ChannelAnalyticsDisplayUnit;
+  value: number;
+};
+
+export type ChannelAnalyticsDatedPoint = ChannelAnalyticsMetric & {
+  day: string;
+};
+
+export type ChannelAnalyticsPostLifetimePoint = ChannelAnalyticsMetric & {
+  externalPostId: string;
+};
+
+export type ChannelAnalyticsCaptureRequest = {
+  integration: Integration;
+  accessToken: string;
+  snapshotAt: Date;
+  fromDay?: Date;
+  toDay?: Date;
+  pageSize: number;
+  cursor?: string;
+};
+
+export type ChannelAnalyticsCapturePage =
+  | {
+      kind: 'daily';
+      points: ChannelAnalyticsDatedPoint[];
+      coverage: { fromDay: string; toDay: string };
+      nextCursor?: string;
+    }
+  | {
+      kind: 'post_lifetime';
+      points: ChannelAnalyticsPostLifetimePoint[];
+      nextCursor?: string;
+    };
+
+/**
+ * Split provider-normalized daily points into deterministic, bounded pages.
+ * The cursor is internal provider state and is validated before it is used.
+ */
+export const paginateDailyAnalyticsCapture = (
+  request: ChannelAnalyticsCaptureRequest,
+  coverage: { fromDay: string; toDay: string },
+  points: ChannelAnalyticsDatedPoint[]
+): ChannelAnalyticsCapturePage => {
+  const cursor = request.cursor || '0';
+  if (!/^(0|[1-9]\d*)$/.test(cursor)) {
+    throw new Error('Invalid analytics capture cursor');
+  }
+  const offset = Number(cursor);
+  if (!Number.isSafeInteger(offset) || offset > points.length) {
+    throw new Error('Invalid analytics capture cursor');
+  }
+  const pageSize = Math.min(Math.max(request.pageSize, 1), 1_000);
+  const pagePoints = points.slice(offset, offset + pageSize);
+  const nextOffset = offset + pagePoints.length;
+
+  return {
+    kind: 'daily',
+    coverage,
+    points: pagePoints,
+    ...(nextOffset < points.length ? { nextCursor: String(nextOffset) } : {}),
+  };
+};
+
+export interface ChannelAnalyticsSnapshotCapability {
+  capture(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage>;
+}
 
 export type GenerateAuthUrlResponse = {
   url: string;
@@ -169,10 +253,10 @@ export type ChannelNoticeCategory =
 
 export type ChannelNoticeStatus =
   | {
-    state: 'ok';
-    unreadCount: number;
-    categories?: Partial<Record<ChannelNoticeCategory, number>>;
-  }
+      state: 'ok';
+      unreadCount: number;
+      categories?: Partial<Record<ChannelNoticeCategory, number>>;
+    }
   | { state: 'unsupported' }
   | { state: 'unavailable' };
 
@@ -354,10 +438,7 @@ export type ChannelInteractionKind =
   | 'follow'
   | 'mention';
 
-export type ChannelAudienceMembership =
-  | 'follower'
-  | 'not_follower'
-  | 'unknown';
+export type ChannelAudienceMembership = 'follower' | 'not_follower' | 'unknown';
 
 export type ChannelInteractionCounterparty = {
   externalId: string;
@@ -382,17 +463,17 @@ export type NormalizedChannelInteractionEvent = {
 
 export type NormalizedChannelContentEvent =
   | {
-    type: 'post.upsert';
-    externalId: string;
-    url: string;
-    content: string;
-    publishedAt: string;
-  }
+      type: 'post.upsert';
+      externalId: string;
+      url: string;
+      content: string;
+      publishedAt: string;
+    }
   | {
-    type: 'post.delete';
-    externalId: string;
-    deletedAt: string;
-  };
+      type: 'post.delete';
+      externalId: string;
+      deletedAt: string;
+    };
 
 export type ChannelWebhookChallengeRequest = {
   query: Record<string, string | string[] | undefined>;
@@ -409,11 +490,11 @@ export type ChannelWebhookDeliveryRequest = {
 
 export type ChannelWebhookDeliveryResult =
   | {
-    accepted: true;
-    connectedAccountId: string;
-    events: NormalizedChannelInteractionEvent[];
-    contentEvents?: NormalizedChannelContentEvent[];
-  }
+      accepted: true;
+      connectedAccountId: string;
+      events: NormalizedChannelInteractionEvent[];
+      contentEvents?: NormalizedChannelContentEvent[];
+    }
   | { accepted: false; statusCode?: number };
 
 export type DesiredChannelInteractionSubscription = {
@@ -463,7 +544,7 @@ export interface ChannelInteractionWebhooksCapability {
 
 export interface SocialProvider
   extends IAuthenticator,
-  ISocialMediaIntegration {
+    ISocialMediaIntegration {
   identifier: string;
   isConfigured?: () => boolean;
   refreshWait?: boolean;
@@ -536,4 +617,5 @@ export interface SocialProvider
     query: FollowerQuery
   ): Promise<FollowerPage>;
   channelInteractionWebhooks?: ChannelInteractionWebhooksCapability;
+  analyticsSnapshot?: ChannelAnalyticsSnapshotCapability;
 }

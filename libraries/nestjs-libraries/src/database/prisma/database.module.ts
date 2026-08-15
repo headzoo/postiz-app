@@ -1,5 +1,9 @@
 import { Global, Module } from '@nestjs/common';
-import { PrismaRepository, PrismaService, PrismaTransaction } from './prisma.service';
+import {
+  PrismaRepository,
+  PrismaService,
+  PrismaTransaction,
+} from './prisma.service';
 import { OrganizationRepository } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.repository';
 import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.service';
 import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/users.service';
@@ -59,6 +63,8 @@ import { ChannelInteractionRepository } from '@gitroom/nestjs-libraries/database
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 import { LogsRepository } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.repository';
 import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
+import { ChannelAnalyticsRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.repository';
+import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.service';
 
 @Global()
 @Module({
@@ -125,6 +131,8 @@ import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs
     ContextDocumentService,
     ChannelInteractionRepository,
     ChannelInteractionService,
+    ChannelAnalyticsRepository,
+    ChannelAnalyticsService,
     LogsRepository,
     LogsService,
   ],

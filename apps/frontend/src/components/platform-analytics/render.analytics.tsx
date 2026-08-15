@@ -1,26 +1,120 @@
-import { FC, useCallback, useMemo, useState } from 'react';
+import { FC, useMemo } from 'react';
 import { Integration } from '@prisma/client';
-import useSWR from 'swr';
-import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import { ChartSocial } from '@gitroom/frontend/components/analytics/chart-social';
+import {
+  AnalyticsValueMode,
+  ChartSocial,
+  sortAnalyticsPoints,
+} from '@gitroom/frontend/components/analytics/chart-social';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { usePlatformAnalytics } from '@gitroom/frontend/components/platform-analytics/use.platform.analytics';
+
+export type AnalyticsDisplayUnit =
+  | 'count'
+  | 'percentage'
+  | 'duration'
+  | 'decimal';
 
 export interface AnalyticsDataItem {
   label: string;
   data: Array<{ total: number; date: string }>;
+  valueMode?: AnalyticsValueMode;
+  displayUnit?: AnalyticsDisplayUnit;
   average?: boolean;
   percentageChange?: number;
 }
 
-const TrendIndicator: FC<{ value: number; average?: boolean }> = ({
-  value,
-  average,
-}) => {
+export const resolveValueMode = (item: AnalyticsDataItem): AnalyticsValueMode => {
+  if (item.valueMode) {
+    return item.valueMode;
+  }
+
+  if (item.average) {
+    return 'average';
+  }
+
+  return 'sum';
+};
+
+export const resolveDisplayUnit = (
+  item: AnalyticsDataItem
+): AnalyticsDisplayUnit => {
+  if (item.displayUnit) {
+    return item.displayUnit;
+  }
+
+  const mode = resolveValueMode(item);
+  if (mode === 'average') {
+    return 'percentage';
+  }
+
+  return 'count';
+};
+
+export const formatDuration = (seconds: number): string => {
+  const rounded = Math.round(seconds);
+  if (rounded < 60) {
+    return `${rounded}s`;
+  }
+
+  const mins = Math.floor(rounded / 60);
+  const secs = rounded % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+};
+
+export const formatAnalyticsValue = (
+  value: number,
+  displayUnit: AnalyticsDisplayUnit
+): string => {
+  switch (displayUnit) {
+    case 'percentage':
+      return `${value.toFixed(2)}%`;
+    case 'duration':
+      return formatDuration(value);
+    case 'decimal':
+      return value.toFixed(2);
+    default:
+      return new Intl.NumberFormat().format(Math.round(value));
+  }
+};
+
+export const analyticsTotal = (item: AnalyticsDataItem) => {
+  const sorted = sortAnalyticsPoints(item.data);
+  const mode = resolveValueMode(item);
+  const displayUnit = resolveDisplayUnit(item);
+
+  if (sorted.length === 0) {
+    return formatAnalyticsValue(0, displayUnit);
+  }
+
+  let value: number;
+  if (mode === 'sum') {
+    value = sorted.reduce((acc, curr) => acc + curr.total, 0);
+  } else if (mode === 'average') {
+    value =
+      sorted.reduce((acc, curr) => acc + curr.total, 0) / sorted.length;
+  } else {
+    value = sorted[sorted.length - 1].total;
+  }
+
+  return formatAnalyticsValue(value, displayUnit);
+};
+
+const TrendIndicator: FC<{
+  value: number;
+  valueMode: AnalyticsValueMode;
+  displayUnit: AnalyticsDisplayUnit;
+}> = ({ value, valueMode, displayUnit }) => {
   if (value === 0) return null;
 
   const isPositive = value > 0;
   const displayValue = Math.abs(value).toFixed(1);
+  const suffix =
+    valueMode === 'average' && displayUnit === 'percentage'
+      ? 'pp'
+      : valueMode === 'average'
+        ? ''
+        : '%';
 
   return (
     <div
@@ -42,20 +136,10 @@ const TrendIndicator: FC<{ value: number; average?: boolean }> = ({
       </svg>
       <span>
         {displayValue}
-        {average ? 'pp' : '%'}
+        {suffix}
       </span>
     </div>
   );
-};
-
-export const analyticsTotal = (item: AnalyticsDataItem) => {
-  const value =
-    (item.data.reduce((acc, curr) => acc + curr.total, 0) || 0) /
-    (item.average ? item.data.length : 1);
-
-  return item.average
-    ? `${value.toFixed(2)}%`
-    : new Intl.NumberFormat().format(Math.round(value));
 };
 
 export const AnalyticsCard: FC<{
@@ -65,8 +149,10 @@ export const AnalyticsCard: FC<{
 }> = ({ item, total, index }) => {
   const colorVariants = ['purple', 'green', 'blue'] as const;
   const color = colorVariants[index % colorVariants.length];
-
-  const hasDataPoints = item.data.length >= 1;
+  const valueMode = resolveValueMode(item);
+  const displayUnit = resolveDisplayUnit(item);
+  const chartData = sortAnalyticsPoints(item.data);
+  const hasDataPoints = chartData.length >= 1;
 
   return (
     <div className="group relative">
@@ -81,7 +167,6 @@ export const AnalyticsCard: FC<{
           hover:border-[#612bd3]/50
         `}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-[16px] pt-[14px] pb-[8px]">
           <div className="flex items-center gap-[10px]">
             <div
@@ -97,21 +182,27 @@ export const AnalyticsCard: FC<{
             </span>
           </div>
           {item.percentageChange !== undefined && (
-            <TrendIndicator value={item.percentageChange} average={item.average} />
+            <TrendIndicator
+              value={item.percentageChange}
+              valueMode={valueMode}
+              displayUnit={displayUnit}
+            />
           )}
         </div>
 
-        {/* Content */}
         {hasDataPoints ? (
           <>
-            {/* Chart */}
             <div className="flex-1 px-[12px] py-[8px]">
               <div className="h-[120px] relative">
-                <ChartSocial data={item.data} color={color} key={`chart-${index}`} />
+                <ChartSocial
+                  data={chartData}
+                  color={color}
+                  valueMode={valueMode}
+                  key={`chart-${index}`}
+                />
               </div>
             </div>
 
-            {/* Value */}
             <div className="px-[16px] pb-[14px]">
               <div className="text-[36px] leading-[42px] font-semibold tracking-tight">
                 {total}
@@ -119,7 +210,6 @@ export const AnalyticsCard: FC<{
             </div>
           </>
         ) : (
-          /* Single value display */
           <div className="flex-1 flex flex-col items-center justify-center py-[32px] px-[16px]">
             <div className="text-[48px] leading-[56px] font-semibold tracking-tight">
               {total}
@@ -131,7 +221,7 @@ export const AnalyticsCard: FC<{
   );
 };
 
-const EmptyState: FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
+const EmptyState: FC = () => {
   const t = useT();
 
   return (
@@ -150,29 +240,12 @@ const EmptyState: FC<{ onRefresh: () => void }> = ({ onRefresh }) => {
           <path d="M12 8v4l2 2" />
         </svg>
       </div>
-      <p className="text-[15px] text-newTableText text-center mb-[12px]">
+      <p className="text-[15px] text-newTableText text-center">
         {t(
-          'this_channel_needs_to_be_refreshed',
-          'This channel needs to be refreshed to display analytics'
+          'analytics_collecting_history',
+          'Analytics history is still being collected. Metrics will appear after the first daily snapshots.'
         )}
       </p>
-      <button
-        onClick={onRefresh}
-        className="inline-flex items-center gap-[6px] px-[16px] py-[8px] text-[14px] font-medium text-white bg-[#612bd3] hover:bg-[#5023b8] rounded-[8px] transition-colors"
-      >
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <path d="M23 4v6h-6M1 20v-6h6" />
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-        </svg>
-        {t('refresh_channel', 'Refresh Channel')}
-      </button>
     </div>
   );
 };
@@ -182,55 +255,13 @@ export const RenderAnalytics: FC<{
   date: number;
 }> = (props) => {
   const { integration, date } = props;
-  const [loading, setLoading] = useState(true);
-  const fetch = useFetch();
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    const load = (
-      await fetch(`/analytics/${integration.id}?date=${date}`)
-    ).json();
-    setLoading(false);
-    return load;
-  }, [integration, date]);
-
-  const { data } = useSWR(`/analytics-${integration?.id}-${date}`, load, {
-    refreshInterval: 0,
-    refreshWhenHidden: false,
-    revalidateOnFocus: false,
-    revalidateOnReconnect: false,
-    revalidateIfStale: false,
-    refreshWhenOffline: false,
-    revalidateOnMount: true,
-  });
-
-  const refreshChannel = useCallback(
-    (
-        integrationData: Integration & {
-          identifier: string;
-        }
-      ) =>
-      async () => {
-        const { url } = await (
-          await fetch(
-            `/integrations/social/${integrationData.identifier}?refresh=${integrationData.internalId}`,
-            {
-              method: 'GET',
-            }
-          )
-        ).json();
-        window.location.href = url;
-      },
-    []
-  );
-
-  const t = useT();
+  const { data, isLoading } = usePlatformAnalytics(integration, date);
 
   const totals = useMemo(() => {
     return data?.map((item: AnalyticsDataItem) => analyticsTotal(item));
   }, [data]);
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-[48px]">
         <LoadingComponent />
@@ -240,14 +271,12 @@ export const RenderAnalytics: FC<{
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[16px]">
-      {data?.length === 0 && (
-        <EmptyState onRefresh={refreshChannel(integration as any)} />
-      )}
+      {data?.length === 0 && <EmptyState />}
       {data?.map((item: AnalyticsDataItem, index: number) => (
         <AnalyticsCard
           key={`analytics-${index}`}
           item={item}
-          total={totals[index]}
+          total={totals?.[index] ?? analyticsTotal(item)}
           index={index}
         />
       ))}

@@ -179,6 +179,13 @@ export class IntegrationManager {
   getAllowedSocialsIntegrations() {
     return this.getAvailableSocialIntegrations().map((p) => p.identifier);
   }
+
+  getAnalyticsSnapshotIntegrations() {
+    return this.getAvailableSocialIntegrations()
+      .filter((provider) => !!provider.analyticsSnapshot)
+      .map((provider) => provider.identifier);
+  }
+
   getSocialIntegration(integration: string): SocialProvider {
     return socialIntegrationList.find((i) => i.identifier === integration)!;
   }

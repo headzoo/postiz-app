@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -8,6 +11,7 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   BadBody,
   SocialAbstract,
@@ -22,6 +26,8 @@ import { Integration } from '@prisma/client';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+
+dayjs.extend(utc);
 
 @Rules(
   "Facebook posts can be text only, or include photos or a video. If it's a story, it must have at least one attachment (photo or video), and each media is published as a separate story."
@@ -38,6 +44,11 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
     'pages_read_engagement',
     'read_insights',
   ];
+
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   override maxConcurrentJob = 500; // Facebook has reasonable rate limits
   editor = 'normal' as const;
   maxLength() {
@@ -1004,6 +1015,66 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
           date: dayjs(v.end_time).format('YYYY-MM-DD'),
         })),
       })) || []
+    );
+  }
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const toDay = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
+    const fromDay = dayjs
+      .utc(request.fromDay || dayjs.utc(request.snapshotAt).subtract(180, 'day'))
+      .startOf('day');
+    const until = toDay.endOf('day').unix();
+    const since = fromDay.unix();
+    const response = await fetch(
+      `https://graph.facebook.com/v23.0/${request.integration.internalId}/insights?metric=page_total_media_view_unique,page_media_view,page_post_engagements,page_daily_follows&access_token=${request.accessToken}&period=day&since=${since}&until=${until}`
+    );
+    const body = await response.json();
+    if (!response.ok || body?.error) {
+      throw new Error('Facebook analytics request failed');
+    }
+    const data = body?.data || [];
+    const definitions: Record<string, { metricKey: string; label: string }> = {
+      page_total_media_view_unique: {
+        metricKey: 'page_impressions',
+        label: 'Page Impressions',
+      },
+      page_media_view: { metricKey: 'media_views', label: 'Media views' },
+      page_post_engagements: {
+        metricKey: 'post_engagements',
+        label: 'Posts Engagement',
+      },
+      page_daily_follows: {
+        metricKey: 'page_followers',
+        label: 'Page followers',
+      },
+    };
+    const sumValue = (value: unknown) =>
+      typeof value === 'object' && value
+        ? Object.values(value as Record<string, number>).reduce(
+            (sum, current) => sum + (Number(current) || 0),
+            0
+          )
+        : Number(value) || 0;
+
+    return paginateDailyAnalyticsCapture(
+      request,
+      {
+        fromDay: fromDay.format('YYYY-MM-DD'),
+        toDay: toDay.format('YYYY-MM-DD'),
+      },
+      data.flatMap((metric: any) => {
+        const definition = definitions[metric.name];
+        return definition
+          ? (metric.values || []).map((value: any) => ({
+              ...definition,
+              valueMode: 'sum' as const,
+              value: sumValue(value.value),
+              day: dayjs.utc(value.end_time).format('YYYY-MM-DD'),
+            }))
+          : [];
+      }),
     );
   }
 

@@ -60,11 +60,20 @@ describe('InfiniteWorkflowRegister', () => {
         args: [{}],
       })
     );
+    expect(workflow.start).toHaveBeenCalledWith(
+      'channelAnalyticsSnapshotWorkflowV1',
+      expect.objectContaining({
+        workflowId: 'channel-analytics-snapshot-workflow-v1',
+        taskQueue: 'main',
+        args: [{}],
+      })
+    );
   });
 
   it('treats an already-started relationship grade workflow as steady state', async () => {
     const workflow = steadyStateWorkflow();
     workflow.start
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
@@ -78,10 +87,20 @@ describe('InfiniteWorkflowRegister', () => {
 
     await expect(register.onModuleInit()).resolves.toBeUndefined();
     expect(workflow.start).toHaveBeenLastCalledWith(
-      'channelRelationshipGradeWorkflowV1',
+      'channelAnalyticsSnapshotWorkflowV1',
       expect.objectContaining({
-        workflowId: 'channel-relationship-grade-workflow-v1',
+        workflowId: 'channel-analytics-snapshot-workflow-v1',
       })
     );
+  });
+
+  it('does not start maintenance workflows when cron execution is disabled', async () => {
+    const workflow = steadyStateWorkflow();
+    const register = createRegister(workflow);
+    delete process.env.RUN_CRON;
+
+    await register.onModuleInit();
+
+    expect(workflow.start).not.toHaveBeenCalled();
   });
 });

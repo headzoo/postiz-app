@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -9,6 +12,7 @@ import {
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { timer } from '@gitroom/helpers/utils/timer';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   BadBody,
   SocialAbstract,
@@ -17,6 +21,8 @@ import {
 import { InstagramDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/instagram.dto';
 import { Integration } from '@prisma/client';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+
+dayjs.extend(utc);
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 
@@ -29,6 +35,10 @@ export class InstagramProvider
 {
   identifier = 'instagram';
   name = 'Instagram\n(Facebook Business)';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   isBetweenSteps = true;
   toolTip = 'Instagram must be business and connected to a Facebook page';
   scopes = [
@@ -1129,6 +1139,74 @@ export class InstagramProvider
     );
 
     return analytics;
+  }
+
+  async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest,
+    type = 'graph.facebook.com'
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const [accessToken] = request.accessToken.split('___');
+    const toDay = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
+    const fromDay = dayjs
+      .utc(request.fromDay || dayjs.utc(request.snapshotAt).subtract(180, 'day'))
+      .startOf('day');
+    const until = toDay.unix();
+    const since = fromDay.unix();
+    const [dailyResponse, totalsResponse] = await Promise.all([
+      fetch(
+        `https://${type}/v21.0/${request.integration.internalId}/insights?metric=follower_count,reach&access_token=${accessToken}&period=day&since=${since}&until=${until}`
+      ),
+      fetch(
+        `https://${type}/v21.0/${request.integration.internalId}/insights?metric_type=total_value&metric=likes,views,comments,shares,saves,replies&access_token=${accessToken}&period=day&since=${since}&until=${until}`
+      ),
+    ]);
+    const [dailyBody, totalsBody] = await Promise.all([
+      dailyResponse.json(),
+      totalsResponse.json(),
+    ]);
+    if (
+      !dailyResponse.ok ||
+      !totalsResponse.ok ||
+      dailyBody?.error ||
+      totalsBody?.error
+    ) {
+      throw new Error('Instagram analytics request failed');
+    }
+    const daily = dailyBody?.data || [];
+    const totals = totalsBody?.data || [];
+
+    return paginateDailyAnalyticsCapture(
+      request,
+      {
+        fromDay: fromDay.format('YYYY-MM-DD'),
+        toDay: toDay.format('YYYY-MM-DD'),
+      },
+      [
+        ...daily.flatMap((metric: any) =>
+          (metric.values || []).map((value: any) => ({
+            metricKey: metric.name,
+            label: this.setTitle(metric.name),
+            valueMode:
+              metric.name === 'follower_count' ? ('latest' as const) : ('sum' as const),
+            value: Number(value.value),
+            day: dayjs.utc(value.end_time).format('YYYY-MM-DD'),
+          }))
+        ),
+        ...totals.flatMap((metric: any) =>
+          metric.total_value
+            ? [
+                {
+                  metricKey: metric.name,
+                  label: this.setTitle(metric.name),
+                  valueMode: 'latest' as const,
+                  value: Number(metric.total_value.value),
+                  day: toDay.format('YYYY-MM-DD'),
+                },
+              ]
+            : []
+        ),
+      ],
+    );
   }
 
   music(accessToken: string, data: { q: string }) {

@@ -1,6 +1,9 @@
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCapturePage,
+  ChannelAnalyticsCaptureRequest,
+  paginateDailyAnalyticsCapture,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -22,8 +25,11 @@ import {
   ValidityMedia,
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+
+dayjs.extend(utc);
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 
 // Travels through the workflow history between postPending, checkPostStatus
@@ -55,6 +61,10 @@ export class PinterestProvider
   extends SocialAbstract
   implements SocialProvider {
   identifier = 'pinterest';
+  analyticsSnapshot = {
+    capture: (request: ChannelAnalyticsCaptureRequest) =>
+      this.captureAnalyticsSnapshot(request),
+  };
   name = 'Pinterest';
   isBetweenSteps = false;
   scopes = [
@@ -654,6 +664,73 @@ export class PinterestProvider
         { label: 'Engagement', data: [] as any[] },
         { label: 'Saves', data: [] as any[] },
       ]
+    );
+  }
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const end = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
+    const endDate = end.format('YYYY-MM-DD');
+    const requestedStartDate = dayjs
+      .utc(request.fromDay || dayjs.utc(request.snapshotAt).subtract(89, 'day'))
+      .startOf('day');
+    const earliestAllowedStartDate = end.subtract(89, 'day');
+    const startDate = (
+      requestedStartDate.isAfter(earliestAllowedStartDate)
+        ? requestedStartDate
+        : earliestAllowedStartDate
+    ).format('YYYY-MM-DD');
+    const response = await fetch(
+      `https://api.pinterest.com/v5/user_account/analytics?start_date=${startDate}&end_date=${endDate}`,
+      {
+        headers: {
+          Authorization: `Bearer ${request.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const body = await response.json();
+    if (!response.ok || body?.code || (body?.message && !body?.all)) {
+      throw new Error('Pinterest analytics request failed');
+    }
+    const dailyMetrics = body?.all?.daily_metrics || [];
+    const definitions = [
+      [
+        'PIN_CLICK_RATE',
+        'pin_click_rate',
+        'Pin click rate',
+        'average',
+        'percentage',
+      ],
+      ['IMPRESSION', 'impressions', 'Impressions', 'sum'],
+      ['PIN_CLICK', 'pin_clicks', 'Pin Clicks', 'sum'],
+      ['ENGAGEMENT', 'engagement', 'Engagement', 'sum'],
+      ['SAVE', 'saves', 'Saves', 'sum'],
+    ] as const;
+    return paginateDailyAnalyticsCapture(
+      request,
+      {
+        fromDay: startDate,
+        toDay: endDate,
+      },
+      dailyMetrics.flatMap((item: any) =>
+        definitions.flatMap(
+          ([sourceKey, metricKey, label, valueMode, displayUnit]) =>
+            typeof item.metrics?.[sourceKey] === 'number'
+              ? [
+                  {
+                    metricKey,
+                    label,
+                    valueMode,
+                    ...(displayUnit ? { displayUnit } : {}),
+                    value: item.metrics[sourceKey],
+                    day: item.date,
+                  },
+                ]
+              : []
+        )
+      )
     );
   }
 

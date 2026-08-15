@@ -1,9 +1,13 @@
 import { TweetV2, TwitterApi } from 'twitter-api-v2';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { parseFragment } from 'parse5';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import {
   AnalyticsData,
   AuthTokenDetails,
+  ChannelAnalyticsCaptureRequest,
+  ChannelAnalyticsCapturePage,
   ChannelInteractionDirection,
   ChannelInteractionKind,
   ChannelInteractionKindCoverage,
@@ -39,7 +43,6 @@ import { Plug } from '@gitroom/helpers/decorators/plug.decorator';
 import { Integration } from '@prisma/client';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { PostPlug } from '@gitroom/helpers/decorators/post.plug';
-import dayjs from 'dayjs';
 import { uniqBy } from 'lodash';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { stripLinks as removeLinks } from '@gitroom/helpers/utils/strip.links';
@@ -47,6 +50,8 @@ import { XDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/x.
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { xMaxLength } from '@gitroom/helpers/utils/count.length';
+
+dayjs.extend(utc);
 
 // Travels through the workflow history between postPending, checkPostStatus
 // and finalizePost - keep it small JSON (media ids and the tweet content).
@@ -183,6 +188,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   name = 'X';
   isBetweenSteps = false;
   scopes = [] as string[];
+
+  get analyticsSnapshot() {
+    if (process.env.DISABLE_X_ANALYTICS) {
+      return undefined;
+    }
+
+    return {
+      capture: (request: ChannelAnalyticsCaptureRequest) =>
+        this.captureAnalyticsSnapshot(request),
+    };
+  }
   stripLinks = () => !!process.env.STRIP_LINKS_FROM_X_POSTS;
   // X rate limits are per user (300 posts / 3 hours), not per app, so the cap
   // only needs to keep bursts polite. With the pending flow the slot is held
@@ -2708,6 +2724,85 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         : []),
     ];
   };
+
+  private async captureAnalyticsSnapshot(
+    request: ChannelAnalyticsCaptureRequest
+  ): Promise<ChannelAnalyticsCapturePage> {
+    const [accessToken, accessSecret] = request.accessToken.split(':');
+    const client = new TwitterApi({
+      appKey: process.env.X_API_KEY!,
+      appSecret: process.env.X_API_SECRET!,
+      accessToken,
+      accessSecret,
+    });
+    const until = dayjs
+      .utc(request.toDay || request.snapshotAt)
+      .endOf('day');
+    const since = dayjs
+      .utc(
+        request.fromDay || dayjs.utc(request.snapshotAt).subtract(100, 'day')
+      )
+      .startOf('day');
+    const timeline = await client.v2.userTimeline(request.integration.internalId, {
+      'tweet.fields': ['id'],
+      'user.fields': [],
+      'poll.fields': [],
+      'place.fields': [],
+      'media.fields': [],
+      exclude: ['replies', 'retweets'],
+      start_time: since.format('YYYY-MM-DDTHH:mm:ssZ'),
+      end_time: until.format('YYYY-MM-DDTHH:mm:ssZ'),
+      max_results: Math.min(Math.max(request.pageSize, 1), 100),
+      ...(request.cursor ? { pagination_token: request.cursor } : {}),
+    });
+    const tweetIds = timeline.data.data.map((tweet) => tweet.id);
+    if (!tweetIds.length) {
+      return {
+        kind: 'post_lifetime',
+        points: [],
+        ...(timeline.meta.next_token
+          ? { nextCursor: timeline.meta.next_token }
+          : {}),
+      };
+    }
+
+    const tweets = await client.v2.tweets(tweetIds, {
+      'tweet.fields': ['public_metrics'],
+    });
+    const metricLabels: Record<string, string> = {
+      impression_count: 'Impressions',
+      bookmark_count: 'Bookmarks',
+      like_count: 'Likes',
+      quote_count: 'Quotes',
+      reply_count: 'Replies',
+      retweet_count: 'Retweets',
+    };
+
+    return {
+      kind: 'post_lifetime',
+      points: tweets.data.flatMap((tweet) =>
+        Object.entries(metricLabels).flatMap(([metricKey, label]) => {
+          const value = tweet.public_metrics?.[
+            metricKey as keyof typeof tweet.public_metrics
+          ];
+          return typeof value === 'number'
+            ? [
+                {
+                  externalPostId: tweet.id,
+                  metricKey,
+                  label,
+                  valueMode: 'sum' as const,
+                  value,
+                },
+              ]
+            : [];
+        })
+      ),
+      ...(timeline.meta.next_token
+        ? { nextCursor: timeline.meta.next_token }
+        : {}),
+    };
+  }
 
   async analytics(
     id: string,
