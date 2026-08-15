@@ -13,7 +13,7 @@ export const Logo = ({
       aria-label="Dashboard"
       className={
         sidebar
-          ? 'mt-[8px] flex w-full items-center justify-center'
+          ? 'mt-[8px] pt-[10px] flex w-full items-center justify-center'
           : 'mt-[8px] min-w-[60px] min-h-[60px]'
       }
     >
