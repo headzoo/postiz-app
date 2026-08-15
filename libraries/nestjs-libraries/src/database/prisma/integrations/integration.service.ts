@@ -214,6 +214,40 @@ export class IntegrationService {
     return this._integrationRepository.updateOnCustomerName(org, id, name);
   }
 
+  async reorderCustomer(
+    orgId: string,
+    customerId: string,
+    direction: 'up' | 'down'
+  ) {
+    const result = await this._integrationRepository.reorderCustomer(
+      orgId,
+      customerId,
+      direction
+    );
+    if (result === null) {
+      throw new NotFoundException('Customer not found');
+    }
+    if (result === false) {
+      throw new BadRequestException('Customer cannot be moved in that direction');
+    }
+    return result;
+  }
+
+  async renameCustomer(orgId: string, customerId: string, name: string) {
+    const result = await this._integrationRepository.renameCustomer(
+      orgId,
+      customerId,
+      name
+    );
+    if (result === null) {
+      throw new NotFoundException('Customer not found');
+    }
+    if (result === false) {
+      throw new ConflictException('A group with this name already exists');
+    }
+    return result;
+  }
+
   getIntegrationsList(org: string) {
     return this._integrationRepository.getIntegrationsList(org);
   }

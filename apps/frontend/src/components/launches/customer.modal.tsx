@@ -7,6 +7,7 @@ import { Autocomplete } from '@mantine/core';
 import useSWR from 'swr';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { Button } from '@gitroom/react/form/button';
+import { Input } from '@gitroom/react/form/input';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 export const CustomerModal: FC<{
   integration: Integration & {
@@ -70,6 +71,61 @@ export const CustomerModal: FC<{
             {t('remove_from_customer', 'Remove from customer')}
           </Button>
         )}
+      </div>
+    </div>
+  );
+};
+
+export const CustomerRenameModal: FC<{
+  name: string;
+  onSave: (name: string) => Promise<void>;
+}> = ({ name, onSave }) => {
+  const t = useT();
+  const modal = useModals();
+  const [value, setValue] = useState(name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const save = useCallback(async () => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setError(t('customer_group_name_required', 'Enter a group name'));
+      return;
+    }
+    setSaving(true);
+    setError(undefined);
+    try {
+      await onSave(trimmed);
+      modal.closeAll();
+    } catch {
+      setError(
+        t('customer_group_rename_error', 'We could not rename this group.')
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [modal, onSave, t, value]);
+
+  return (
+    <div>
+      <Input
+        name="customer-group-name"
+        disableForm={true}
+        removeError={true}
+        label={t('customer_group_name', 'Group name')}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      {error && (
+        <p className="mt-[8px] text-[13px] text-red-400">{error}</p>
+      )}
+      <div className="mt-[16px] flex justify-end gap-[8px]">
+        <Button onClick={() => modal.closeAll()} disabled={saving}>
+          {t('cancel', 'Cancel')}
+        </Button>
+        <Button onClick={save} disabled={saving || !value.trim()}>
+          {t('save', 'Save')}
+        </Button>
       </div>
     </div>
   );

@@ -32,6 +32,8 @@ import {
 } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
 import { uniqBy } from 'lodash';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
+import { ReorderCustomerDto } from '@gitroom/nestjs-libraries/dtos/integrations/customer-reorder.dto';
+import { RenameCustomerDto } from '@gitroom/nestjs-libraries/dtos/integrations/customer-rename.dto';
 
 export const publicProfileUrl = (value: string | undefined) => {
   if (!value) {
@@ -60,7 +62,7 @@ export class IntegrationsController {
     private _integrationService: IntegrationService,
     private _postService: PostsService,
     private _refreshIntegrationService: RefreshIntegrationService
-  ) {}
+  ) { }
 
   @Post('/provider/:id/connect')
   @CheckPolicies([AuthorizationActions.Create, Sections.CHANNEL])
@@ -80,6 +82,24 @@ export class IntegrationsController {
   @Get('/customers')
   getCustomers(@GetOrgFromRequest() org: Organization) {
     return this._integrationService.customers(org.id);
+  }
+
+  @Post('/customers/:id/reorder')
+  async reorderCustomer(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: ReorderCustomerDto
+  ) {
+    return this._integrationService.reorderCustomer(org.id, id, body.direction);
+  }
+
+  @Put('/customers/:id')
+  async renameCustomer(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: RenameCustomerDto
+  ) {
+    return this._integrationService.renameCustomer(org.id, id, body.name);
   }
 
   @Put('/:id/group')
@@ -118,7 +138,7 @@ export class IntegrationsController {
 
           try {
             profileUrl = publicProfileUrl(findIntegration?.profileUrl?.(p));
-          } catch {}
+          } catch { }
 
           return {
             name: p.name,
@@ -201,18 +221,18 @@ export class IntegrationsController {
 
     const { url } = manager.changeProfilePicture
       ? await manager.changeProfilePicture(
-          integration.internalId,
-          integration.token,
-          body.picture
-        )
+        integration.internalId,
+        integration.token,
+        body.picture
+      )
       : { url: '' };
 
     const { name } = manager.changeNickname
       ? await manager.changeNickname(
-          integration.internalId,
-          integration.token,
-          body.name
-        )
+        integration.internalId,
+        integration.token,
+        body.name
+      )
       : { name: '' };
 
     return this._integrationService.updateNameAndUrl(id, name, url);
@@ -261,9 +281,9 @@ export class IntegrationsController {
     try {
       const getExternalUrl = integrationProvider.externalUrl
         ? {
-            ...(await integrationProvider.externalUrl(externalUrl)),
-            instanceUrl: externalUrl,
-          }
+          ...(await integrationProvider.externalUrl(externalUrl)),
+          instanceUrl: externalUrl,
+        }
         : undefined;
 
       const { codeVerifier, state, url } =
@@ -453,7 +473,7 @@ export class IntegrationsController {
     );
     if (isTherePosts.length) {
       for (const post of isTherePosts) {
-        this._postService.deletePost(org.id, post.group).catch((err) => {});
+        this._postService.deletePost(org.id, post.group).catch((err) => { });
       }
     }
 

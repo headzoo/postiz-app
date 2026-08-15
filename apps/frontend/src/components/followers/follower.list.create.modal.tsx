@@ -39,7 +39,7 @@ export const FollowerListCreateModal: FC<{
       <Input
         name="follower-list-name"
         disableForm={true}
-        hideErrors={true}
+        removeError={true}
         label={t('followers_list_name', 'List name')}
         value={name}
         onChange={(event) => setName(event.target.value)}

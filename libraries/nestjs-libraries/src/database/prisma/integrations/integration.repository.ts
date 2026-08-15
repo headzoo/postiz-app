@@ -18,7 +18,7 @@ export class IntegrationRepository {
     private _customers: PrismaRepository<'customer'>,
     private _mentions: PrismaRepository<'mentions'>,
     private _integrationNoticeRead: PrismaRepository<'integrationNoticeRead'>
-  ) {}
+  ) { }
 
   getMentions(platform: string, q: string) {
     return this._mentions.model.mentions.findMany({
@@ -209,12 +209,12 @@ export class IntegrationRepository {
   async createOrUpdateIntegration(
     additionalSettings:
       | {
-          title: string;
-          description: string;
-          type: 'checkbox' | 'text' | 'textarea';
-          value: any;
-          regex?: string;
-        }[]
+        title: string;
+        description: string;
+        type: 'checkbox' | 'text' | 'textarea';
+        value: any;
+        regex?: string;
+      }[]
       | undefined,
     oneTimeToken: boolean,
     org: string,
@@ -234,12 +234,12 @@ export class IntegrationRepository {
   ) {
     const postTimes = timezone
       ? {
-          postingTimes: JSON.stringify([
-            { time: 560 - timezone },
-            { time: 850 - timezone },
-            { time: 1140 - timezone },
-          ]),
-        }
+        postingTimes: JSON.stringify([
+          { time: 560 - timezone },
+          { time: 850 - timezone },
+          { time: 1140 - timezone },
+        ]),
+      }
       : {};
     const upsert = await this._integration.model.integration.upsert({
       where: {
@@ -278,8 +278,8 @@ export class IntegrationRepository {
         type: type as any,
         ...(!refresh
           ? {
-              inBetweenSteps: isBetweenSteps,
-            }
+            inBetweenSteps: isBetweenSteps,
+          }
           : {}),
         ...(picture ? { picture } : {}),
         profile: username,
@@ -420,21 +420,39 @@ export class IntegrationRepository {
     return integration?.integration;
   }
 
+  async nextCustomerPosition(orgId: string) {
+    const last = await this._customers.model.customer.findFirst({
+      where: {
+        orgId,
+        deletedAt: null,
+      },
+      orderBy: {
+        position: 'desc',
+      },
+      select: {
+        position: true,
+      },
+    });
+
+    return (last?.position ?? -1) + 1;
+  }
+
   async updateOnCustomerName(org: string, id: string, name: string) {
     const customer = !name
       ? undefined
       : (await this._customers.model.customer.findFirst({
-          where: {
-            orgId: org,
-            name,
-          },
-        })) ||
-        (await this._customers.model.customer.create({
-          data: {
-            name,
-            orgId: org,
-          },
-        }));
+        where: {
+          orgId: org,
+          name,
+        },
+      })) ||
+      (await this._customers.model.customer.create({
+        data: {
+          name,
+          orgId: org,
+          position: await this.nextCustomerPosition(org),
+        },
+      }));
 
     return this._integration.model.integration.update({
       where: {
@@ -445,10 +463,10 @@ export class IntegrationRepository {
         customer: !customer
           ? { disconnect: true }
           : {
-              connect: {
-                id: customer.id,
-              },
+            connect: {
+              id: customer.id,
             },
+          },
       },
     });
   }
@@ -461,17 +479,17 @@ export class IntegrationRepository {
       },
       data: !group
         ? {
-            customer: {
-              disconnect: true,
-            },
-          }
+          customer: {
+            disconnect: true,
+          },
+        }
         : {
-            customer: {
-              connect: {
-                id: group,
-              },
+          customer: {
+            connect: {
+              id: group,
             },
           },
+        },
     });
   }
 
@@ -481,6 +499,91 @@ export class IntegrationRepository {
         orgId,
         deletedAt: null,
       },
+      orderBy: [{ position: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  async reorderCustomer(
+    orgId: string,
+    customerId: string,
+    direction: 'up' | 'down'
+  ) {
+    const customers = await this._customers.model.customer.findMany({
+      where: {
+        orgId,
+        deletedAt: null,
+      },
+      orderBy: [{ position: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        position: true,
+      },
+    });
+    const index = customers.findIndex((customer) => customer.id === customerId);
+    if (index === -1) {
+      return null;
+    }
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= customers.length) {
+      return false;
+    }
+
+    const current = customers[index];
+    const neighbor = customers[targetIndex];
+    let currentPosition = neighbor.position;
+    let neighborPosition = current.position;
+    if (currentPosition === neighborPosition) {
+      currentPosition =
+        direction === 'up' ? neighbor.position - 1 : neighbor.position + 1;
+      neighborPosition = neighbor.position;
+    }
+
+    await Promise.all([
+      this._customers.model.customer.update({
+        where: { id: current.id },
+        data: { position: currentPosition },
+      }),
+      this._customers.model.customer.update({
+        where: { id: neighbor.id },
+        data: { position: neighborPosition },
+      }),
+    ]);
+
+    return { id: current.id, position: currentPosition };
+  }
+
+  async renameCustomer(orgId: string, customerId: string, name: string) {
+    const customer = await this._customers.model.customer.findFirst({
+      where: {
+        id: customerId,
+        orgId,
+        deletedAt: null,
+      },
+    });
+    if (!customer) {
+      return null;
+    }
+    if (customer.name === name) {
+      return customer;
+    }
+
+    const conflict = await this._customers.model.customer.findFirst({
+      where: {
+        orgId,
+        name,
+        deletedAt: null,
+        NOT: { id: customerId },
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      return false;
+    }
+
+    return this._customers.model.customer.update({
+      where: { id: customerId },
+      data: { name },
     });
   }
 

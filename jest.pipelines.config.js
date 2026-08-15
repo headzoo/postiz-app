@@ -10,6 +10,7 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/logs/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/channel-interactions/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/integrations/integration.followers.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/database/prisma/integrations/integration.customer.reorder.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/follower.sorts.spec.ts',
     '<rootDir>/apps/backend/src/api/routes/followers.controller.spec.ts',
     '<rootDir>/apps/backend/src/api/routes/channel-webhooks.controller.spec.ts',

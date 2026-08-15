@@ -62,6 +62,25 @@ jest.mock('@gitroom/frontend/components/launches/menu/menu', () => ({
   Menu: () => <div data-testid="channel-kebab" />,
 }));
 
+jest.mock('@mantine/hooks', () => ({
+  useClickOutside: () => ({ current: null }),
+}));
+
+jest.mock('swr', () => ({
+  __esModule: true,
+  default: jest.fn(),
+  useSWRConfig: jest.fn(() => ({ mutate: jest.fn() })),
+}));
+
+jest.mock('@gitroom/helpers/utils/custom.fetch', () => ({
+  useFetch: () => jest.fn(),
+}));
+
+const openModal = jest.fn();
+jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
+  useModals: () => ({ openModal, closeAll: jest.fn() }),
+}));
+
 const makeIntegration = (
   id: string,
   name: string,
@@ -91,6 +110,11 @@ const betaOne = makeIntegration('beta-1', 'Beta One', {
 });
 const ungrouped = makeIntegration('solo-1', 'Solo Channel');
 
+beforeEach(() => {
+  localStorage.clear();
+  openModal.mockClear();
+});
+
 describe('groupChannelsByCustomer', () => {
   it('groups channels by customer and sorts named groups first by name', () => {
     const groups = groupChannelsByCustomer([betaOne, ungrouped, acmeTwo, acmeOne]);
@@ -100,6 +124,19 @@ describe('groupChannelsByCustomer', () => {
       'acme-1',
       'acme-2',
     ]);
+  });
+
+  it('sorts named groups by customer position before name', () => {
+    const zeta = makeIntegration('zeta-1', 'Zeta One', {
+      customer: { id: 'zeta', name: 'Zeta', position: 0 },
+    });
+    const alpha = makeIntegration('alpha-1', 'Alpha One', {
+      customer: { id: 'alpha', name: 'Alpha', position: 2 },
+    });
+
+    const groups = groupChannelsByCustomer([alpha, zeta, ungrouped]);
+
+    expect(groups.map((group) => group.name)).toEqual(['', 'Zeta', 'Alpha']);
   });
 });
 
@@ -158,5 +195,74 @@ describe('ChannelMenu', () => {
 
     fireEvent.click(screen.getByText('Beta One'));
     expect(onSelect).toHaveBeenCalledWith(betaOne);
+  });
+
+  it('renders a group menu on named headers and disables impossible moves', () => {
+    render(
+      <ChannelMenu
+        collapsed={false}
+        integrations={[acmeOne, acmeTwo, betaOne, ungrouped]}
+      />
+    );
+
+    const menus = screen.getAllByLabelText('Group actions');
+    expect(menus).toHaveLength(2);
+    expect(screen.getByText('Solo Channel').closest('div.flex.flex-col')).toBeTruthy();
+
+    fireEvent.click(menus[0]);
+    expect(screen.getByRole('menuitem', { name: 'Rename' })).toBeTruthy();
+    expect(
+      (screen.getByRole('menuitem', { name: 'Move up' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    expect(
+      (screen.getByRole('menuitem', { name: 'Move down' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
+
+    fireEvent.click(menus[0]);
+    fireEvent.click(menus[1]);
+    expect(
+      (screen.getByRole('menuitem', { name: 'Move down' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    expect(
+      (screen.getByRole('menuitem', { name: 'Move up' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
+  });
+
+  it('does not collapse a group when its actions menu is opened', () => {
+    render(
+      <ChannelMenu
+        collapsed={false}
+        integrations={[acmeOne, betaOne]}
+      />
+    );
+
+    fireEvent.click(screen.getAllByLabelText('Group actions')[0]);
+
+    expect(
+      screen.getByText('Acme One').closest('div.flex.flex-col')?.className
+    ).not.toContain('hidden');
+    expect(screen.getByRole('menuitem', { name: 'Move up' })).toBeTruthy();
+  });
+
+  it('opens a rename modal from the group menu', () => {
+    render(
+      <ChannelMenu
+        collapsed={false}
+        integrations={[acmeOne, betaOne]}
+      />
+    );
+
+    fireEvent.click(screen.getAllByLabelText('Group actions')[0]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Rename' }));
+
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Rename group',
+      })
+    );
   });
 });

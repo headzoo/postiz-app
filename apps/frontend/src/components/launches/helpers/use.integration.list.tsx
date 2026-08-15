@@ -19,6 +19,7 @@ export type IntegrationListItem = Integration & {
   customer?: {
     id?: string;
     name?: string;
+    position?: number;
   };
   customFields?: {
     key: string;
