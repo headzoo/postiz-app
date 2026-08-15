@@ -811,6 +811,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       direction: input.direction,
       eventAt: input.eventAt,
       counterparty: input.counterparty,
+      eventType: input.sourceType,
       ...(input.relatedObjectId
         ? { relatedObjectId: input.relatedObjectId }
         : {}),

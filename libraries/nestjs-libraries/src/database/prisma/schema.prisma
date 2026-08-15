@@ -1529,6 +1529,7 @@ model WebhookHttpLog {
   sourceUsername    String?
   targetDisplayName String?
   targetUsername    String?
+  eventType         String?
   createdAt         DateTime                @default(now())
   organization      Organization            @relation(fields: [organizationId], references: [id])
   webhook           Webhooks?               @relation(fields: [webhookId], references: [id], onDelete: SetNull)

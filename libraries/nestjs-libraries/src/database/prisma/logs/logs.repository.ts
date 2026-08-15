@@ -38,6 +38,7 @@ export type CreateWebhookHttpLogInput = {
   sourceUsername?: string;
   targetDisplayName?: string;
   targetUsername?: string;
+  eventType?: string;
 };
 
 @Injectable()
@@ -82,14 +83,28 @@ export class LogsRepository {
     organizationId: string,
     page = 0,
     limit = 20,
-    direction?: WebhookHttpLogDirection
+    direction?: WebhookHttpLogDirection,
+    search?: string,
+    eventType?: string
   ) {
     const safePage = Math.max(0, page);
     const safeLimit = Math.min(Math.max(1, limit), 100);
     const skip = safePage * safeLimit;
+    const searchTerm = search?.trim();
     const where = {
       organizationId,
       ...(direction ? { direction } : {}),
+      ...(eventType ? { eventType } : {}),
+      ...(searchTerm
+        ? {
+            OR: [
+              { sourceDisplayName: { contains: searchTerm, mode: 'insensitive' as const } },
+              { sourceUsername: { contains: searchTerm, mode: 'insensitive' as const } },
+              { targetDisplayName: { contains: searchTerm, mode: 'insensitive' as const } },
+              { targetUsername: { contains: searchTerm, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
     };
     const [items, total] = await Promise.all([
       this._webhookHttpLog.model.webhookHttpLog.findMany({

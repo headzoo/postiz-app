@@ -23,6 +23,7 @@ const interaction = (overrides: Record<string, any> = {}) => ({
     name: 'Person',
     profileUrl: 'https://social.example/person-1',
   },
+  eventType: 'like.create',
   normalizationVersion: 1,
   ...overrides,
 });
@@ -561,6 +562,7 @@ describe('ChannelInteractionService', () => {
         sourceDisplayName: 'Person',
         targetDisplayName: 'My X',
         targetUsername: 'me',
+        eventType: 'like.create',
       })
     );
     expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
@@ -572,6 +574,7 @@ describe('ChannelInteractionService', () => {
         sourceDisplayName: 'Person',
         targetDisplayName: 'Org B X',
         targetUsername: 'orgb',
+        eventType: 'like.create',
       })
     );
   });
@@ -628,6 +631,7 @@ describe('ChannelInteractionService', () => {
         sourceUsername: 'me',
         targetDisplayName: 'Bob',
         targetUsername: 'bob',
+        eventType: 'like.create',
       })
     );
   });

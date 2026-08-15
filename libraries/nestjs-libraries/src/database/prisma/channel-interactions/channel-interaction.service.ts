@@ -302,6 +302,7 @@ export class ChannelInteractionService {
             responseHeaders: { 'content-type': 'application/json' },
             responseBody: input.responseBody,
             error: input.error,
+            eventType: firstEvent?.eventType,
             ...endpoints,
           });
         })

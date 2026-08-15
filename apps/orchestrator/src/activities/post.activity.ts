@@ -547,6 +547,7 @@ export class PostActivity {
               sourceUsername: source.username,
               targetDisplayName: target.displayName,
               targetUsername: target.username,
+              eventType: 'post.create',
             });
           } catch (e) {
             await this._logsService.logOutboundWebhook({
@@ -563,6 +564,7 @@ export class PostActivity {
               sourceUsername: source.username,
               targetDisplayName: target.displayName,
               targetUsername: target.username,
+              eventType: 'post.create',
             });
           }
         })

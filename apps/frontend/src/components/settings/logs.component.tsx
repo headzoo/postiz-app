@@ -22,6 +22,31 @@ const isWebhookLog = (
   row: PostHttpLogRow | WebhookHttpLogRow
 ): row is WebhookHttpLogRow => 'direction' in row;
 
+const WEBHOOK_EVENT_TYPES = [
+  'like.create',
+  'follow.follow',
+  'follow.unfollow',
+  'post.create',
+  'post.delete',
+  'post.mention.create',
+] as const;
+
+const WEBHOOK_EVENT_LABELS: Record<string, string> = {
+  'post.create': 'Created Post',
+  'follow.follow': 'Follow',
+  'follow.unfollow': 'Unfollow',
+  'like.create': 'Like',
+  'post.delete': 'Deleted Post',
+  'post.mention.create': 'Mention',
+};
+
+const webhookEventLabel = (eventType?: string | null) => {
+  if (!eventType) {
+    return '—';
+  }
+  return WEBHOOK_EVENT_LABELS[eventType] || eventType;
+};
+
 const LogIdentity: FC<{
   displayName?: string | null;
   username?: string | null;
@@ -130,6 +155,10 @@ const LogDetailsModal: FC<{
         </div>
         {isWebhookLog(row) ? (
           <>
+            <div>
+              <div className="opacity-60">{t('event_type', 'Event type')}</div>
+              <div>{webhookEventLabel(row.eventType)}</div>
+            </div>
             <div>
               <div className="opacity-60">{t('source', 'Source')}</div>
               <LogIdentity
@@ -280,24 +309,22 @@ const LogTable: FC<{
 
   return (
     <div className="border border-newTableBorder rounded-[8px] overflow-hidden">
-      <div className="grid grid-cols-[170px_90px_80px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] bg-newTableHeader text-[12px] uppercase opacity-70 border-b border-newTableBorder">
+      <div className="grid grid-cols-[170px_90px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] bg-newTableHeader text-[12px] uppercase opacity-70 border-b border-newTableBorder">
         <div>{t('created', 'Created')}</div>
-        <div>{t('status', 'Status')}</div>
-        <div>{t('method', 'Method')}</div>
+        <div>{t('log_status', 'Status')}</div>
         <div>{t('direction', 'Direction')}</div>
         <div>{t('source', 'Source')}</div>
         <div>{t('target', 'Target')}</div>
-        <div>{t('url', 'URL')}</div>
+        <div>{t('event_type', 'Event type')}</div>
         <div className="text-right">{t('actions', 'Actions')}</div>
       </div>
       {webhooks.items.map((row) => (
         <div
           key={row.id}
-          className="grid grid-cols-[170px_90px_80px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] text-[13px] border-b border-newTableBorder last:border-b-0 items-center"
+          className="grid grid-cols-[170px_90px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] text-[13px] border-b border-newTableBorder last:border-b-0 items-center"
         >
           <div>{new Date(row.createdAt).toLocaleString()}</div>
           <div>{row.statusCode ?? row.error ?? '—'}</div>
-          <div>{row.method}</div>
           <div>{row.direction.toLowerCase()}</div>
           <LogIdentity
             displayName={row.sourceDisplayName}
@@ -307,7 +334,7 @@ const LogTable: FC<{
             displayName={row.targetDisplayName}
             username={row.targetUsername}
           />
-          <div className="break-all opacity-80">{row.url}</div>
+          <div className="truncate opacity-80">{webhookEventLabel(row.eventType)}</div>
           <div className="flex justify-end">
             <Button secondary type="button" onClick={() => openWebhook(row)}>
               {t('view', 'View')}
@@ -324,9 +351,12 @@ export const LogsSettings: FC = () => {
   const [kind, setKind] = useState<LogKind>('webhooks');
   const [page, setPage] = useState(0);
   const [direction, setDirection] = useState<'INBOUND' | 'OUTBOUND' | ''>('');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [search, setSearch] = useState('');
+  const [eventType, setEventType] = useState('');
   const limit = 20;
   const posts = usePostLogs(page, limit);
-  const webhooks = useWebhookLogs(page, limit, direction);
+  const webhooks = useWebhookLogs(page, limit, direction, search, eventType);
   const current = kind === 'posts' ? posts : webhooks;
   const totalPages = Math.max(1, Math.ceil((current.data?.total || 0) / limit));
 
@@ -342,6 +372,15 @@ export const LogsSettings: FC = () => {
     }
     webhooks.mutate();
   }, [kind, posts, webhooks]);
+
+  const applySearch = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      setPage(0);
+      setSearch(searchDraft.trim());
+    },
+    [searchDraft]
+  );
 
   const subtitle = useMemo(
     () =>
@@ -372,20 +411,6 @@ export const LogsSettings: FC = () => {
           >
             {t('posts', 'Posts')}
           </Button>
-          {kind === 'webhooks' && (
-            <select
-              value={direction}
-              onChange={(event) => {
-                setPage(0);
-                setDirection(event.target.value as 'INBOUND' | 'OUTBOUND' | '');
-              }}
-              className="bg-newBgColorInner h-[40px] border border-newTableBorder rounded-[8px] px-[10px] text-[14px] text-textColor"
-            >
-              <option value="">{t('all_directions', 'All directions')}</option>
-              <option value="OUTBOUND">{t('outbound', 'Outbound')}</option>
-              <option value="INBOUND">{t('inbound', 'Inbound')}</option>
-            </select>
-          )}
           <Button
             type="button"
             secondary
@@ -394,6 +419,51 @@ export const LogsSettings: FC = () => {
           >
             {t('refresh', 'Refresh')}
           </Button>
+          {kind === 'webhooks' && (
+            <div className="flex flex-wrap items-center gap-[8px] ml-auto">
+              <select
+                aria-label={t('direction', 'Direction')}
+                value={direction}
+                onChange={(event) => {
+                  setPage(0);
+                  setDirection(event.target.value as 'INBOUND' | 'OUTBOUND' | '');
+                }}
+                className="bg-newBgColorInner h-[40px] border border-newTableBorder rounded-[8px] px-[10px] text-[14px] text-textColor"
+              >
+                <option value="">{t('all_directions', 'All directions')}</option>
+                <option value="OUTBOUND">{t('outbound', 'Outbound')}</option>
+                <option value="INBOUND">{t('inbound', 'Inbound')}</option>
+              </select>
+              <select
+                aria-label={t('event_type', 'Event type')}
+                value={eventType}
+                onChange={(event) => {
+                  setPage(0);
+                  setEventType(event.target.value);
+                }}
+                className="bg-newBgColorInner h-[40px] border border-newTableBorder rounded-[8px] px-[10px] text-[14px] text-textColor"
+              >
+                <option value="">{t('all_event_types', 'All event types')}</option>
+                {WEBHOOK_EVENT_TYPES.map((value) => (
+                  <option key={value} value={value}>
+                    {WEBHOOK_EVENT_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+              <form className="flex items-center gap-[8px]" onSubmit={applySearch}>
+                <input
+                  type="search"
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
+                  placeholder={t('search_source_or_target', 'Search source or target')}
+                  className="bg-newBgColorInner h-[40px] w-[220px] border border-newTableBorder rounded-[8px] px-[10px] text-[14px] text-textColor"
+                />
+                <Button type="submit" secondary>
+                  {t('search', 'Search')}
+                </Button>
+              </form>
+            </div>
+          )}
         </div>
         <div className="w-full">
           <LogTable

@@ -377,6 +377,7 @@ export type NormalizedChannelInteractionEvent = {
   metadata?: Record<string, string>;
   normalizationVersion: number;
   membershipUpdate?: ChannelAudienceMembership;
+  eventType?: string;
 };
 
 export type NormalizedChannelContentEvent =

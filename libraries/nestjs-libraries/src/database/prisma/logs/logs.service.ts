@@ -9,6 +9,7 @@ import {
   registerPostHttpLogWriter,
 } from './http-log.context';
 import {
+  capHttpLogEventType,
   capHttpLogIdentity,
   readCappedHttpLogBody,
   redactHttpLogUrl,
@@ -63,6 +64,7 @@ export class LogsService implements OnModuleInit {
     sourceUsername?: string;
     targetDisplayName?: string;
     targetUsername?: string;
+    eventType?: string;
   }) {
     try {
       const responseBody = input.response
@@ -90,6 +92,7 @@ export class LogsService implements OnModuleInit {
         sourceUsername: capHttpLogIdentity(input.sourceUsername),
         targetDisplayName: capHttpLogIdentity(input.targetDisplayName),
         targetUsername: capHttpLogIdentity(input.targetUsername),
+        eventType: capHttpLogEventType(input.eventType),
       });
     } catch {
       /** logging must never break webhook delivery */
@@ -111,6 +114,7 @@ export class LogsService implements OnModuleInit {
     sourceUsername?: string;
     targetDisplayName?: string;
     targetUsername?: string;
+    eventType?: string;
   }) {
     try {
       await this.createWebhookLog({
@@ -130,6 +134,7 @@ export class LogsService implements OnModuleInit {
         sourceUsername: capHttpLogIdentity(input.sourceUsername),
         targetDisplayName: capHttpLogIdentity(input.targetDisplayName),
         targetUsername: capHttpLogIdentity(input.targetUsername),
+        eventType: capHttpLogEventType(input.eventType),
       });
     } catch {
       /** logging must never break webhook delivery */
@@ -144,13 +149,17 @@ export class LogsService implements OnModuleInit {
     organizationId: string,
     page?: number,
     limit?: number,
-    direction?: WebhookHttpLogDirection
+    direction?: WebhookHttpLogDirection,
+    search?: string,
+    eventType?: string
   ) {
     return this._logsRepository.listWebhookLogs(
       organizationId,
       page,
       limit,
-      direction
+      direction,
+      search,
+      eventType
     );
   }
 }

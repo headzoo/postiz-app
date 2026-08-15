@@ -13,6 +13,10 @@ export type WebhookLogEndpoints = {
   targetUsername?: string;
 };
 
+export function capHttpLogEventType(value?: string | null) {
+  return capHttpLogIdentity(value);
+}
+
 export function capHttpLogIdentity(value?: string | null) {
   if (!value) {
     return undefined;

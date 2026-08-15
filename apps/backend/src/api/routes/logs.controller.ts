@@ -30,7 +30,9 @@ export class LogsController {
       org.id,
       query.page,
       query.limit,
-      query.direction
+      query.direction,
+      query.search,
+      query.eventType
     );
   }
 }

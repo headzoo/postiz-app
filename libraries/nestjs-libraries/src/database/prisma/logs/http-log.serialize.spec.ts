@@ -1,5 +1,6 @@
 import {
   MAX_HTTP_LOG_BODY,
+  capHttpLogEventType,
   eventEndpoints,
   hostnameFromUrl,
   readCappedHttpLogBody,
@@ -11,6 +12,10 @@ import {
 } from './http-log.serialize';
 
 describe('HTTP log serialization', () => {
+  it('caps event type values', () => {
+    expect(capHttpLogEventType(' follow.follow ')).toBe('follow.follow');
+    expect(capHttpLogEventType('')).toBeUndefined();
+  });
   it('redacts sensitive headers and keeps others', () => {
     expect(
       JSON.parse(

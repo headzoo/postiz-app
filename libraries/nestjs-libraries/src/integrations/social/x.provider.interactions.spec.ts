@@ -125,6 +125,7 @@ describe('XProvider interaction webhooks', () => {
           direction: 'outbound',
           counterparty: { externalId: '8' },
           relatedObjectId: 'post-1',
+          eventType: 'like.create',
         },
       ],
     });
@@ -149,6 +150,7 @@ describe('XProvider interaction webhooks', () => {
           direction: 'inbound',
           counterparty: { externalId: '9' },
           membershipUpdate: 'not_follower',
+          eventType: 'follow.unfollow',
         },
       ],
     });
@@ -185,6 +187,7 @@ describe('XProvider interaction webhooks', () => {
           direction: 'inbound',
           counterparty: { externalId: '7' },
           relatedObjectId: 'parent',
+          eventType: 'post.mention.create',
         },
       ],
     });
@@ -218,6 +221,7 @@ describe('XProvider interaction webhooks', () => {
           counterparty: { externalId: '8' },
           relatedObjectId: 'original',
           metadata: { referenceType: 'repost' },
+          eventType: 'post.create',
         },
       ],
     });

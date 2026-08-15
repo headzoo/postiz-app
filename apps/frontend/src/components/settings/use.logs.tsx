@@ -39,6 +39,7 @@ export type WebhookHttpLogRow = {
   sourceUsername?: string | null;
   targetDisplayName?: string | null;
   targetUsername?: string | null;
+  eventType?: string | null;
   createdAt: string;
 };
 
@@ -69,13 +70,17 @@ export const usePostLogs = (page: number, limit: number) => {
 export const useWebhookLogs = (
   page: number,
   limit: number,
-  direction?: 'INBOUND' | 'OUTBOUND' | ''
+  direction?: 'INBOUND' | 'OUTBOUND' | '',
+  search?: string,
+  eventType?: string
 ) => {
   const fetch = useFetch();
   const query = new URLSearchParams({
     page: String(page),
     limit: String(limit),
     ...(direction ? { direction } : {}),
+    ...(search ? { search } : {}),
+    ...(eventType ? { eventType } : {}),
   });
   const key = `/logs/webhooks?${query.toString()}`;
   return useSWR<LogsResponse<WebhookHttpLogRow>>(key, async (url: string) => {

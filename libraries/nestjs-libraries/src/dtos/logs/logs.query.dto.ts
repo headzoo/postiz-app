@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 export class LogsQueryDto {
   @IsOptional()
@@ -20,4 +20,20 @@ export class WebhookLogsQueryDto extends LogsQueryDto {
   @IsOptional()
   @IsIn(['INBOUND', 'OUTBOUND'])
   direction?: 'INBOUND' | 'OUTBOUND';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  search?: string;
+
+  @IsOptional()
+  @IsIn([
+    'like.create',
+    'follow.follow',
+    'follow.unfollow',
+    'post.create',
+    'post.delete',
+    'post.mention.create',
+  ])
+  eventType?: string;
 }

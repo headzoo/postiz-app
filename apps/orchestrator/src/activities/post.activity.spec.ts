@@ -148,6 +148,7 @@ describe('PostActivity.sendWebhooks', () => {
         sourceUsername: 'me',
         targetDisplayName: 'CRM',
         targetUsername: 'example.com',
+        eventType: 'post.create',
       })
     );
   });
@@ -171,6 +172,7 @@ describe('PostActivity.sendWebhooks', () => {
         sourceDisplayName: 'My X',
         targetDisplayName: 'CRM',
         targetUsername: 'example.com',
+        eventType: 'post.create',
       })
     );
   });

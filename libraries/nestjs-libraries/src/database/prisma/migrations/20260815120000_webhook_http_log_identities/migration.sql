@@ -5,3 +5,4 @@ ALTER TABLE "WebhookHttpLog" ADD COLUMN "sourceDisplayName" TEXT;
 ALTER TABLE "WebhookHttpLog" ADD COLUMN "sourceUsername" TEXT;
 ALTER TABLE "WebhookHttpLog" ADD COLUMN "targetDisplayName" TEXT;
 ALTER TABLE "WebhookHttpLog" ADD COLUMN "targetUsername" TEXT;
+ALTER TABLE "WebhookHttpLog" ADD COLUMN "eventType" TEXT;

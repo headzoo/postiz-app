@@ -61,6 +61,7 @@ describe('LogsRepository', () => {
       sourceUsername: 'alice',
       targetDisplayName: 'My X',
       targetUsername: 'me',
+      eventType: 'follow.follow',
     });
 
     expect(create).toHaveBeenCalledWith({
@@ -69,26 +70,43 @@ describe('LogsRepository', () => {
         sourceUsername: 'alice',
         targetDisplayName: 'My X',
         targetUsername: 'me',
+        eventType: 'follow.follow',
       }),
     });
   });
 
-  it('filters webhook logs by organization and optional direction', async () => {
+  it('filters webhook logs by organization, direction, search, and event type', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const count = jest.fn().mockResolvedValue(0);
     const logs = repository({}, { findMany, count });
 
-    await logs.listWebhookLogs('org-2', 1, 10, 'OUTBOUND' as any);
+    await logs.listWebhookLogs(
+      'org-2',
+      1,
+      10,
+      'OUTBOUND' as any,
+      'alice',
+      'follow.follow'
+    );
 
+    const where = {
+      organizationId: 'org-2',
+      direction: 'OUTBOUND',
+      eventType: 'follow.follow',
+      OR: [
+        { sourceDisplayName: { contains: 'alice', mode: 'insensitive' } },
+        { sourceUsername: { contains: 'alice', mode: 'insensitive' } },
+        { targetDisplayName: { contains: 'alice', mode: 'insensitive' } },
+        { targetUsername: { contains: 'alice', mode: 'insensitive' } },
+      ],
+    };
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { organizationId: 'org-2', direction: 'OUTBOUND' },
+        where,
         skip: 10,
         take: 10,
       })
     );
-    expect(count).toHaveBeenCalledWith({
-      where: { organizationId: 'org-2', direction: 'OUTBOUND' },
-    });
+    expect(count).toHaveBeenCalledWith({ where });
   });
 });
