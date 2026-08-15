@@ -210,7 +210,7 @@ describe('getPipelineScheduleWeek', () => {
 });
 
 describe('PIPELINE_COLOR_PALETTE', () => {
-  it('contains 14 swatches including the default purple', () => {
+  it('contains 14 swatches including the default primary', () => {
     expect(PIPELINE_COLOR_PALETTE).toHaveLength(14);
     expect(
       PIPELINE_COLOR_PALETTE.some((swatch) => swatch.value === PIPELINE_DEFAULT_COLOR)
@@ -220,7 +220,7 @@ describe('PIPELINE_COLOR_PALETTE', () => {
 
 describe('resolveCalendarPostHeaderColor', () => {
   it('prefers pipeline color over tag color', () => {
-    expect(resolveCalendarPostHeaderColor('#612BD3', '#FF0000')).toBe('#612BD3');
+    expect(resolveCalendarPostHeaderColor('#eb3825', '#FF0000')).toBe('#eb3825');
   });
 
   it('uses tag color when pipeline color is absent', () => {
@@ -253,7 +253,7 @@ describe('getReadableForegroundColor', () => {
   });
 
   it('returns light text on dark backgrounds', () => {
-    expect(getReadableForegroundColor('#612BD3')).toBe('#FFFFFF');
+    expect(getReadableForegroundColor('#eb3825')).toBe('#FFFFFF');
     expect(getReadableForegroundColor('#616161')).toBe('#FFFFFF');
     expect(getReadableForegroundColor('#E80000')).toBe('#FFFFFF');
   });
@@ -296,7 +296,7 @@ describe('loadPipelineGlobalSchedule', () => {
         pipelineId: 'pipeline-1',
         pipelineName: 'Main',
         pipelineTimezone: 'America/New_York',
-        pipelineColor: '#612BD3',
+        pipelineColor: '#eb3825',
         active: true,
         scheduleRevision: 1,
         dayOfWeek: 1,

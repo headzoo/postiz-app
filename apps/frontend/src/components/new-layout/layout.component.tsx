@@ -102,12 +102,12 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                       <div
                         id="left-menu"
                         className={clsx(
-                          'fixed h-full w-[64px] start-[17px] flex flex-1 top-0',
+                          'fixed h-full w-[80px] start-[12px] flex flex-1 top-0',
                           user?.admin && 'pt-[60px] max-h-[1000px]:w-[500px]'
                         )}
                       >
-                        <div className="flex flex-col h-full gap-[32px] flex-1 py-[12px]">
-                          <Logo />
+                        <div className="flex flex-col items-center h-full gap-[32px] flex-1 py-[12px]">
+                          <Logo sidebar />
                           <TopMenu />
                         </div>
                       </div>

@@ -171,7 +171,7 @@ export const ContextDocumentAssignmentPicker: FC<{
               'search_context_documents',
               'Search documents by name'
             )}
-            className="w-full h-[40px] px-[12px] rounded-[8px] bg-newBgColorInner border border-newColColor text-[14px] outline-none focus:border-[#612BD3]"
+            className="w-full h-[40px] px-[12px] rounded-[8px] bg-newBgColorInner border border-newColColor text-[14px] outline-none focus:border-[#eb3825]"
           />
           <div className="flex flex-col gap-[8px] max-h-[220px] overflow-y-auto pe-[2px]">
             {!filteredRows.length ? (

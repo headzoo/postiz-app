@@ -164,7 +164,7 @@ export const AnalyticsCard: FC<{
           rounded-[12px]
           overflow-hidden
           transition-all duration-200
-          hover:border-[#612bd3]/50
+          hover:border-[#eb3825]/50
         `}
       >
         <div className="flex items-center justify-between px-[16px] pt-[14px] pb-[8px]">
@@ -172,7 +172,7 @@ export const AnalyticsCard: FC<{
             <div
               className={`
                 w-[8px] h-[8px] rounded-full
-                ${color === 'purple' ? 'bg-[#612bd3]' : ''}
+                ${color === 'purple' ? 'bg-[#eb3825]' : ''}
                 ${color === 'green' ? 'bg-[#32d583]' : ''}
                 ${color === 'blue' ? 'bg-[#1d9bf0]' : ''}
               `}
@@ -226,7 +226,7 @@ const EmptyState: FC = () => {
 
   return (
     <div className="col-span-full flex flex-col items-center justify-center py-[48px] px-[24px] bg-newTableHeader border border-newTableBorder rounded-[12px]">
-      <div className="w-[48px] h-[48px] mb-[16px] rounded-full bg-[#612bd3]/10 flex items-center justify-center">
+      <div className="w-[48px] h-[48px] mb-[16px] rounded-full bg-[#eb3825]/10 flex items-center justify-center">
         <svg
           width="24"
           height="24"
@@ -234,7 +234,7 @@ const EmptyState: FC = () => {
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
-          className="text-[#612bd3]"
+          className="text-[#eb3825]"
         >
           <path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           <path d="M12 8v4l2 2" />

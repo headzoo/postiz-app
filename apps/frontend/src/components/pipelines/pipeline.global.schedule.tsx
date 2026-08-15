@@ -511,7 +511,7 @@ export const PipelineGlobalSchedule: FC = () => {
             <div className="flex flex-wrap items-center gap-[12px] text-[13px]">
               <span className="font-[500]">{t('legend', 'Legend')}:</span>
               <span className="flex items-center gap-[6px]">
-                <span className="h-[12px] w-[12px] rounded-[3px] bg-gradient-to-r from-[#E80000] via-[#612BD3] to-[#00BA73]" />
+                <span className="h-[12px] w-[12px] rounded-[3px] bg-gradient-to-r from-[#E80000] via-[#eb3825] to-[#00BA73]" />
                 {t(
                   'pipeline_schedule_active_legend',
                   'Active entries use Pipeline colors'

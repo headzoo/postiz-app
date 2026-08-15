@@ -453,7 +453,7 @@ export const ContextDocumentLibrary: FC = () => {
                 'search_context_documents',
                 'Search documents by name'
               )}
-              className="w-full h-[40px] px-[12px] rounded-[8px] bg-newBgColor border border-newColColor text-[14px] outline-none focus:border-[#612BD3]"
+              className="w-full h-[40px] px-[12px] rounded-[8px] bg-newBgColor border border-newColColor text-[14px] outline-none focus:border-[#eb3825]"
             />
           </div>
         )}

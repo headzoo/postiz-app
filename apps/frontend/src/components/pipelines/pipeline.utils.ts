@@ -171,7 +171,7 @@ export const shuffleQueuedOrder = <T extends { id: string }>(
   return shuffled;
 };
 
-export const PIPELINE_DEFAULT_COLOR = '#612BD3';
+export const PIPELINE_DEFAULT_COLOR = '#eb3825';
 
 export const PIPELINE_COLOR_PALETTE = [
   { value: '#E80000', label: 'Red' },
@@ -179,7 +179,7 @@ export const PIPELINE_COLOR_PALETTE = [
   { value: '#FF3F00', label: 'Orange' },
   { value: '#FF8100', label: 'Amber' },
   { value: '#FFBE00', label: 'Yellow' },
-  { value: PIPELINE_DEFAULT_COLOR, label: 'Purple' },
+  { value: PIPELINE_DEFAULT_COLOR, label: 'Primary' },
   { value: '#0085C9', label: 'Blue' },
   { value: '#00B7EA', label: 'Cyan' },
   { value: '#00BA73', label: 'Green' },
