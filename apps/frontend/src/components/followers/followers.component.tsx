@@ -12,7 +12,9 @@ import { Select } from '@gitroom/react/form/select';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { FollowerCard } from '@gitroom/frontend/components/followers/follower.card';
 import { FollowerDetailModal } from '@gitroom/frontend/components/followers/follower.detail.modal';
+import { FollowerListCreateModal } from '@gitroom/frontend/components/followers/follower.list.create.modal';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { PlusIcon } from '@gitroom/frontend/components/ui/icons';
 import {
   ChannelMenu,
   ChannelsSidebar,
@@ -34,6 +36,8 @@ import {
   FollowerTriageFilter,
   Follower,
   useFollowerChannels,
+  useFollowerListMutations,
+  useFollowerLists,
   useFollowers,
 } from '@gitroom/frontend/components/followers/use.followers';
 
@@ -114,11 +118,13 @@ export const buildFollowersPageHref = ({
   search,
   sort,
   direction,
+  listId,
 }: {
   slug?: string;
   search?: string;
   sort?: string;
   direction?: FollowerSortDirection;
+  listId?: string;
 }) => {
   const path = slug ? `/followers/${slug}` : '/followers';
   const params = new URLSearchParams();
@@ -130,6 +136,9 @@ export const buildFollowersPageHref = ({
   }
   if (direction) {
     params.set('direction', direction);
+  }
+  if (listId) {
+    params.set('listId', listId);
   }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
@@ -330,6 +339,7 @@ export const FollowersComponent: FC = () => {
     [pathname]
   );
   const urlSearch = searchParams.get('search') ?? '';
+  const urlListId = searchParams.get('listId') || undefined;
   const urlSort = searchParams.get('sort') || undefined;
   const urlDirectionParam = searchParams.get('direction');
   const urlDirection: FollowerSortDirection | undefined =
@@ -467,14 +477,20 @@ export const FollowersComponent: FC = () => {
 
   const previousSearch = useRef(trimmedSearch);
   const previousSlug = useRef(slug);
+  const previousListId = useRef(urlListId);
   useEffect(() => {
-    if (previousSearch.current === trimmedSearch && previousSlug.current === slug) {
+    if (
+      previousSearch.current === trimmedSearch &&
+      previousSlug.current === slug &&
+      previousListId.current === urlListId
+    ) {
       return;
     }
     previousSearch.current = trimmedSearch;
     previousSlug.current = slug;
+    previousListId.current = urlListId;
     resetPagination();
-  }, [trimmedSearch, slug, resetPagination]);
+  }, [trimmedSearch, slug, urlListId, resetPagination]);
 
   const querySort = sort || urlSort;
   const queryDirection = direction || urlDirection;
@@ -486,7 +502,8 @@ export const FollowersComponent: FC = () => {
     if (
       urlSearch === nextSearch &&
       (urlSort || '') === nextSort &&
-      (urlDirection || '') === nextDirection
+      (urlDirection || '') === nextDirection &&
+      (searchParams.get('listId') || undefined) === urlListId
     ) {
       return;
     }
@@ -503,6 +520,7 @@ export const FollowersComponent: FC = () => {
         search: nextSearch || undefined,
         sort: nextSort || undefined,
         direction: nextDirection || undefined,
+        listId: urlListId,
       })
     );
   }, [
@@ -513,6 +531,7 @@ export const FollowersComponent: FC = () => {
     urlSearch,
     urlSort,
     urlDirection,
+    urlListId,
     router,
   ]);
 
@@ -537,9 +556,15 @@ export const FollowersComponent: FC = () => {
     direction: effectiveDirection,
     window: requiresWindow ? window : undefined,
     search: trimmedSearch || undefined,
-    triage,
-    audience,
+    triage: urlListId ? undefined : triage,
+    audience: urlListId ? undefined : audience,
+    listId: urlListId,
   });
+
+  const { data: followerLists = [] } = useFollowerLists(selectedIntegrationId);
+  const { createList, addMember, removeMember } = useFollowerListMutations(
+    selectedIntegrationId
+  );
 
   const handleNext = useCallback(() => {
     if (!followersPage?.nextCursor) {
@@ -579,6 +604,20 @@ export const FollowersComponent: FC = () => {
     },
     [modal, selectedIntegrationId]
   );
+
+  const openCreateListModal = useCallback(() => {
+    modal.openModal({
+      title: t('followers_create_list_title', 'Create list'),
+      children: (close) => (
+        <FollowerListCreateModal
+          close={close}
+          onCreate={async (name) => {
+            await createList(name);
+          }}
+        />
+      ),
+    });
+  }, [createList, modal, t]);
 
   if (isLoadingChannels || isLoadingIntegrations) {
     return (
@@ -650,6 +689,25 @@ export const FollowersComponent: FC = () => {
             {t(
               'followers_search_empty_description',
               'Try a different username or display name.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (urlListId) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t(
+              'followers_list_empty_title',
+              'No followers in this list'
+            )}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_list_empty_description',
+              'Add people from their cards using the + button next to their triage label.'
             )}
           </p>
         </div>
@@ -950,9 +1008,11 @@ export const FollowersComponent: FC = () => {
           aria-label={t('followers_triage_filter_group', 'Triage filter')}
         >
           {TRIAGE_FILTER_OPTIONS.map((option) => {
-            const isSelected = option.audience
-              ? audience === option.audience
-              : !audience && triage === option.value;
+            const isSelected = urlListId
+              ? false
+              : option.audience
+                ? audience === option.audience
+                : !audience && triage === option.value;
             return (
               <Link
                 key={option.key}
@@ -976,6 +1036,39 @@ export const FollowersComponent: FC = () => {
               </Link>
             );
           })}
+          {followerLists.map((list) => {
+            const isSelected = urlListId === list.id;
+            return (
+              <Link
+                key={list.id}
+                href={buildFollowersPageHref({
+                  search: trimmedSearch || undefined,
+                  sort: querySort,
+                  direction: querySort ? queryDirection : undefined,
+                  listId: list.id,
+                })}
+                scroll={false}
+                className={clsx(
+                  'rounded-[8px] border px-[10px] py-[6px] text-[13px] transition-colors',
+                  isSelected
+                    ? 'border-newTableText bg-newTableHeader text-newTextColor'
+                    : 'border-newBorder bg-newBgColorInner text-textItemBlur hover:bg-newTableHeader hover:text-newTextColor'
+                )}
+                aria-pressed={isSelected}
+                aria-current={isSelected ? 'page' : undefined}
+              >
+                {list.name}
+              </Link>
+            );
+          })}
+          <button
+            type="button"
+            onClick={openCreateListModal}
+            className="inline-flex items-center justify-center rounded-[8px] border border-newBorder bg-newBgColorInner px-[10px] py-[6px] text-[13px] text-textItemBlur hover:bg-newTableHeader hover:text-newTextColor"
+            aria-label={t('followers_create_list', 'Create list')}
+          >
+            <PlusIcon size={14} />
+          </button>
         </div>
 
         {isInteractionsSort && (
@@ -1015,6 +1108,14 @@ export const FollowersComponent: FC = () => {
                 <FollowerCard
                   key={follower.id}
                   follower={follower}
+                  lists={followerLists}
+                  onToggleList={async (list, assigned) => {
+                    if (assigned) {
+                      await removeMember(list.id, follower.id);
+                      return;
+                    }
+                    await addMember(list.id, follower.id);
+                  }}
                   onOpen={() => openFollowerDetail(follower)}
                 />
               ))}

@@ -1867,6 +1867,110 @@ describe('IntegrationService followers', () => {
     );
   });
 
+  it('routes a custom list filter through the complete synced audience', async () => {
+    const followers = jest.fn();
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getAudienceFollowers.mockResolvedValue({
+      items: [],
+      hasMore: false,
+    });
+
+    await service.getFollowers(org, user, 'channel-a', {
+      limit: 24,
+      sort: 'recent',
+      direction: 'desc',
+      listId: 'list-1',
+    });
+
+    expect(followers).not.toHaveBeenCalled();
+    expect(
+      (service as any)._channelInteractionRepository.getAudienceFollowers
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ listId: 'list-1' })
+    );
+  });
+
+  it('keeps custom list memberships on mapped follower cards', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getAudienceFollowers.mockResolvedValue({
+      items: [
+        {
+          externalId: 'follower-a',
+          name: 'Follower A',
+          username: null,
+          picture: null,
+          profileUrl: null,
+          bio: null,
+          followersCount: null,
+          followingCount: null,
+          followedAt: null,
+          accountCreatedAt: null,
+          noteCount: 0,
+          likesCount: 0,
+          listMemberships: [{ listId: 'list-1' }],
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+        listId: 'list-1',
+      })
+    ).resolves.toMatchObject({
+      items: [{ id: 'follower-a', listIds: ['list-1'] }],
+    });
+  });
+
+  it('rejects combining a list filter with triage', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        listId: 'list-1',
+        triage: 'hot_lead',
+      })
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
   it('routes the lead audience through non-follower inbound members', async () => {
     const followers = jest.fn();
     const service = createService([integration], {

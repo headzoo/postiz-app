@@ -282,15 +282,15 @@ export class ChannelInteractionService {
           const endpoints = firstEvent
             ? eventEndpoints(firstEvent, integration)
             : (() => {
-                const target = integrationIdentity(
-                  integration.name,
-                  integration.profile
-                );
-                return {
-                  targetDisplayName: target.displayName,
-                  targetUsername: target.username,
-                };
-              })();
+              const target = integrationIdentity(
+                integration.name,
+                integration.profile
+              );
+              return {
+                targetDisplayName: target.displayName,
+                targetUsername: target.username,
+              };
+            })();
           return this._logsService!.logInboundWebhook({
             organizationId,
             integrationId: integration.id,
@@ -740,6 +740,119 @@ export class ChannelInteractionService {
     } catch {
       throw new NotFoundException('Follower was not found');
     }
+  }
+
+  async listFollowerLists(organizationId: string, integrationId: string) {
+    return this._repository.listAudienceLists(organizationId, integrationId);
+  }
+
+  async createFollowerList(
+    organizationId: string,
+    integrationId: string,
+    createdByUserId: string,
+    name: string
+  ) {
+    this.validateBoundedString(createdByUserId, 'createdByUserId', MAX_ID_LENGTH);
+    const normalized = this.normalizeFollowerListName(name);
+    const result = await this._repository.createAudienceList(
+      organizationId,
+      integrationId,
+      normalized,
+      createdByUserId
+    );
+    if (result.conflict) {
+      throw new ConflictException('A list with this name already exists');
+    }
+    return result.list;
+  }
+
+  async updateFollowerList(
+    organizationId: string,
+    integrationId: string,
+    listId: string,
+    name: string
+  ) {
+    this.validateBoundedString(listId, 'listId', MAX_ID_LENGTH);
+    const normalized = this.normalizeFollowerListName(name);
+    const result = await this._repository.updateAudienceList(
+      organizationId,
+      integrationId,
+      listId,
+      normalized
+    );
+    if (result.missing) {
+      throw new NotFoundException('Follower list was not found');
+    }
+    if (result.conflict) {
+      throw new ConflictException('A list with this name already exists');
+    }
+    return result.list;
+  }
+
+  async deleteFollowerList(
+    organizationId: string,
+    integrationId: string,
+    listId: string
+  ) {
+    this.validateBoundedString(listId, 'listId', MAX_ID_LENGTH);
+    if (!await this._repository.deleteAudienceList(
+      organizationId,
+      integrationId,
+      listId
+    )) {
+      throw new NotFoundException('Follower list was not found');
+    }
+  }
+
+  async addFollowerListMember(
+    organizationId: string,
+    integrationId: string,
+    listId: string,
+    externalId: string
+  ) {
+    this.validateBoundedString(listId, 'listId', MAX_ID_LENGTH);
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    const result = await this._repository.addAudienceListMember(
+      organizationId,
+      integrationId,
+      listId,
+      externalId
+    );
+    if (result.missing === 'list') {
+      throw new NotFoundException('Follower list was not found');
+    }
+    if (result.missing === 'member') {
+      throw new NotFoundException('Follower was not found');
+    }
+  }
+
+  async removeFollowerListMember(
+    organizationId: string,
+    integrationId: string,
+    listId: string,
+    externalId: string
+  ) {
+    this.validateBoundedString(listId, 'listId', MAX_ID_LENGTH);
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    const result = await this._repository.removeAudienceListMember(
+      organizationId,
+      integrationId,
+      listId,
+      externalId
+    );
+    if (result.missing === 'list') {
+      throw new NotFoundException('Follower list was not found');
+    }
+  }
+
+  private normalizeFollowerListName(name: string) {
+    const normalized = name.trim().replace(/\s+/g, ' ');
+    this.validateBoundedString(normalized, 'name', 64);
+    const reserved = ['all', 'engaged', 'hot', 'mutual', 'costly', 'quiet', 'lead'];
+    if (reserved.includes(normalized.toLowerCase())) {
+      throw new BadRequestException('List name cannot match a built-in filter');
+    }
+    return normalized;
   }
 
   private validateEvent(event: NormalizedChannelInteractionEvent) {

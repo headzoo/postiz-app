@@ -11,7 +11,7 @@ export const LogoTextComponent = ({
   return (
     <img
       src={src}
-      alt="P++"
+      alt="Post++"
       className={clsx('w-auto object-contain', className ?? 'h-[40px]')}
     />
   );

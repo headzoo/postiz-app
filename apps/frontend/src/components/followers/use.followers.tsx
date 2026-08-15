@@ -118,6 +118,14 @@ export type Follower = {
   relationshipSnapshotAt?: string | null;
   myGrade?: number | null;
   adjustedGrade?: number | null;
+  listIds?: string[];
+};
+
+export type FollowerList = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ChannelInteractionDirection = 'inbound' | 'outbound';
@@ -234,6 +242,7 @@ export type UseFollowersParams = {
   search?: string;
   triage?: FollowerTriageFilter;
   audience?: 'lead';
+  listId?: string;
 };
 
 export const buildFollowersUrl = ({
@@ -246,6 +255,7 @@ export const buildFollowersUrl = ({
   search,
   triage,
   audience,
+  listId,
 }: UseFollowersParams & { integrationId: string }) => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) {
@@ -269,6 +279,9 @@ export const buildFollowersUrl = ({
   if (audience) {
     params.set('audience', audience);
   }
+  if (listId) {
+    params.set('listId', listId);
+  }
   return `/followers/${integrationId}?${params.toString()}`;
 };
 
@@ -282,6 +295,7 @@ export const useFollowers = ({
   search,
   triage,
   audience,
+  listId,
 }: UseFollowersParams) => {
   const fetch = useFetch();
 
@@ -299,6 +313,7 @@ export const useFollowers = ({
       search,
       triage,
       audience,
+      listId,
     });
   }, [
     integrationId,
@@ -310,6 +325,7 @@ export const useFollowers = ({
     search,
     triage,
     audience,
+    listId,
   ]);
 
   const load = useCallback(
@@ -556,3 +572,158 @@ export const useFollowerRelationshipScoreMutation = (
 
   return { refreshScore };
 };
+
+export const followerListsKey = (integrationId: string) =>
+  `/followers/${integrationId}/lists`;
+
+export const useFollowerLists = (integrationId?: string) => {
+  const fetch = useFetch();
+
+  const url = useMemo(() => {
+    if (!integrationId) {
+      return null;
+    }
+    return followerListsKey(integrationId);
+  }, [integrationId]);
+
+  const load = useCallback(
+    async (path: string) => {
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error('Failed to load follower lists');
+      }
+      return (await response.json()) as FollowerList[];
+    },
+    [fetch]
+  );
+
+  return useSWR<FollowerList[]>(url, load, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    revalidateIfStale: false,
+    revalidateOnMount: true,
+    refreshWhenHidden: false,
+    refreshWhenOffline: false,
+    fallbackData: [],
+  });
+};
+
+export const applyListMembershipToFollowerPage = (
+  page: FollowerPage | undefined,
+  externalId: string,
+  listId: string,
+  assigned: boolean
+): FollowerPage | undefined => {
+  if (!page) {
+    return page;
+  }
+  return {
+    ...page,
+    items: page.items.map((item) => {
+      if (item.id !== externalId) {
+        return item;
+      }
+      const current = item.listIds ?? [];
+      const listIds = assigned
+        ? current.includes(listId)
+          ? current
+          : [...current, listId]
+        : current.filter((id) => id !== listId);
+      return { ...item, listIds };
+    }),
+  };
+};
+
+export const useFollowerListMutations = (integrationId?: string) => {
+  const fetch = useFetch();
+  const { mutate: mutateCache } = useSWRConfig();
+
+  const revalidateLists = useCallback(async () => {
+    if (!integrationId) {
+      return;
+    }
+    await mutateCache(followerListsKey(integrationId));
+  }, [integrationId, mutateCache]);
+
+  const createList = useCallback(
+    async (name: string) => {
+      if (!integrationId) {
+        throw new Error('Channel is required');
+      }
+      const response = await fetch(`/followers/${integrationId}/lists`, {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to create follower list');
+      }
+      const list = (await response.json()) as FollowerList;
+      await mutateCache(
+        followerListsKey(integrationId),
+        (current: FollowerList[] | undefined) => {
+          const lists = current ?? [];
+          if (lists.some((item) => item.id === list.id)) {
+            return lists;
+          }
+          return [...lists, list];
+        },
+        { revalidate: true }
+      );
+      return list;
+    },
+    [fetch, integrationId, mutateCache]
+  );
+
+  const addMember = useCallback(
+    async (listId: string, externalId: string) => {
+      if (!integrationId) {
+        throw new Error('Channel is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/lists/${listId}/members`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ externalId }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to add follower to list');
+      }
+      await mutateCache(
+        (key) => isFollowerListCacheKey(integrationId, key),
+        (page: FollowerPage | undefined) =>
+          applyListMembershipToFollowerPage(page, externalId, listId, true),
+        { revalidate: true }
+      );
+    },
+    [fetch, integrationId, mutateCache]
+  );
+
+  const removeMember = useCallback(
+    async (listId: string, externalId: string) => {
+      if (!integrationId) {
+        throw new Error('Channel is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/lists/${listId}/members`,
+        {
+          method: 'DELETE',
+          body: JSON.stringify({ externalId }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to remove follower from list');
+      }
+      await mutateCache(
+        (key) => isFollowerListCacheKey(integrationId, key),
+        (page: FollowerPage | undefined) =>
+          applyListMembershipToFollowerPage(page, externalId, listId, false),
+        { revalidate: true }
+      );
+    },
+    [fetch, integrationId, mutateCache]
+  );
+
+  return { createList, addMember, removeMember, revalidateLists };
+};
+

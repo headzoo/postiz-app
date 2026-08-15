@@ -20,6 +20,8 @@ describe('FollowersController', () => {
     deleteFollowerMemberNote: jest.fn(),
     updateFollowerMemberGrade: jest.fn(),
     refreshFollowerMemberRelationshipScore: jest.fn(),
+    createFollowerList: jest.fn(),
+    listFollowerLists: jest.fn(),
   };
   const controller = new FollowersController(service as any);
 
@@ -50,6 +52,46 @@ describe('FollowersController', () => {
       controller.getFollowers(org, user, 'channel-a', query)
     ).resolves.toEqual({ items: [], hasMore: false });
     expect(service.getFollowers).toHaveBeenCalledWith(org, user, 'channel-a', query);
+  });
+
+  it('rejects combining listId with triage or audience', async () => {
+    const withTriage = Object.assign(new FollowersQueryDto(), {
+      listId: 'list-1',
+      triage: 'hot_lead',
+    });
+    const withAudience = Object.assign(new FollowersQueryDto(), {
+      listId: 'list-1',
+      audience: 'lead',
+    });
+    const valid = Object.assign(new FollowersQueryDto(), { listId: 'list-1' });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(withTriage)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'listId' }),
+      ])
+    );
+    await expect(validate(withAudience)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'listId' }),
+      ])
+    );
+  });
+
+  it('delegates list creation with organization, user, and name', async () => {
+    const list = { id: 'list-1', name: 'VIP' };
+    service.createFollowerList = jest.fn().mockResolvedValue(list);
+    const controllerWithLists = new FollowersController(service as any);
+
+    await expect(
+      controllerWithLists.createFollowerList(org, user, 'channel-a', { name: 'VIP' })
+    ).resolves.toEqual(list);
+    expect(service.createFollowerList).toHaveBeenCalledWith(
+      org,
+      user,
+      'channel-a',
+      'VIP'
+    );
   });
 
   it('accepts only the follower triage filter allowlist', async () => {

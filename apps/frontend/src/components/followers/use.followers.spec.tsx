@@ -3,6 +3,7 @@
  */
 
 import {
+  applyListMembershipToFollowerPage,
   applyRelationshipSnapshotToFollowerPage,
   buildFollowersUrl,
   isFollowerListCacheKey,
@@ -49,6 +50,15 @@ describe('buildFollowersUrl', () => {
         triage: 'quiet',
       })
     ).toBe('/followers/channel-1?limit=24&triage=quiet');
+  });
+
+  it('serializes custom list filters into the follower endpoint URL', () => {
+    expect(
+      buildFollowersUrl({
+        ...baseParams,
+        listId: 'list-1',
+      })
+    ).toBe('/followers/channel-1?limit=24&listId=list-1');
   });
 
   it('omits triage when the filter is cleared', () => {
@@ -142,6 +152,35 @@ describe('follower list cache updates', () => {
           adjustedGrade: 5,
         },
         { id: 'follower-2', name: 'Sam', effortStars: 1 },
+      ],
+      hasMore: false,
+    });
+  });
+
+  it('adds and removes custom list membership on follower cards', () => {
+    const page = {
+      items: [
+        { id: 'follower-1', name: 'Alex', listIds: ['list-1'] },
+        { id: 'follower-2', name: 'Sam' },
+      ],
+      hasMore: false,
+    };
+
+    expect(
+      applyListMembershipToFollowerPage(page, 'follower-2', 'list-1', true)
+    ).toEqual({
+      items: [
+        { id: 'follower-1', name: 'Alex', listIds: ['list-1'] },
+        { id: 'follower-2', name: 'Sam', listIds: ['list-1'] },
+      ],
+      hasMore: false,
+    });
+    expect(
+      applyListMembershipToFollowerPage(page, 'follower-1', 'list-1', false)
+    ).toEqual({
+      items: [
+        { id: 'follower-1', name: 'Alex', listIds: [] },
+        { id: 'follower-2', name: 'Sam' },
       ],
       hasMore: false,
     });

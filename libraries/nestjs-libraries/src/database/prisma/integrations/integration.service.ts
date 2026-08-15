@@ -4,6 +4,8 @@ import {
   HttpStatus,
   Inject,
   Injectable,
+  BadRequestException,
+  ConflictException,
   NotFoundException,
 } from '@nestjs/common';
 import { IntegrationRepository } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.repository';
@@ -20,6 +22,7 @@ import {
   Follower,
   FollowerPage,
   FollowerQuery,
+  FollowerList,
   FollowerRelationshipSnapshot,
   FollowerSort,
   SocialProvider,
@@ -353,6 +356,12 @@ export class IntegrationService {
     if (normalizedQuery.audience && normalizedQuery.triage) {
       throw new HttpException('Invalid follower query', HttpStatus.BAD_REQUEST);
     }
+    if (
+      normalizedQuery.listId &&
+      (normalizedQuery.audience || normalizedQuery.triage)
+    ) {
+      throw new HttpException('Invalid follower query', HttpStatus.BAD_REQUEST);
+    }
     if (normalizedQuery.audience === 'lead') {
       if (normalizedQuery.cursor && this.isHttpUrl(normalizedQuery.cursor)) {
         throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -382,7 +391,7 @@ export class IntegrationService {
       );
     }
 
-    if (search || query.triage) {
+    if (search || query.triage || query.listId) {
       return this.getAudienceFollowerPage(
         org.id,
         user.id,
@@ -501,6 +510,137 @@ export class IntegrationService {
       }
       throw error;
     }
+  }
+
+  async listFollowerLists(org: Organization, integrationId: string): Promise<FollowerList[]> {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    const lists = await this._channelInteractionService.listFollowerLists(
+      org.id,
+      integrationId
+    );
+    return lists.map((list) => this.mapFollowerList(list));
+  }
+
+  async createFollowerList(
+    org: Organization,
+    user: User,
+    integrationId: string,
+    name: string
+  ): Promise<FollowerList> {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      const list = await this._channelInteractionService.createFollowerList(
+        org.id,
+        integrationId,
+        user.id,
+        name
+      );
+      return this.mapFollowerList(list);
+    } catch (error) {
+      this.rethrowFollowerListError(error);
+    }
+  }
+
+  async updateFollowerList(
+    org: Organization,
+    integrationId: string,
+    listId: string,
+    name: string
+  ): Promise<FollowerList> {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      const list = await this._channelInteractionService.updateFollowerList(
+        org.id,
+        integrationId,
+        listId,
+        name
+      );
+      return this.mapFollowerList(list);
+    } catch (error) {
+      this.rethrowFollowerListError(error);
+    }
+  }
+
+  async deleteFollowerList(
+    org: Organization,
+    integrationId: string,
+    listId: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.deleteFollowerList(
+        org.id,
+        integrationId,
+        listId
+      );
+    } catch (error) {
+      this.rethrowFollowerListError(error);
+    }
+  }
+
+  async addFollowerListMember(
+    org: Organization,
+    integrationId: string,
+    listId: string,
+    externalId: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.addFollowerListMember(
+        org.id,
+        integrationId,
+        listId,
+        externalId
+      );
+    } catch (error) {
+      this.rethrowFollowerListError(error);
+    }
+  }
+
+  async removeFollowerListMember(
+    org: Organization,
+    integrationId: string,
+    listId: string,
+    externalId: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.removeFollowerListMember(
+        org.id,
+        integrationId,
+        listId,
+        externalId
+      );
+    } catch (error) {
+      this.rethrowFollowerListError(error);
+    }
+  }
+
+  private mapFollowerList(list: {
+    id: string;
+    name: string;
+    createdAt: Date;
+    updatedAt: Date;
+  }): FollowerList {
+    return {
+      id: list.id,
+      name: list.name,
+      createdAt: list.createdAt.toISOString(),
+      updatedAt: list.updatedAt.toISOString(),
+    };
+  }
+
+  private rethrowFollowerListError(error: unknown): never {
+    if (error instanceof NotFoundException) {
+      throw new HttpException(error.message, HttpStatus.NOT_FOUND);
+    }
+    if (error instanceof ConflictException) {
+      throw new HttpException(error.message, HttpStatus.CONFLICT);
+    }
+    if (error instanceof BadRequestException) {
+      throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+    }
+    throw error;
   }
 
   async updateFollowerMemberGrade(
@@ -733,6 +873,8 @@ export class IntegrationService {
     relationshipSnapshotAt?: Date | null;
     myGrade?: number | null;
     personalGrades?: Array<{ grade: number }>;
+    listMemberships?: Array<{ listId: string }>;
+    listIds?: string[];
   }): Follower {
     return this.sanitizeFollower({
       id: member.externalId,
@@ -761,6 +903,12 @@ export class IntegrationService {
         : {}),
       ...this.followerGradeFields(member),
       ...this.followerRelationshipFields(member),
+      ...(() => {
+        const listIds = member.listIds
+          ?? member.listMemberships?.map((membership) => membership.listId)
+          ?? [];
+        return listIds.length ? { listIds } : {};
+      })(),
     });
   }
 
@@ -955,7 +1103,13 @@ export class IntegrationService {
     }
 
     const search = normalizeFollowerSearch(query.search);
-    this.assertFollowerCursorQueryIdentity(query.cursor, search, query.triage);
+    this.assertFollowerCursorQueryIdentity(
+      query.cursor,
+      search,
+      query.triage,
+      undefined,
+      query.listId
+    );
     if (query.cursor?.startsWith('follower-lead:v1:')) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
@@ -969,7 +1123,7 @@ export class IntegrationService {
       !!query.cursor?.startsWith('follower-relationship-grade:v1:') ||
       !!query.cursor?.startsWith('follower-my-grade:v1:');
 
-    if (isAudienceCursor && !search && !query.triage) {
+    if (isAudienceCursor && !search && !query.triage && !query.listId) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
 
@@ -1075,6 +1229,7 @@ export class IntegrationService {
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
+      ...(query.listId ? { listId: query.listId } : {}),
     });
     if (cursor && ranked.rollup?.activeGeneration !== cursor.generation) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -1138,6 +1293,7 @@ export class IntegrationService {
             generation: ranked.rollup.activeGeneration,
             search: query.search,
             triage: query.triage,
+            listId: query.listId,
             interactionCount: last.interactionCount!,
             interactionScore: last.interactionScore!,
             lastInteractionAt: last.lastInteractionAt || null,
@@ -1225,7 +1381,8 @@ export class IntegrationService {
         direction,
         search,
         query.triage,
-        sortField
+        sortField,
+        query.listId
       )
       : undefined;
     const ranked = await this._channelInteractionRepository.getAudienceFollowers({
@@ -1234,6 +1391,7 @@ export class IntegrationService {
       userId,
       ...(search ? { search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
+      ...(query.listId ? { listId: query.listId } : {}),
       sortField,
       direction,
       limit: query.limit,
@@ -1253,6 +1411,7 @@ export class IntegrationService {
             direction,
             search,
             triage: query.triage,
+            listId: query.listId,
             sortField,
             sortValue: this.audienceCursorSortValue(last, sortField),
             externalId: last.externalId,
@@ -1295,6 +1454,7 @@ export class IntegrationService {
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
+      ...(query.listId ? { listId: query.listId } : {}),
     });
 
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -1310,6 +1470,7 @@ export class IntegrationService {
             direction,
             search: query.search,
             triage: query.triage,
+            listId: query.listId,
             noteCount: last.noteCount!,
             externalId: last.id,
           }),
@@ -1343,6 +1504,7 @@ export class IntegrationService {
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
+      ...(query.listId ? { listId: query.listId } : {}),
     });
 
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -1358,6 +1520,7 @@ export class IntegrationService {
             direction,
             search: query.search,
             triage: query.triage,
+            listId: query.listId,
             likesCount: last.likesCount!,
             externalId: last.id,
           }),
@@ -1393,6 +1556,7 @@ export class IntegrationService {
         ...(cursor ? { cursor } : {}),
         ...(query.search ? { search: query.search } : {}),
         ...(query.triage ? { triage: query.triage } : {}),
+        ...(query.listId ? { listId: query.listId } : {}),
       });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -1409,6 +1573,7 @@ export class IntegrationService {
               direction,
               search: query.search,
               triage: query.triage,
+              listId: query.listId,
               grade: last.relationshipGrade ?? null,
               externalId: last.externalId,
             }
@@ -1451,6 +1616,7 @@ export class IntegrationService {
         ...(cursor ? { cursor } : {}),
         ...(query.search ? { search: query.search } : {}),
         ...(query.triage ? { triage: query.triage } : {}),
+        ...(query.listId ? { listId: query.listId } : {}),
       });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -1467,6 +1633,7 @@ export class IntegrationService {
             direction,
             search: query.search,
             triage: query.triage,
+            listId: query.listId,
             value,
             externalId: last.externalId,
           }),
@@ -1501,6 +1668,7 @@ export class IntegrationService {
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
+      ...(query.listId ? { listId: query.listId } : {}),
     });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -1515,6 +1683,7 @@ export class IntegrationService {
             direction,
             search: query.search,
             triage: query.triage,
+            listId: query.listId,
             grade: last.personalGrades[0]?.grade ?? null,
             externalId: last.externalId,
           }),
@@ -1665,6 +1834,7 @@ export class IntegrationService {
     generation: string;
     search?: string;
     triage?: FollowerQuery['triage'];
+    listId?: string;
   } & RankedFollowerCursor) {
     return `follower-rank:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -1713,6 +1883,7 @@ export class IntegrationService {
     direction: 'asc' | 'desc';
     search?: string;
     triage?: FollowerQuery['triage'];
+    listId?: string;
   } & NoteCountFollowerCursor) {
     return `follower-notes:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -1809,6 +1980,7 @@ export class IntegrationService {
     direction: 'asc' | 'desc';
     search?: string;
     triage?: FollowerQuery['triage'];
+    listId?: string;
   } & LikesCountFollowerCursor) {
     return `follower-likes:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -1857,6 +2029,7 @@ export class IntegrationService {
       direction: 'asc' | 'desc';
       search?: string;
       triage?: FollowerQuery['triage'];
+      listId?: string;
     } & GradeFollowerCursor
   ) {
     return `${prefix}${Buffer.from(
@@ -1871,6 +2044,7 @@ export class IntegrationService {
     direction: 'asc' | 'desc';
     search?: string;
     triage?: FollowerQuery['triage'];
+    listId?: string;
   } & ProjectedFollowerCursor) {
     return `follower-projection:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -1953,6 +2127,7 @@ export class IntegrationService {
     direction: 'asc' | 'desc';
     search?: string;
     triage?: FollowerQuery['triage'];
+    listId?: string;
     sortField: AudienceFollowerSortField;
   } & AudienceFollowerCursor) {
     return `follower-audience:v1:${Buffer.from(
@@ -1968,7 +2143,8 @@ export class IntegrationService {
     direction: 'asc' | 'desc',
     search: string | undefined,
     triage: FollowerQuery['triage'] | undefined,
-    sortField: AudienceFollowerSortField
+    sortField: AudienceFollowerSortField,
+    listId?: string
   ): AudienceFollowerCursor {
     try {
       if (!value.startsWith('follower-audience:v1:')) throw new Error();
@@ -1986,6 +2162,7 @@ export class IntegrationService {
         cursor.direction !== direction ||
         cursor.search !== search ||
         cursor.triage !== triage ||
+        cursor.listId !== listId ||
         cursor.sortField !== sortField ||
         typeof cursor.externalId !== 'string' ||
         !this.isAudienceCursorSortValue(cursor.sortField, cursor.sortValue)
@@ -2006,7 +2183,8 @@ export class IntegrationService {
     value: string | undefined,
     search: string | undefined,
     triage: FollowerQuery['triage'] | undefined,
-    audience?: FollowerQuery['audience']
+    audience?: FollowerQuery['audience'],
+    listId?: string
   ) {
     const internalPrefixes = [
       'follower-audience:v1:',
@@ -2029,7 +2207,8 @@ export class IntegrationService {
       if (
         cursor.search !== search ||
         cursor.triage !== triage ||
-        cursor.audience !== audience
+        cursor.audience !== audience ||
+        cursor.listId !== listId
       ) {
         throw new Error();
       }
@@ -2081,8 +2260,16 @@ export class IntegrationService {
     provider: SocialProvider,
     page: FollowerPage
   ): Promise<FollowerPage> {
-    if (!provider.channelInteractionWebhooks || !page.items.length) {
+    if (!page.items.length) {
       return page;
+    }
+    if (!provider.channelInteractionWebhooks) {
+      return this.attachFollowerListIds(
+        organizationId,
+        userId,
+        integrationId,
+        page
+      );
     }
 
     const externalIds = page.items.map((item) => item.id);
@@ -2112,6 +2299,7 @@ export class IntegrationService {
           likesCount: counts?.likesCount ?? 0,
           ...this.followerGradeFields(counts),
           ...this.followerRelationshipFields(counts),
+          ...(counts?.listIds?.length ? { listIds: counts.listIds } : {}),
           ...(metric
             ? {
               interactionScore: metric.interactionScore,
@@ -2123,6 +2311,31 @@ export class IntegrationService {
                 : {}),
             }
             : {}),
+        });
+      }),
+    };
+  }
+
+  private async attachFollowerListIds(
+    organizationId: string,
+    userId: string,
+    integrationId: string,
+    page: FollowerPage
+  ): Promise<FollowerPage> {
+    const audienceCounts =
+      await this._channelInteractionRepository.getFollowerNoteCounts(
+        organizationId,
+        integrationId,
+        page.items.map((item) => item.id),
+        userId
+      );
+    return {
+      ...page,
+      items: page.items.map((item) => {
+        const listIds = audienceCounts.get(item.id)?.listIds ?? item.listIds;
+        return this.sanitizeFollower({
+          ...item,
+          ...(listIds?.length ? { listIds } : {}),
         });
       }),
     };
@@ -2293,6 +2506,13 @@ export class IntegrationService {
       ...(follower.relationshipSnapshotAt === null ||
         typeof follower.relationshipSnapshotAt === 'string'
         ? { relationshipSnapshotAt: follower.relationshipSnapshotAt }
+        : {}),
+      ...(Array.isArray(follower.listIds)
+        ? {
+          listIds: follower.listIds.filter(
+            (listId): listId is string => typeof listId === 'string' && !!listId
+          ),
+        }
         : {}),
     };
   }

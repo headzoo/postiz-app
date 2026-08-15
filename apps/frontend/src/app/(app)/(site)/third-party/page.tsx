@@ -5,7 +5,7 @@ import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.si
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: `${isGeneralServerSide() ? 'P++ Integrations' : 'Gitroom Integrations'
+  title: `${isGeneralServerSide() ? 'Integrations : Post++' : 'Gitroom Integrations'
     }`,
   description: '',
 };

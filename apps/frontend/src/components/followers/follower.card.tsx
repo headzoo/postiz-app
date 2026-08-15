@@ -4,8 +4,9 @@ import { FC, KeyboardEvent, MouseEvent } from 'react';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { Follower, RelationshipTriage } from '@gitroom/frontend/components/followers/use.followers';
+import { Follower, FollowerList, RelationshipTriage } from '@gitroom/frontend/components/followers/use.followers';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
+import { FollowerListDropdown } from '@gitroom/frontend/components/followers/follower.list.dropdown';
 
 const TRIAGE_LABELS: Record<
   RelationshipTriage,
@@ -80,8 +81,10 @@ const formatCompactCount = (value: number) => {
 
 export const FollowerCard: FC<{
   follower: Follower;
+  lists?: FollowerList[];
+  onToggleList?: (list: FollowerList, assigned: boolean) => Promise<void> | void;
   onOpen?: () => void;
-}> = ({ follower, onOpen }) => {
+}> = ({ follower, lists = [], onToggleList, onOpen }) => {
   const t = useT();
   const followedAt = follower.followedAt
     ? formatDate(follower.followedAt)
@@ -194,31 +197,52 @@ export const FollowerCard: FC<{
         <div className="flex flex-1 min-w-0 flex-col gap-[12px] h-full">
           <div>
             <div className="min-w-0">
-              <div className="flex min-w-0 items-baseline gap-[8px]">
+              <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
                 <h3 className="text-[15px] font-[600] text-newTextColor truncate">
                   {follower.name}
                 </h3>
                 {follower.relationshipTriage && (
                   <RelationshipTriageBadge triage={follower.relationshipTriage} />
                 )}
-                {handle &&
-                  (follower.profileUrl ? (
-                    <a
-                      href={follower.profileUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      onClick={stopProfileNavigation}
-                      onKeyDown={stopProfileKeyboard}
-                      className="shrink-0 text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80"
+                {(follower.listIds ?? []).map((listId) => {
+                  const list = lists.find((item) => item.id === listId);
+                  if (!list) {
+                    return null;
+                  }
+                  return (
+                    <span
+                      key={list.id}
+                      className="inline-flex w-fit shrink-0 items-center rounded-full border border-newTableBorder px-[8px] py-[2px] text-[11px] font-[600] text-textItemBlur"
                     >
-                      {handle}
-                    </a>
-                  ) : (
-                    <span className="shrink-0 text-[13px] text-textItemBlur truncate">
-                      {handle}
+                      {list.name}
                     </span>
-                  ))}
+                  );
+                })}
+                {onToggleList && (
+                  <FollowerListDropdown
+                    lists={lists}
+                    assignedListIds={follower.listIds ?? []}
+                    onToggle={onToggleList}
+                  />
+                )}
               </div>
+              {handle &&
+                (follower.profileUrl ? (
+                  <a
+                    href={follower.profileUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    onClick={stopProfileNavigation}
+                    onKeyDown={stopProfileKeyboard}
+                    className="mt-[2px] inline-block max-w-full shrink-0 text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80"
+                  >
+                    {handle}
+                  </a>
+                ) : (
+                  <span className="mt-[2px] inline-block max-w-full shrink-0 text-[13px] text-textItemBlur truncate">
+                    {handle}
+                  </span>
+                ))}
             </div>
 
             {accountCreatedAt && (

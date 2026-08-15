@@ -18,11 +18,14 @@ import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/
 class ExclusiveAudienceTriageConstraint implements ValidatorConstraintInterface {
   validate(_: unknown, args: ValidationArguments) {
     const object = args.object as FollowersQueryDto;
-    return !(object.audience && object.triage);
+    const selected = [object.audience, object.triage, object.listId].filter(
+      Boolean
+    );
+    return selected.length <= 1;
   }
 
   defaultMessage() {
-    return 'audience and triage cannot be combined';
+    return 'audience, triage, and listId cannot be combined';
   }
 }
 
@@ -62,10 +65,17 @@ export class FollowersQueryDto {
 
   @IsOptional()
   @IsIn(['hot_lead', 'mutual', 'over_invested', 'quiet', 'engaged_not_yet'])
+  @Validate(ExclusiveAudienceTriageConstraint)
   triage?: 'hot_lead' | 'mutual' | 'over_invested' | 'quiet' | 'engaged_not_yet';
 
   @IsOptional()
   @IsIn(['lead'])
   @Validate(ExclusiveAudienceTriageConstraint)
   audience?: 'lead';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  @Validate(ExclusiveAudienceTriageConstraint)
+  listId?: string;
 }

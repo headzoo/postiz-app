@@ -96,16 +96,16 @@ export type ChannelAnalyticsCaptureRequest = {
 
 export type ChannelAnalyticsCapturePage =
   | {
-      kind: 'daily';
-      points: ChannelAnalyticsDatedPoint[];
-      coverage: { fromDay: string; toDay: string };
-      nextCursor?: string;
-    }
+    kind: 'daily';
+    points: ChannelAnalyticsDatedPoint[];
+    coverage: { fromDay: string; toDay: string };
+    nextCursor?: string;
+  }
   | {
-      kind: 'post_lifetime';
-      points: ChannelAnalyticsPostLifetimePoint[];
-      nextCursor?: string;
-    };
+    kind: 'post_lifetime';
+    points: ChannelAnalyticsPostLifetimePoint[];
+    nextCursor?: string;
+  };
 
 /**
  * Split provider-normalized daily points into deterministic, bounded pages.
@@ -253,10 +253,10 @@ export type ChannelNoticeCategory =
 
 export type ChannelNoticeStatus =
   | {
-      state: 'ok';
-      unreadCount: number;
-      categories?: Partial<Record<ChannelNoticeCategory, number>>;
-    }
+    state: 'ok';
+    unreadCount: number;
+    categories?: Partial<Record<ChannelNoticeCategory, number>>;
+  }
   | { state: 'unsupported' }
   | { state: 'unavailable' };
 
@@ -293,6 +293,7 @@ export type Follower = {
   relationshipSnapshotAt?: string | null;
   myGrade?: number | null;
   adjustedGrade?: number | null;
+  listIds?: string[];
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';
@@ -319,9 +320,17 @@ export type FollowerQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   audience?: 'lead';
+  listId?: string;
 };
 
 export type FollowerTriageFilter = RelationshipTriage | 'engaged_not_yet';
+
+export type FollowerList = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type ChannelInteractionTrackingState =
   | 'unconfigured'
@@ -463,17 +472,17 @@ export type NormalizedChannelInteractionEvent = {
 
 export type NormalizedChannelContentEvent =
   | {
-      type: 'post.upsert';
-      externalId: string;
-      url: string;
-      content: string;
-      publishedAt: string;
-    }
+    type: 'post.upsert';
+    externalId: string;
+    url: string;
+    content: string;
+    publishedAt: string;
+  }
   | {
-      type: 'post.delete';
-      externalId: string;
-      deletedAt: string;
-    };
+    type: 'post.delete';
+    externalId: string;
+    deletedAt: string;
+  };
 
 export type ChannelWebhookChallengeRequest = {
   query: Record<string, string | string[] | undefined>;
@@ -490,11 +499,11 @@ export type ChannelWebhookDeliveryRequest = {
 
 export type ChannelWebhookDeliveryResult =
   | {
-      accepted: true;
-      connectedAccountId: string;
-      events: NormalizedChannelInteractionEvent[];
-      contentEvents?: NormalizedChannelContentEvent[];
-    }
+    accepted: true;
+    connectedAccountId: string;
+    events: NormalizedChannelInteractionEvent[];
+    contentEvents?: NormalizedChannelContentEvent[];
+  }
   | { accepted: false; statusCode?: number };
 
 export type DesiredChannelInteractionSubscription = {
@@ -544,7 +553,7 @@ export interface ChannelInteractionWebhooksCapability {
 
 export interface SocialProvider
   extends IAuthenticator,
-    ISocialMediaIntegration {
+  ISocialMediaIntegration {
   identifier: string;
   isConfigured?: () => boolean;
   refreshWait?: boolean;

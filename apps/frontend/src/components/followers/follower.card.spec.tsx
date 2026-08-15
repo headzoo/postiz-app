@@ -25,6 +25,10 @@ jest.mock('@gitroom/react/helpers/image.with.fallback', () => ({
   default: ({ alt }: { alt: string }) => <img alt={alt} />,
 }));
 
+jest.mock('@mantine/hooks', () => ({
+  useClickOutside: () => undefined,
+}));
+
 const baseFollower: Follower = {
   id: 'follower-1',
   name: 'Alex Example',
@@ -225,5 +229,43 @@ describe('FollowerCard', () => {
 
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('puts the username on the line below the name and triage badge', () => {
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          relationshipTriage: 'hot_lead',
+        }}
+      />
+    );
+
+    const name = screen.getByRole('heading', { name: 'Alex Example' });
+    const handle = screen.getByRole('link', { name: '@alex' });
+    expect(name.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Hot')).toBeTruthy();
+  });
+
+  it('does not open the detail modal when adding a follower to a custom list', async () => {
+    const onOpen = jest.fn();
+    const onToggleList = jest.fn();
+    render(
+      <FollowerCard
+        follower={baseFollower}
+        lists={[{ id: 'list-1', name: 'VIP', createdAt: '', updatedAt: '' }]}
+        onToggleList={onToggleList}
+        onOpen={onOpen}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to list' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'VIP' }));
+
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(onToggleList).toHaveBeenCalledWith(
+      { id: 'list-1', name: 'VIP', createdAt: '', updatedAt: '' },
+      false
+    );
   });
 });

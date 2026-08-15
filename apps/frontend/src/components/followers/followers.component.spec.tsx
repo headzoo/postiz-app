@@ -206,6 +206,15 @@ jest.mock('@gitroom/frontend/components/followers/use.followers', () => {
       mutate: jest.fn(),
     }),
     useFollowers: (params: UseFollowersParams) => useFollowersMock(params),
+    useFollowerLists: () => ({
+      data: [{ id: 'list-1', name: 'VIP', createdAt: '', updatedAt: '' }],
+      isLoading: false,
+    }),
+    useFollowerListMutations: () => ({
+      createList: jest.fn(),
+      addMember: jest.fn(),
+      removeMember: jest.fn(),
+    }),
   };
 });
 
@@ -234,6 +243,12 @@ describe('follower page href helpers', () => {
         direction: 'asc',
       })
     ).toBe('/followers/engaged?search=alex&sort=their_effort&direction=asc');
+    expect(
+      buildFollowersPageHref({
+        listId: 'list-1',
+        search: 'alex',
+      })
+    ).toBe('/followers?search=alex&listId=list-1');
   });
 });
 
@@ -291,6 +306,10 @@ describe('FollowersComponent', () => {
     expect(screen.getByRole('link', { name: /^Lead$/ }).getAttribute('href')).toBe(
       '/followers/lead'
     );
+    expect(screen.getByRole('link', { name: 'VIP' }).getAttribute('href')).toBe(
+      '/followers?listId=list-1'
+    );
+    expect(screen.getByRole('button', { name: 'Create list' })).toBeTruthy();
   });
 
   it('hydrates triage from /followers/hot', () => {
@@ -421,6 +440,32 @@ describe('FollowersComponent', () => {
       expect.objectContaining({ triage: 'quiet', cursor: undefined })
     );
     expect(screen.getByText('Page 1')).toBeTruthy();
+  });
+
+  it('resets pagination when the custom list filter changes', () => {
+    followersPage = {
+      items: [{ id: 'follower-1', name: 'Alex Example' }],
+      hasMore: true,
+      total: 2,
+      nextCursor: 'cursor-2',
+    } as typeof followersPage & { nextCursor: string };
+
+    const { rerender } = render(<FollowersComponent />);
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    mockSearchParams = new URLSearchParams('listId=list-1');
+    rerender(<FollowersComponent />);
+    expect(useFollowersMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ listId: 'list-1', cursor: undefined })
+    );
+    expect(screen.getByText('Page 1')).toBeTruthy();
+  });
+
+  it('shows a list-specific empty state when a custom list has no matches', () => {
+    mockSearchParams = new URLSearchParams('listId=list-1');
+    render(<FollowersComponent />);
+
+    expect(screen.getByText('No followers in this list')).toBeTruthy();
   });
 
   it('shows a triage-specific empty state when a filter has no matches', () => {

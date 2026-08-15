@@ -66,6 +66,17 @@ const createHarness = () => {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    channelAudienceList: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    channelAudienceListMember: {
+      upsert: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     channelAudienceMemberGrade: {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn(),
@@ -90,6 +101,8 @@ const createHarness = () => {
           findMany: tx.channelAudienceMember.findMany,
         },
         channelAudienceNote: tx.channelAudienceNote,
+        channelAudienceList: tx.channelAudienceList,
+        channelAudienceListMember: tx.channelAudienceListMember,
         channelRelationshipGradeSnapshot: tx.channelRelationshipGradeSnapshot,
       },
     } as any,
@@ -1629,6 +1642,7 @@ describe('ChannelInteractionRepository', () => {
             relationshipTriage: 'hot_lead',
             relationshipFormulaVersion: 2,
             relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
+            listIds: [],
           },
         ],
       ])
@@ -1867,6 +1881,88 @@ describe('ChannelInteractionRepository', () => {
         where: expect.objectContaining({
           AND: [{ relationshipFormulaVersion: 2 }],
         }),
+      })
+    );
+  });
+
+  it('filters audience members by custom list membership', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getAudienceFollowers({
+      organizationId: 'org',
+      integrationId: 'integration',
+      userId: 'user-a',
+      sortField: 'followedAt',
+      direction: 'desc',
+      limit: 24,
+      listId: 'list-1',
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: [
+            {
+              listMemberships: {
+                some: {
+                  listId: 'list-1',
+                  list: { deletedAt: null },
+                },
+              },
+            },
+          ],
+        }),
+      })
+    );
+  });
+
+  it('creates a custom list when the name is unique', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceList.findFirst.mockResolvedValue(null);
+    tx.channelAudienceList.create.mockResolvedValue({
+      id: 'list-1',
+      name: 'VIP',
+      createdAt: new Date('2026-08-15T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-15T00:00:00.000Z'),
+    });
+
+    await expect(
+      repository.createAudienceList('org', 'integration', 'VIP', 'user-a')
+    ).resolves.toEqual({
+      conflict: false,
+      list: expect.objectContaining({ id: 'list-1', name: 'VIP' }),
+    });
+  });
+
+  it('rejects duplicate list names on the same channel', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceList.findFirst.mockResolvedValue({ id: 'list-1' });
+
+    await expect(
+      repository.createAudienceList('org', 'integration', 'VIP', 'user-a')
+    ).resolves.toEqual({ conflict: true });
+  });
+
+  it('upserts list membership for an audience member', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceList.findFirst.mockResolvedValue({ id: 'list-1' });
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      externalId: 'person-1',
+    });
+    tx.channelAudienceListMember.upsert.mockResolvedValue({});
+
+    await expect(
+      repository.addAudienceListMember('org', 'integration', 'list-1', 'person-1')
+    ).resolves.toEqual({ ok: true });
+    expect(tx.channelAudienceListMember.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          listId_counterpartyExternalId: {
+            listId: 'list-1',
+            counterpartyExternalId: 'person-1',
+          },
+        },
       })
     );
   });

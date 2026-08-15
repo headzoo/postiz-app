@@ -26,15 +26,60 @@ import {
   useFollowerRelationshipScoreMutation,
 } from '@gitroom/frontend/components/followers/use.followers';
 
-const INTERACTION_KIND_LABELS: Record<
+const INTERACTION_SENTENCE_LABELS: Record<
   ChannelInteractionKind,
-  { key: string; defaultLabel: string }
+  { inbound: { key: string; defaultLabel: string }; outbound: { key: string; defaultLabel: string } }
 > = {
-  like: { key: 'followers_interaction_kind_like', defaultLabel: 'Like' },
-  reply: { key: 'followers_interaction_kind_reply', defaultLabel: 'Reply' },
-  repost: { key: 'followers_interaction_kind_repost', defaultLabel: 'Repost' },
-  follow: { key: 'followers_interaction_kind_follow', defaultLabel: 'Follow' },
-  mention: { key: 'followers_interaction_kind_mention', defaultLabel: 'Mention' },
+  like: {
+    inbound: {
+      key: 'followers_interaction_like_inbound',
+      defaultLabel: 'They liked you',
+    },
+    outbound: {
+      key: 'followers_interaction_like_outbound',
+      defaultLabel: 'You liked them',
+    },
+  },
+  reply: {
+    inbound: {
+      key: 'followers_interaction_reply_inbound',
+      defaultLabel: 'They replied to you',
+    },
+    outbound: {
+      key: 'followers_interaction_reply_outbound',
+      defaultLabel: 'You replied to them',
+    },
+  },
+  repost: {
+    inbound: {
+      key: 'followers_interaction_repost_inbound',
+      defaultLabel: 'They reposted you',
+    },
+    outbound: {
+      key: 'followers_interaction_repost_outbound',
+      defaultLabel: 'You reposted them',
+    },
+  },
+  follow: {
+    inbound: {
+      key: 'followers_interaction_follow_inbound',
+      defaultLabel: 'They followed you',
+    },
+    outbound: {
+      key: 'followers_interaction_follow_outbound',
+      defaultLabel: 'You followed them',
+    },
+  },
+  mention: {
+    inbound: {
+      key: 'followers_interaction_mention_inbound',
+      defaultLabel: 'They mentioned you',
+    },
+    outbound: {
+      key: 'followers_interaction_mention_outbound',
+      defaultLabel: 'You mentioned them',
+    },
+  },
 };
 
 const formatDate = (value: string) => {
@@ -86,22 +131,23 @@ const InteractionRow: FC<{
   interaction: FollowerMemberInteraction;
 }> = ({ interaction }) => {
   const t = useT();
-  const label = INTERACTION_KIND_LABELS[interaction.kind];
-  const kindLabel = t(
-    label?.key || 'followers_interaction_kind_unknown',
-    label?.defaultLabel || interaction.kind
-  );
-  const directionLabel =
-    interaction.direction === 'inbound'
-      ? t('followers_interaction_inbound', 'They did')
-      : t('followers_interaction_outbound', 'You did');
+  const labels = INTERACTION_SENTENCE_LABELS[interaction.kind];
+  const direction = interaction.direction === 'inbound' ? 'inbound' : 'outbound';
+  const sentence = labels?.[direction];
+  const headline = sentence
+    ? t(sentence.key, sentence.defaultLabel)
+    : t(
+        `followers_interaction_${interaction.kind}_${direction}`,
+        interaction.direction === 'inbound'
+          ? `They ${interaction.kind} you`
+          : `You ${interaction.kind} them`
+      );
   const timestamp = formatDate(interaction.timestamp);
 
   return (
     <li className="flex flex-col gap-[2px] rounded-[8px] border border-newTableBorder bg-newTableHeader px-[12px] py-[10px] text-[13px]">
-      <div className="flex flex-wrap items-center gap-x-[8px] gap-y-[2px] text-newTextColor">
-        <span className="font-[600]">{kindLabel}</span>
-        <span className="text-textItemBlur">{directionLabel}</span>
+      <div className="text-newTextColor">
+        <span className="font-[600]">{headline}</span>
       </div>
       {timestamp && <span className="text-textItemBlur">{timestamp}</span>}
     </li>

@@ -18,6 +18,11 @@ import {
   CreateFollowerNoteDto,
   UpdateFollowerNoteDto,
 } from '@gitroom/nestjs-libraries/dtos/integrations/follower-note.dto';
+import {
+  CreateFollowerListDto,
+  FollowerListMemberDto,
+  UpdateFollowerListDto,
+} from '@gitroom/nestjs-libraries/dtos/integrations/follower-list.dto';
 import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
 import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
@@ -118,6 +123,83 @@ export class FollowersController {
       org,
       integrationId,
       noteId
+    );
+  }
+
+  @Get('/:integrationId/lists')
+  listFollowerLists(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string
+  ) {
+    return this._integrationService.listFollowerLists(org, integrationId);
+  }
+
+  @Post('/:integrationId/lists')
+  createFollowerList(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
+    @Param('integrationId') integrationId: string,
+    @Body() body: CreateFollowerListDto
+  ) {
+    return this._integrationService.createFollowerList(
+      org,
+      user,
+      integrationId,
+      body.name
+    );
+  }
+
+  @Put('/:integrationId/lists/:listId')
+  updateFollowerList(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Param('listId') listId: string,
+    @Body() body: UpdateFollowerListDto
+  ) {
+    return this._integrationService.updateFollowerList(
+      org,
+      integrationId,
+      listId,
+      body.name
+    );
+  }
+
+  @Delete('/:integrationId/lists/:listId')
+  deleteFollowerList(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Param('listId') listId: string
+  ) {
+    return this._integrationService.deleteFollowerList(org, integrationId, listId);
+  }
+
+  @Post('/:integrationId/lists/:listId/members')
+  addFollowerListMember(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Param('listId') listId: string,
+    @Body() body: FollowerListMemberDto
+  ) {
+    return this._integrationService.addFollowerListMember(
+      org,
+      integrationId,
+      listId,
+      body.externalId
+    );
+  }
+
+  @Delete('/:integrationId/lists/:listId/members')
+  removeFollowerListMember(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Param('listId') listId: string,
+    @Body() body: FollowerListMemberDto
+  ) {
+    return this._integrationService.removeFollowerListMember(
+      org,
+      integrationId,
+      listId,
+      body.externalId
     );
   }
 

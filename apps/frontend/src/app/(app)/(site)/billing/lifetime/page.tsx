@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 import { Metadata } from 'next';
 import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
 export const metadata: Metadata = {
-  title: `${isGeneralServerSide() ? 'P++' : 'Gitroom'} Lifetime deal`,
+  title: `${isGeneralServerSide() ? 'Lifetime deal : Post++' : 'Gitroom Lifetime deal'}`,
   description: '',
 };
 export default async function Page() {

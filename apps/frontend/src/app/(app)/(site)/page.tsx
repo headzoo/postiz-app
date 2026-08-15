@@ -5,7 +5,7 @@ import { Dashboard } from '@gitroom/frontend/components/dashboard/dashboard.comp
 import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
 
 export const metadata: Metadata = {
-  title: `${isGeneralServerSide() ? 'P++' : 'Gitroom'} Dashboard`,
+  title: `${isGeneralServerSide() ? 'Post++' : 'Gitroom Dashboard'}`,
   description: '',
 };
 
