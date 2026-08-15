@@ -63,7 +63,7 @@ export const ThirdPartyComponent = () => {
         <div className="text-customColor18 mt-[4px]">
           {t(
             'connect_third_party_services',
-            'Connect third-party services to use them in Postiz.'
+            'Connect third-party services to use them in Post Plus Plus.'
           )}
         </div>
       </div>

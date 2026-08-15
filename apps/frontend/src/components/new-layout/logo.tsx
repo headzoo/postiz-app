@@ -18,8 +18,8 @@ export const Logo = ({
       }
     >
       <img
-        src={sidebar ? '/orange-robot.png' : '/logo.png'}
-        alt="Postiz"
+        src={sidebar ? '/orange-robot.png' : '/logo-60.png'}
+        alt="P++"
         className="h-[60px] w-[60px] object-contain"
       />
     </Link>

@@ -5,7 +5,7 @@ import { PipelineGlobalSchedule } from '@gitroom/frontend/components/pipelines/p
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: `${isGeneralServerSide() ? 'Postiz' : 'Gitroom'} Pipeline Schedule`,
+  title: `${isGeneralServerSide() ? 'P++' : 'Gitroom'} Pipeline Schedule`,
   description: 'View Pipeline recurring schedules for the current week.',
 };
 
