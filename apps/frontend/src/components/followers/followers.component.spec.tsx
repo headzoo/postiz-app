@@ -368,7 +368,24 @@ describe('FollowersComponent', () => {
     });
 
     expect(replace).toHaveBeenCalledWith('/followers?search=alex');
+    expect((screen.getByLabelText('Search') as HTMLInputElement).value).toBe(
+      'alex'
+    );
+    expect(replace).not.toHaveBeenCalledWith('/followers');
     jest.useRealTimers();
+  });
+
+  it('hydrates search from an external query-string change', () => {
+    const { rerender } = render(<FollowersComponent />);
+    replace.mockClear();
+
+    mockSearchParams = new URLSearchParams({ search: 'alex' });
+    rerender(<FollowersComponent />);
+
+    expect((screen.getByLabelText('Search') as HTMLInputElement).value).toBe(
+      'alex'
+    );
+    expect(replace).not.toHaveBeenCalledWith('/followers');
   });
 
   it('writes sort and direction to the query string', () => {

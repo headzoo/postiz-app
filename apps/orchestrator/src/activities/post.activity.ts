@@ -21,6 +21,10 @@ import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs
 import { runWithPostHttpLogContext } from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.context';
 import { WebhookHttpLogSource } from '@prisma/client';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
+import {
+  integrationIdentity,
+  webhookTargetIdentity,
+} from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.serialize';
 import { TypedSearchAttributes } from '@temporalio/common';
 import {
   organizationId,
@@ -503,12 +507,21 @@ export class PostActivity {
       }
 
       const post = await this._postService.getPostByForWebhookId(postId);
+      const integration = await this._integrationService.getIntegrationById(
+        orgId,
+        integrationId
+      );
+      const source = integrationIdentity(
+        integration?.name,
+        integration?.profile
+      );
       await Promise.all(
         webhooks.map(async (webhook) => {
           const headers = {
             'Content-Type': 'application/json',
           };
           const body = JSON.stringify(post);
+          const target = webhookTargetIdentity(webhook.name, webhook.url);
           try {
             // webhook.url is validated at save time, but DNS can change
             // between then and now - pin resolution like every other
@@ -530,6 +543,10 @@ export class PostActivity {
               requestHeaders: headers,
               requestBody: body,
               response,
+              sourceDisplayName: source.displayName,
+              sourceUsername: source.username,
+              targetDisplayName: target.displayName,
+              targetUsername: target.username,
             });
           } catch (e) {
             await this._logsService.logOutboundWebhook({
@@ -542,6 +559,10 @@ export class PostActivity {
               requestHeaders: headers,
               requestBody: body,
               error: e,
+              sourceDisplayName: source.displayName,
+              sourceUsername: source.username,
+              targetDisplayName: target.displayName,
+              targetUsername: target.username,
             });
           }
         })

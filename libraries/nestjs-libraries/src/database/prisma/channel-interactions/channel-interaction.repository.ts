@@ -342,6 +342,8 @@ export class ChannelInteractionRepository {
       select: {
         id: true,
         organizationId: true,
+        name: true,
+        profile: true,
       },
     });
   }
@@ -357,6 +359,8 @@ export class ChannelInteractionRepository {
       select: {
         id: true,
         organizationId: true,
+        name: true,
+        profile: true,
       },
     });
   }

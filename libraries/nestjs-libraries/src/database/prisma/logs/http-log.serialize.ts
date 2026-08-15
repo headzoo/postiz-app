@@ -1,4 +1,91 @@
 export const MAX_HTTP_LOG_BODY = 64 * 1024;
+export const MAX_HTTP_LOG_IDENTITY = 512;
+
+export type WebhookLogIdentity = {
+  displayName?: string;
+  username?: string;
+};
+
+export type WebhookLogEndpoints = {
+  sourceDisplayName?: string;
+  sourceUsername?: string;
+  targetDisplayName?: string;
+  targetUsername?: string;
+};
+
+export function capHttpLogIdentity(value?: string | null) {
+  if (!value) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed.length <= MAX_HTTP_LOG_IDENTITY
+    ? trimmed
+    : trimmed.slice(0, MAX_HTTP_LOG_IDENTITY);
+}
+
+export function hostnameFromUrl(url?: string) {
+  if (!url) {
+    return undefined;
+  }
+  try {
+    return capHttpLogIdentity(new URL(url).hostname);
+  } catch {
+    return undefined;
+  }
+}
+
+export function integrationIdentity(
+  name?: string | null,
+  profile?: string | null
+): WebhookLogIdentity {
+  return {
+    displayName: capHttpLogIdentity(name),
+    username: capHttpLogIdentity(profile),
+  };
+}
+
+export function webhookTargetIdentity(
+  name?: string | null,
+  url?: string
+): WebhookLogIdentity {
+  return {
+    displayName: capHttpLogIdentity(name),
+    username: hostnameFromUrl(url),
+  };
+}
+
+export function eventEndpoints(
+  event:
+    | {
+        direction?: string;
+        counterparty?: { name?: string; username?: string };
+      }
+    | undefined,
+  integration?: { name?: string | null; profile?: string | null }
+): WebhookLogEndpoints {
+  const channel = integrationIdentity(integration?.name, integration?.profile);
+  const actor = integrationIdentity(
+    event?.counterparty?.name,
+    event?.counterparty?.username
+  );
+  if (event?.direction === 'outbound') {
+    return {
+      sourceDisplayName: channel.displayName,
+      sourceUsername: channel.username,
+      targetDisplayName: actor.displayName,
+      targetUsername: actor.username,
+    };
+  }
+  return {
+    sourceDisplayName: actor.displayName,
+    sourceUsername: actor.username,
+    targetDisplayName: channel.displayName,
+    targetUsername: channel.username,
+  };
+}
 
 const REDACTED = '[redacted]';
 const BINARY_OMITTED = '[binary omitted]';

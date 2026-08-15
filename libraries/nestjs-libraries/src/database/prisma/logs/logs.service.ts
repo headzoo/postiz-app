@@ -9,6 +9,7 @@ import {
   registerPostHttpLogWriter,
 } from './http-log.context';
 import {
+  capHttpLogIdentity,
   readCappedHttpLogBody,
   redactHttpLogUrl,
   serializeHttpLogBody,
@@ -58,6 +59,10 @@ export class LogsService implements OnModuleInit {
     requestBody?: unknown;
     response?: Response | null;
     error?: unknown;
+    sourceDisplayName?: string;
+    sourceUsername?: string;
+    targetDisplayName?: string;
+    targetUsername?: string;
   }) {
     try {
       const responseBody = input.response
@@ -81,6 +86,10 @@ export class LogsService implements OnModuleInit {
             ? input.error.message
             : String(input.error)
           : undefined,
+        sourceDisplayName: capHttpLogIdentity(input.sourceDisplayName),
+        sourceUsername: capHttpLogIdentity(input.sourceUsername),
+        targetDisplayName: capHttpLogIdentity(input.targetDisplayName),
+        targetUsername: capHttpLogIdentity(input.targetUsername),
       });
     } catch {
       /** logging must never break webhook delivery */
@@ -98,6 +107,10 @@ export class LogsService implements OnModuleInit {
     responseHeaders?: unknown;
     responseBody?: unknown;
     error?: string;
+    sourceDisplayName?: string;
+    sourceUsername?: string;
+    targetDisplayName?: string;
+    targetUsername?: string;
   }) {
     try {
       await this.createWebhookLog({
@@ -113,6 +126,10 @@ export class LogsService implements OnModuleInit {
         responseHeaders: serializeHttpLogHeaders(input.responseHeaders),
         responseBody: serializeHttpLogBody(input.responseBody),
         error: input.error,
+        sourceDisplayName: capHttpLogIdentity(input.sourceDisplayName),
+        sourceUsername: capHttpLogIdentity(input.sourceUsername),
+        targetDisplayName: capHttpLogIdentity(input.targetDisplayName),
+        targetUsername: capHttpLogIdentity(input.targetUsername),
       });
     } catch {
       /** logging must never break webhook delivery */

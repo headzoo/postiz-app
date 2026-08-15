@@ -22,7 +22,10 @@ import { CustomVariables } from '@gitroom/frontend/components/launches/add.provi
 import { useRouter } from 'next/navigation';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
+import {
+  ADD_EDIT_MODAL_OPTIONS,
+  AddEditModal,
+} from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import dayjs from 'dayjs';
 import { ModalWrapperComponent } from '@gitroom/frontend/components/new-launch/modal.wrapper.component';
 import copy from 'copy-to-clipboard';
@@ -163,7 +166,7 @@ export const Menu: FC<{
         chrome.runtime.sendMessage(
           extensionId,
           { type: 'REMOVE_REFRESH_TOKEN', integrationId: id },
-          () => {}
+          () => { }
         );
       } catch {
         // Silently ignore
@@ -220,16 +223,7 @@ export const Menu: FC<{
       ).json();
 
       modal.openModal({
-        id: 'add-edit-modal',
-        closeOnClickOutside: false,
-        removeLayout: true,
-        closeOnEscape: false,
-        withCloseButton: false,
-        askClose: true,
-        fullScreen: true,
-        classNames: {
-          modal: 'w-[100%] max-w-[1400px] text-textColor',
-        },
+        ...ADD_EDIT_MODAL_OPTIONS,
         children: (
           <AddEditModal
             allIntegrations={integrations.map((p) => ({
@@ -243,7 +237,6 @@ export const Menu: FC<{
             date={dayjs.utc(date).local()}
           />
         ),
-        size: '80%',
         title: ``,
       });
     },

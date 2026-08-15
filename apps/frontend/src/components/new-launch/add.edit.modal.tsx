@@ -18,6 +18,20 @@ const toEditorHtml = (content: string) =>
       .map((line) => (line ? `<p>${line}</p>` : '<p><br></p>'))
       .join('');
 
+export const ADD_EDIT_MODAL_OPTIONS = {
+  id: 'add-edit-modal',
+  closeOnClickOutside: false,
+  removeLayout: true,
+  closeOnEscape: false,
+  withCloseButton: false,
+  askClose: true,
+  fullScreen: true,
+  scrollableBackdrop: true,
+  classNames: {
+    modal: 'w-full min-h-full text-textColor',
+  },
+} as const;
+
 export interface AddEditModalProps {
   dummy?: boolean;
   date: dayjs.Dayjs;

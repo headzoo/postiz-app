@@ -1511,24 +1511,28 @@ model PostHttpLog {
 }
 
 model WebhookHttpLog {
-  id              String                  @id @default(uuid())
-  organizationId  String
-  webhookId       String?
-  integrationId   String?
-  direction       WebhookHttpLogDirection
-  source          WebhookHttpLogSource
-  method          String
-  url             String
-  statusCode      Int?
-  requestHeaders  String                  @default("{}")
-  requestBody     String                  @default("")
-  responseHeaders String                  @default("{}")
-  responseBody    String                  @default("")
-  error           String?
-  createdAt       DateTime                @default(now())
-  organization    Organization            @relation(fields: [organizationId], references: [id])
-  webhook         Webhooks?               @relation(fields: [webhookId], references: [id], onDelete: SetNull)
-  integration     Integration?            @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  id                String                  @id @default(uuid())
+  organizationId    String
+  webhookId         String?
+  integrationId     String?
+  direction         WebhookHttpLogDirection
+  source            WebhookHttpLogSource
+  method            String
+  url               String
+  statusCode        Int?
+  requestHeaders    String                  @default("{}")
+  requestBody       String                  @default("")
+  responseHeaders   String                  @default("{}")
+  responseBody      String                  @default("")
+  error             String?
+  sourceDisplayName String?
+  sourceUsername    String?
+  targetDisplayName String?
+  targetUsername    String?
+  createdAt         DateTime                @default(now())
+  organization      Organization            @relation(fields: [organizationId], references: [id])
+  webhook           Webhooks?               @relation(fields: [webhookId], references: [id], onDelete: SetNull)
+  integration       Integration?            @relation(fields: [integrationId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
   @@index([webhookId])

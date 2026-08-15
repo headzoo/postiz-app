@@ -502,9 +502,24 @@ describe('ChannelInteractionService', () => {
   it('writes an inbound webhook log for each resolved organization', async () => {
     const repository = createRepository();
     repository.getActiveIntegrationsForAccount.mockResolvedValue([
-      { id: 'integration-a', organizationId: 'org-a' },
-      { id: 'integration-a2', organizationId: 'org-a' },
-      { id: 'integration-b', organizationId: 'org-b' },
+      {
+        id: 'integration-a',
+        organizationId: 'org-a',
+        name: 'My X',
+        profile: 'me',
+      },
+      {
+        id: 'integration-a2',
+        organizationId: 'org-a',
+        name: 'My X alt',
+        profile: 'me2',
+      },
+      {
+        id: 'integration-b',
+        organizationId: 'org-b',
+        name: 'Org B X',
+        profile: 'orgb',
+      },
     ]);
     const logsService = {
       logInboundWebhook: jest.fn().mockResolvedValue(undefined),
@@ -543,6 +558,9 @@ describe('ChannelInteractionService', () => {
         method: 'POST',
         url: '/channel-webhooks/provider',
         statusCode: 200,
+        sourceDisplayName: 'Person',
+        targetDisplayName: 'My X',
+        targetUsername: 'me',
       })
     );
     expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
@@ -551,6 +569,65 @@ describe('ChannelInteractionService', () => {
         method: 'POST',
         url: '/channel-webhooks/provider',
         statusCode: 200,
+        sourceDisplayName: 'Person',
+        targetDisplayName: 'Org B X',
+        targetUsername: 'orgb',
+      })
+    );
+  });
+
+  it('flips source and target for outbound channel interaction events', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([
+      {
+        id: 'integration-a',
+        organizationId: 'org-a',
+        name: 'My X',
+        profile: 'me',
+      },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyAndNormalizeDelivery: jest.fn().mockResolvedValue({
+            accepted: true,
+            connectedAccountId: 'account-1',
+            events: [
+              interaction({
+                direction: 'outbound',
+                counterparty: { name: 'Bob', username: 'bob' },
+              }),
+            ],
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      logsService as any
+    );
+    jest.spyOn(service, 'recordNormalizedDelivery').mockResolvedValue({
+      created: 1,
+      duplicates: 0,
+      membershipOnly: 0,
+    });
+
+    await service.handleDelivery('provider', {
+      rawBody: Buffer.from('{"ok":true}'),
+      headers: {},
+    });
+
+    expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        sourceDisplayName: 'My X',
+        sourceUsername: 'me',
+        targetDisplayName: 'Bob',
+        targetUsername: 'bob',
       })
     );
   });
@@ -646,7 +723,12 @@ describe('ChannelInteractionService', () => {
   it('logs a challenge against the sole org that owns the provider', async () => {
     const repository = createRepository();
     repository.getActiveIntegrationsForProvider.mockResolvedValue([
-      { id: 'integration-x', organizationId: 'org-only' },
+      {
+        id: 'integration-x',
+        organizationId: 'org-only',
+        name: 'Solo X',
+        profile: 'solo',
+      },
     ]);
     const logsService = {
       logInboundWebhook: jest.fn().mockResolvedValue(undefined),
@@ -675,6 +757,8 @@ describe('ChannelInteractionService', () => {
         method: 'GET',
         url: '/channel-webhooks/x',
         statusCode: 200,
+        targetDisplayName: 'Solo X',
+        targetUsername: 'solo',
       })
     );
   });

@@ -25,6 +25,10 @@ import {
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
 import { Integration } from '@prisma/client';
 import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
+import {
+  eventEndpoints,
+  integrationIdentity,
+} from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.serialize';
 import { PostsRepository } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.repository';
 import {
   AudienceProfile,
@@ -170,6 +174,7 @@ export class ChannelInteractionService {
         connectedAccountId,
         matchedIntegrations
       ),
+      events: delivery.accepted ? delivery.events : undefined,
       requestHeaders: request.headers,
       requestBody: request.rawBody,
       statusCode: delivery.accepted
@@ -200,7 +205,12 @@ export class ChannelInteractionService {
   private async resolveLogIntegrations(
     providerIdentifier: string,
     connectedAccountId?: string,
-    matchedIntegrations?: Array<{ id: string; organizationId: string }>
+    matchedIntegrations?: Array<{
+      id: string;
+      organizationId: string;
+      name?: string | null;
+      profile?: string | null;
+    }>
   ) {
     if (matchedIntegrations?.length) {
       return matchedIntegrations;
@@ -229,7 +239,13 @@ export class ChannelInteractionService {
   private async logInboundRequest(input: {
     providerIdentifier: string;
     method: string;
-    integrations?: Array<{ id: string; organizationId: string }>;
+    integrations?: Array<{
+      id: string;
+      organizationId: string;
+      name?: string | null;
+      profile?: string | null;
+    }>;
+    events?: NormalizedChannelInteractionEvent[];
     requestHeaders?: unknown;
     requestBody?: unknown;
     statusCode: number;
@@ -246,17 +262,38 @@ export class ChannelInteractionService {
       if (!integrations.length) {
         return;
       }
-      const orgs = new Map<string, string | undefined>();
+      const orgs = new Map<
+        string,
+        {
+          id: string;
+          organizationId: string;
+          name?: string | null;
+          profile?: string | null;
+        }
+      >();
       for (const integration of integrations) {
         if (!orgs.has(integration.organizationId)) {
-          orgs.set(integration.organizationId, integration.id);
+          orgs.set(integration.organizationId, integration);
         }
       }
+      const firstEvent = input.events?.[0];
       await Promise.all(
-        [...orgs.entries()].map(([organizationId, integrationId]) =>
-          this._logsService!.logInboundWebhook({
+        [...orgs.entries()].map(([organizationId, integration]) => {
+          const endpoints = firstEvent
+            ? eventEndpoints(firstEvent, integration)
+            : (() => {
+                const target = integrationIdentity(
+                  integration.name,
+                  integration.profile
+                );
+                return {
+                  targetDisplayName: target.displayName,
+                  targetUsername: target.username,
+                };
+              })();
+          return this._logsService!.logInboundWebhook({
             organizationId,
-            integrationId,
+            integrationId: integration.id,
             method: input.method,
             url: `/channel-webhooks/${input.providerIdentifier}`,
             statusCode: input.statusCode,
@@ -265,8 +302,9 @@ export class ChannelInteractionService {
             responseHeaders: { 'content-type': 'application/json' },
             responseBody: input.responseBody,
             error: input.error,
-          })
-        )
+            ...endpoints,
+          });
+        })
       );
     } catch {
       /** logging must never break webhook delivery */

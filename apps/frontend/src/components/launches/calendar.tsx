@@ -50,7 +50,10 @@ import { StatisticsModal } from '@gitroom/frontend/components/launches/statistic
 import { MissingReleaseModal } from '@gitroom/frontend/components/launches/missing-release.modal';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import i18next from 'i18next';
-import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
+import {
+  ADD_EDIT_MODAL_OPTIONS,
+  AddEditModal,
+} from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import { CreationMethodBadge } from '@gitroom/frontend/components/launches/creation.method.badge';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
@@ -241,16 +244,7 @@ const usePostActions = (onMutate?: () => void) => {
           )
         );
       modal.openModal({
-        id: 'add-edit-modal',
-        closeOnClickOutside: false,
-        removeLayout: true,
-        closeOnEscape: false,
-        withCloseButton: false,
-        askClose: true,
-        fullScreen: true,
-        classNames: {
-          modal: 'w-[100%] max-w-[1400px] text-textColor',
-        },
+        ...ADD_EDIT_MODAL_OPTIONS,
         children: (
           <ExistingData
             value={{
@@ -290,7 +284,6 @@ const usePostActions = (onMutate?: () => void) => {
             />
           </ExistingData>
         ),
-        size: '80%',
         title: ``,
       });
     },
@@ -990,16 +983,7 @@ export const CalendarColumn: FC<{
     if (set === 'exit') return;
 
     modal.openModal({
-      id: 'add-edit-modal',
-      closeOnClickOutside: false,
-      removeLayout: true,
-      closeOnEscape: false,
-      withCloseButton: false,
-      askClose: true,
-      fullScreen: true,
-      classNames: {
-        modal: 'w-[100%] max-w-[1400px] text-textColor',
-      },
+      ...ADD_EDIT_MODAL_OPTIONS,
       children: (
         <AddEditModal
           allIntegrations={integrations.map((p) => ({
@@ -1030,7 +1014,6 @@ export const CalendarColumn: FC<{
           reopenModal={() => ({})}
         />
       ),
-      size: '80%',
     });
   }, [integrations, getDate, sets, signature]);
 

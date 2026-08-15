@@ -35,7 +35,10 @@ import {
   Message as CopilotMessage,
   TextMessage,
 } from '@copilotkit/runtime-client-gql';
-import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
+import {
+  ADD_EDIT_MODAL_OPTIONS,
+  AddEditModal,
+} from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import dayjs from 'dayjs';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { ExistingDataContextProvider } from '@gitroom/frontend/components/launches/helpers/use.existing.data';
@@ -190,18 +193,18 @@ const NewInput: FC<InputProps> = (props) => {
         onSend={(text) => {
           const send = props.onSend(
             text +
-              (media.length > 0
-                ? '\n[--Media--]' +
-                  media
-                    .map((m) =>
-                      hasExtension(m.path, 'mp4')
-                        ? `Video: ${m.path}`
-                        : `Image: ${m.path}`
-                    )
-                    .join('\n') +
-                  '\n[--Media--]'
-                : '') +
-              buildAgentTransportMetadata(properties, selectedPipeline)
+            (media.length > 0
+              ? '\n[--Media--]' +
+              media
+                .map((m) =>
+                  hasExtension(m.path, 'mp4')
+                    ? `Video: ${m.path}`
+                    : `Image: ${m.path}`
+                )
+                .join('\n') +
+              '\n[--Media--]'
+              : '') +
+            buildAgentTransportMetadata(properties, selectedPipeline)
           );
           setValue('');
           setMedia([]);
@@ -302,17 +305,8 @@ const OpenModal: FC<{
       await new Promise((res) => {
         const group = makeId(10);
         modals.openModal({
-          id: 'add-edit-modal',
-          closeOnClickOutside: false,
-          removeLayout: true,
-          closeOnEscape: false,
-          withCloseButton: false,
-          askClose: true,
-          size: '80%',
+          ...ADD_EDIT_MODAL_OPTIONS,
           title: ``,
-          classNames: {
-            modal: 'w-[100%] max-w-[1400px] text-textColor',
-          },
           children: (
             <ExistingDataContextProvider
               value={{
@@ -357,7 +351,7 @@ const OpenModal: FC<{
                     path: a.path,
                   })),
                 }))}
-                reopenModal={() => {}}
+                reopenModal={() => { }}
                 mutate={() => res(true)}
               />
             </ExistingDataContextProvider>

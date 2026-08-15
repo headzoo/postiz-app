@@ -34,6 +34,10 @@ export type CreateWebhookHttpLogInput = {
   responseHeaders: string;
   responseBody: string;
   error?: string;
+  sourceDisplayName?: string;
+  sourceUsername?: string;
+  targetDisplayName?: string;
+  targetUsername?: string;
 };
 
 @Injectable()

@@ -18,6 +18,29 @@ import {
 
 type LogKind = 'posts' | 'webhooks';
 
+const isWebhookLog = (
+  row: PostHttpLogRow | WebhookHttpLogRow
+): row is WebhookHttpLogRow => 'direction' in row;
+
+const LogIdentity: FC<{
+  displayName?: string | null;
+  username?: string | null;
+}> = ({ displayName, username }) => {
+  if (!displayName && !username) {
+    return <span>—</span>;
+  }
+  return (
+    <div className="min-w-0">
+      {displayName ? (
+        <div className="truncate">{displayName}</div>
+      ) : null}
+      {username ? (
+        <div className="truncate opacity-60 text-[12px]">@{username}</div>
+      ) : null}
+    </div>
+  );
+};
+
 const safeParse = (value: string) => {
   try {
     return JSON.parse(value);
@@ -105,6 +128,24 @@ const LogDetailsModal: FC<{
           <div className="opacity-60">{t('url', 'URL')}</div>
           <div className="break-all">{row.url}</div>
         </div>
+        {isWebhookLog(row) ? (
+          <>
+            <div>
+              <div className="opacity-60">{t('source', 'Source')}</div>
+              <LogIdentity
+                displayName={row.sourceDisplayName}
+                username={row.sourceUsername}
+              />
+            </div>
+            <div>
+              <div className="opacity-60">{t('target', 'Target')}</div>
+              <LogIdentity
+                displayName={row.targetDisplayName}
+                username={row.targetUsername}
+              />
+            </div>
+          </>
+        ) : null}
         {row.error ? (
           <div className="col-span-2">
             <div className="opacity-60">{t('error', 'Error')}</div>
@@ -239,23 +280,33 @@ const LogTable: FC<{
 
   return (
     <div className="border border-newTableBorder rounded-[8px] overflow-hidden">
-      <div className="grid grid-cols-[170px_90px_80px_110px_1fr_90px] gap-[12px] px-[12px] py-[10px] bg-newTableHeader text-[12px] uppercase opacity-70 border-b border-newTableBorder">
+      <div className="grid grid-cols-[170px_90px_80px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] bg-newTableHeader text-[12px] uppercase opacity-70 border-b border-newTableBorder">
         <div>{t('created', 'Created')}</div>
         <div>{t('status', 'Status')}</div>
         <div>{t('method', 'Method')}</div>
         <div>{t('direction', 'Direction')}</div>
+        <div>{t('source', 'Source')}</div>
+        <div>{t('target', 'Target')}</div>
         <div>{t('url', 'URL')}</div>
         <div className="text-right">{t('actions', 'Actions')}</div>
       </div>
       {webhooks.items.map((row) => (
         <div
           key={row.id}
-          className="grid grid-cols-[170px_90px_80px_110px_1fr_90px] gap-[12px] px-[12px] py-[10px] text-[13px] border-b border-newTableBorder last:border-b-0 items-center"
+          className="grid grid-cols-[170px_90px_80px_110px_140px_140px_1fr_90px] gap-[12px] px-[12px] py-[10px] text-[13px] border-b border-newTableBorder last:border-b-0 items-center"
         >
           <div>{new Date(row.createdAt).toLocaleString()}</div>
           <div>{row.statusCode ?? row.error ?? '—'}</div>
           <div>{row.method}</div>
           <div>{row.direction.toLowerCase()}</div>
+          <LogIdentity
+            displayName={row.sourceDisplayName}
+            username={row.sourceUsername}
+          />
+          <LogIdentity
+            displayName={row.targetDisplayName}
+            username={row.targetUsername}
+          />
           <div className="break-all opacity-80">{row.url}</div>
           <div className="flex justify-end">
             <Button secondary type="button" onClick={() => openWebhook(row)}>
@@ -306,7 +357,7 @@ export const LogsSettings: FC = () => {
       <h3 className="text-[20px]">{t('logs', 'Logs')}</h3>
       <div className="text-customColor18 mt-[4px]">{subtitle}</div>
       <div className="my-[16px] bg-sixth border-fifth items-center border rounded-[4px] p-[24px] flex flex-col gap-[16px]">
-        <div className="flex flex-wrap gap-[8px] w-full">
+        <div className="flex flex-wrap items-center gap-[8px] w-full">
           <Button
             type="button"
             secondary={kind !== 'webhooks'}
@@ -328,7 +379,7 @@ export const LogsSettings: FC = () => {
                 setPage(0);
                 setDirection(event.target.value as 'INBOUND' | 'OUTBOUND' | '');
               }}
-              className="bg-newBgColorInner h-[38px] border border-newTableBorder rounded-[8px] px-[10px] text-[14px] text-textColor"
+              className="bg-newBgColorInner h-[40px] border border-newTableBorder rounded-[8px] px-[10px] text-[14px] text-textColor"
             >
               <option value="">{t('all_directions', 'All directions')}</option>
               <option value="OUTBOUND">{t('outbound', 'Outbound')}</option>

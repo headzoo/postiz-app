@@ -191,7 +191,7 @@ export const PostSelector: FC<{
                         </div>
                         <div className="flex-1">{removeMd(p.content)}</div>
                         <div>
-                          {t('status', 'Status:')}
+                          {t('status', 'Status')}
                           {p.state}
                         </div>
                       </div>

@@ -35,6 +35,10 @@ export type WebhookHttpLogRow = {
   responseHeaders: string;
   responseBody: string;
   error?: string | null;
+  sourceDisplayName?: string | null;
+  sourceUsername?: string | null;
+  targetDisplayName?: string | null;
+  targetUsername?: string | null;
   createdAt: string;
 };
 

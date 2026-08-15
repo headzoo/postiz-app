@@ -20,7 +20,6 @@ import { useLaunchStore } from '@gitroom/frontend/components/new-launch/store';
 import { DatePicker } from '@gitroom/frontend/components/launches/helpers/date.picker';
 import { useShallow } from 'zustand/react/shallow';
 import { RepeatComponent } from '@gitroom/frontend/components/launches/repeat.component';
-import { TagsComponent } from '@gitroom/frontend/components/launches/tags.component';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
@@ -757,315 +756,307 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
   );
 
   return (
-    <div className="w-full h-full flex-1 p-[40px] flex relative">
-      <div className="flex flex-1 bg-newBgColorInner rounded-[20px] flex-col">
-        <div className="flex-1 flex">
-          <div className="flex flex-col flex-1 border-e border-newBorder">
-            <div className="bg-newBgColor h-[65px] rounded-s-[20px] !rounded-b-[0] flex items-center gap-[12px] px-[20px] text-[20px] font-[600]">
-              {t('create_post_title', 'Create Post')}
-              <CreationMethodBadge
-                creationMethod={existingData?.posts?.[0]?.creationMethod}
-                size="sm"
-              />
-            </div>
-            <div className="flex-1 flex flex-col gap-[16px]">
-              <div
-                className={clsx('flex-1 relative min-h-0', showSettings && 'hidden')}
+    <div className="w-full min-h-screen flex justify-center relative">
+      <div className="w-full min-h-screen max-w-none bg-newBgColorInner grid grid-cols-2 mobile:grid-cols-1 grid-rows-[1fr_auto] mobile:grid-rows-none">
+        <section className="min-w-0 flex flex-col border-e border-newBorder mobile:border-e-0 mobile:border-b">
+          <div className="bg-newBgColor h-[65px] flex items-center gap-[12px] px-[20px] text-[20px] font-[600]">
+            {t('create_post_title', 'Create Post')}
+            <CreationMethodBadge
+              creationMethod={existingData?.posts?.[0]?.creationMethod}
+              size="sm"
+            />
+          </div>
+          <div className="flex-1 flex flex-col gap-[16px]">
+            <div
+              className={clsx(
+                'flex-1 flex flex-col',
+                showSettings && 'hidden'
+              )}
+            >
+              <CustomScrollArea
+                id="social-content"
+                className="flex-1"
+                contentClassName="gap-[32px] flex flex-col min-h-full ps-[20px] pt-[20px] pb-[20px] pr-[28px]"
               >
-                <CustomScrollArea
-                  id="social-content"
-                  className="absolute inset-0"
-                  contentClassName="gap-[32px] flex flex-col ps-[20px] pt-[20px] pb-[20px] pr-[28px]"
-                >
-                  <div className="flex w-full">
-                    <div className="flex flex-1">
-                      <PicksSocialsComponent
-                        toolTip={true}
-                        disabled={pipelineMode}
-                      />
-                    </div>
-                    <div>
-                      {!dummy && !pipelineMode && (
-                        <SelectCustomer
-                          onChange={changeCustomer}
-                          integrations={integrations}
-                        />
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-1 gap-[6px] flex-col">
-                    <div>{!existingData.integration && <SelectCurrent />}</div>
-                    <div className="flex-1 flex">
-                      {!hide && <EditorWrapper totalPosts={1} value="" />}
-                    </div>
-                    <div
-                      id="social-empty"
-                      className={clsx(
-                        'pb-[16px]'
-                        // current !== 'global' && 'hidden'
-                      )}
+                <div className="flex w-full">
+                  <div className="flex flex-1">
+                    <PicksSocialsComponent
+                      toolTip={true}
+                      disabled={pipelineMode}
                     />
                   </div>
-                </CustomScrollArea>
-              </div>
-              <div
-                id="wrapper-settings"
-                className={clsx(
-                  'pb-[20px] px-[20px] select-none',
-                  showSettings && 'flex-1 flex pt-[20px]',
-                  current === 'global' && 'hidden'
-                )}
-              >
-                <div className="flex-1 flex flex-col rounded-[12px] gap-[12px] overflow-hidden bg-newSettings">
-                  <div
-                    onClick={() => setShowSettings(!showSettings)}
-                    className={clsx(
-                      'bg-[#612BD3] rounded-[12px] flex items-center gap-[8px] cursor-pointer p-[12px]',
-                      showSettings ? '!rounded-b-none' : ''
-                    )}
-                  >
-                    <div className="flex-1 text-[14px] font-[600] text-white">
-                      {currentIntegrationText}
-                    </div>
-                    <div>
-                      <ChevronDownIcon
-                        rotated={showSettings}
-                        className="text-white"
+                  <div>
+                    {!dummy && !pipelineMode && (
+                      <SelectCustomer
+                        onChange={changeCustomer}
+                        integrations={integrations}
                       />
-                    </div>
-                  </div>
-                  <div
-                    className={clsx(
-                      !showSettings ? 'hidden' : 'flex-1',
-                      'text-[14px] text-textColor font-[500] relative'
                     )}
-                  >
-                    <CustomScrollArea
-                      className="absolute inset-0"
-                      contentClassName="flex flex-col pr-[16px]"
-                    >
-                      <div
-                        id="social-settings"
-                        className="flex flex-col gap-[20px] bg-newBgColor"
-                      />
-                    </CustomScrollArea>
                   </div>
-                  <style>
-                    {`#social-settings [data-id="${current}"] {display: block !important;}`}
-                  </style>
                 </div>
-              </div>
-            </div>
-          </div>
-          <div className="w-[580px] flex flex-col">
-            <div className="bg-newBgColor h-[65px] rounded-e-[20px] !rounded-b-[0] flex items-center px-[20px] text-[20px] font-[600]">
-              <div className="flex-1">{t('post_preview', 'Post Preview')}</div>
-              <div className="cursor-pointer">
-                <CloseIcon onClick={askClose} className="text-[#A3A3A3]" />
-              </div>
-            </div>
-            <div className="flex-1 relative min-h-0">
-              <CustomScrollArea
-                className="absolute inset-0"
-                contentClassName="p-[20px] pr-[28px]"
-              >
-                <ShowAllProviders ref={ref} />
+                <div className="flex flex-1 gap-[6px] flex-col">
+                  <div>
+                    {!existingData.integration && <SelectCurrent />}
+                  </div>
+                  <div className="flex-1 flex flex-col">
+                    {!hide && <EditorWrapper totalPosts={1} value="" />}
+                  </div>
+                  <div
+                    id="social-empty"
+                    className={clsx(
+                      'pb-[16px]'
+                      // current !== 'global' && 'hidden'
+                    )}
+                  />
+                </div>
               </CustomScrollArea>
             </div>
+            <div
+              id="wrapper-settings"
+              className={clsx(
+                'pb-[20px] px-[20px] select-none',
+                showSettings && 'flex-1 flex pt-[20px]',
+                current === 'global' && 'hidden'
+              )}
+            >
+              <div className="flex-1 flex flex-col rounded-[12px] gap-[12px] overflow-hidden bg-newSettings">
+                <div
+                  onClick={() => setShowSettings(!showSettings)}
+                  className={clsx(
+                    'bg-[#612BD3] rounded-[12px] flex items-center gap-[8px] cursor-pointer p-[12px]',
+                    showSettings ? '!rounded-b-none' : ''
+                  )}
+                >
+                  <div className="flex-1 text-[14px] font-[600] text-white">
+                    {currentIntegrationText}
+                  </div>
+                  <div>
+                    <ChevronDownIcon
+                      rotated={showSettings}
+                      className="text-white"
+                    />
+                  </div>
+                </div>
+                <div
+                  className={clsx(
+                    !showSettings ? 'hidden' : 'flex-1',
+                    'text-[14px] text-textColor font-[500] relative'
+                  )}
+                >
+                  <CustomScrollArea
+                    className="absolute inset-0"
+                    contentClassName="flex flex-col pr-[16px]"
+                  >
+                    <div
+                      id="social-settings"
+                      className="flex flex-col gap-[20px] bg-newBgColor"
+                    />
+                  </CustomScrollArea>
+                </div>
+                <style>
+                  {`#social-settings [data-id="${current}"] {display: block !important;}`}
+                </style>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="select-none h-[84px] py-[20px] border-t border-newBorder flex items-center">
-          <div className="flex-1 flex ps-[20px] gap-[8px]">
-            {!dummy && (
-              <TagsComponent
-                name="tags"
-                label={t('tags', 'Tags')}
-                initial={tags}
-                onChange={(e) => {
-                  setTags(e.target.value);
-                }}
-              />
-            )}
-
+        </section>
+        <section className="min-w-0 flex flex-col">
+          <div className="bg-newBgColor h-[65px] flex items-center px-[20px] text-[20px] font-[600]">
+            <div className="flex-1">{t('post_preview', 'Post Preview')}</div>
+            <div className="cursor-pointer">
+              <CloseIcon onClick={askClose} className="text-[#A3A3A3]" />
+            </div>
+          </div>
+          <div className="flex-1 p-[20px] pr-[28px]">
+            <ShowAllProviders ref={ref} />
+          </div>
+        </section>
+        <div className="col-span-2 mobile:col-span-1 select-none min-h-[84px] py-[20px] px-[20px] border-t border-newBorder flex flex-wrap items-center gap-[12px]">
+          <div className="flex items-center gap-[8px]">
             {!dummy && !pipelineMode && (
               <RepeatComponent repeat={repeater} onChange={setRepeater} />
             )}
           </div>
-          <div className="pe-[20px] flex items-center justify-end gap-[8px]">
-            {existingData?.integration && (
-              <button
-                onClick={deletePost}
-                className="cursor-pointer flex text-[#FF3F3F] gap-[8px] items-center text-[15px] font-[600]"
-              >
-                <div>
-                  <TrashIcon />
-                </div>
-                <div>{t('delete_post', 'Delete Post')}</div>
-              </button>
-            )}
-            {!dummy && !existingData?.integration && (
-              <>
-                <select
-                  aria-label={t('publishing_mode', 'Publishing mode')}
-                  value={
-                    publishingMode === 'pipeline'
-                      ? pipelineId || ''
-                      : publishingMode
-                  }
-                  onChange={(event) => {
-                    if (
-                      event.target.value === 'manual' ||
-                      event.target.value === 'now'
-                    ) {
-                      setPublishingMode(event.target.value);
-                      return;
-                    }
-                    selectPipeline(event.target.value);
-                  }}
-                  className="h-[44px] max-w-[210px] bg-newBgColorInner border border-newBorder rounded-[8px] px-[10px] text-[14px]"
+          <div className="flex-1 flex flex-wrap items-center justify-end gap-x-[8px] gap-y-[12px] min-w-0">
+            <div className="flex items-center gap-[8px] min-w-0 tablet:w-full tablet:justify-end">
+              {existingData?.integration && (
+                <button
+                  onClick={deletePost}
+                  className="cursor-pointer flex text-[#FF3F3F] gap-[8px] items-center text-[15px] font-[600]"
                 >
-                  <option value="manual">
-                    {t('schedule_manually', 'Schedule manually')}
-                  </option>
-                  <option value="now">{t('post_now', 'Post Now')}</option>
-                  {activePipelines.length > 0 ? (
-                    <optgroup label={t('pipelines', 'Pipelines')}>
-                      {activePipelines.map((pipeline) => (
-                        <option key={pipeline.id} value={pipeline.id}>
-                          {pipeline.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : (
-                    <option value="" disabled>
-                      {t('no_active_pipelines', 'No active Pipelines')}
-                    </option>
-                  )}
-                </select>
-                {activePipelines.length === 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      modal.closeAll();
-                      router.push('/pipelines');
-                    }}
-                    className="text-[13px] font-[600] text-[#8D5CFF]"
-                  >
-                    {t('create_pipeline', 'Create Pipeline')}
-                  </button>
-                )}
-              </>
-            )}
-            {!pipelineMode && !hideScheduleControls && (
-              <DatePicker onChange={setDate} date={date} />
-            )}
-            {pipelineMode && (
-              <div className="max-w-[250px] text-[13px] text-textColor">
-                <div className="font-[600]">{selectedPipeline!.name}</div>
-                <div className="opacity-70">
-                  {t('next_slot', 'Next slot')}:{' '}
-                  {formatPipelineSlot(
-                    selectedPipeline!.nextSlot,
-                    selectedPipeline!.timezone
-                  )}
-                </div>
-              </div>
-            )}
-            {!addEditSets && (
-              <button
-                disabled={
-                  selectedIntegrations.length === 0 || loading || locked
-                }
-                onClick={schedule(
-                  isEditingExistingPost ? 'update' : 'draft'
-                )}
-                className="relative cursor-pointer disabled:cursor-not-allowed px-[20px] h-[44px] bg-btnSimple justify-center items-center flex rounded-[8px] text-[15px] font-[600]"
-              >
-                {loading && (
-                  <div className="absolute left-[50%] top-[50%] -translate-y-[50%] -translate-x-[50%]">
-                    <div className="animate-spin h-[20px] w-[20px] border-4 border-textColor border-t-transparent rounded-full" />
+                  <div>
+                    <TrashIcon />
                   </div>
-                )}
-                <div className={clsx(loading && 'invisible')}>
-                  {isEditingExistingPost
-                    ? t('save', 'Save')
-                    : t('save_as_draft', 'Save as Draft')}
+                  <div>{t('delete_post', 'Delete Post')}</div>
+                </button>
+              )}
+              {!dummy && !existingData?.integration && (
+                <>
+                  <select
+                    aria-label={t('publishing_mode', 'Publishing mode')}
+                    value={
+                      publishingMode === 'pipeline'
+                        ? pipelineId || ''
+                        : publishingMode
+                    }
+                    onChange={(event) => {
+                      if (
+                        event.target.value === 'manual' ||
+                        event.target.value === 'now'
+                      ) {
+                        setPublishingMode(event.target.value);
+                        return;
+                      }
+                      selectPipeline(event.target.value);
+                    }}
+                    className="h-[44px] max-w-[210px] bg-newBgColorInner border border-newBorder rounded-[8px] px-[10px] text-[14px]"
+                  >
+                    <option value="manual">
+                      {t('schedule_manually', 'Schedule manually')}
+                    </option>
+                    <option value="now">{t('post_now', 'Post Now')}</option>
+                    {activePipelines.length > 0 ? (
+                      <optgroup label={t('pipelines', 'Pipelines')}>
+                        {activePipelines.map((pipeline) => (
+                          <option key={pipeline.id} value={pipeline.id}>
+                            {pipeline.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : (
+                      <option value="" disabled>
+                        {t('no_active_pipelines', 'No active Pipelines')}
+                      </option>
+                    )}
+                  </select>
+                  {activePipelines.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        modal.closeAll();
+                        router.push('/pipelines');
+                      }}
+                      className="text-[13px] font-[600] text-[#8D5CFF]"
+                    >
+                      {t('create_pipeline', 'Create Pipeline')}
+                    </button>
+                  )}
+                </>
+              )}
+              {!pipelineMode && !hideScheduleControls && (
+                <DatePicker onChange={setDate} date={date} />
+              )}
+              {pipelineMode && (
+                <div className="h-[44px] max-w-[320px] px-[12px] bg-newBgColorInner border border-newBorder rounded-[8px] flex items-center gap-[8px] text-[13px] text-textColor min-w-0">
+                  <div className="font-[600] truncate">
+                    {selectedPipeline!.name}
+                  </div>
+                  <div className="opacity-70 truncate">
+                    {formatPipelineSlot(
+                      selectedPipeline!.nextSlot,
+                      selectedPipeline!.timezone
+                    )}
+                  </div>
                 </div>
-              </button>
-            )}
-            {addEditSets && (
-              <button
-                className="text-white text-[15px] font-[600] min-w-[180px] btnSub disabled:cursor-not-allowed disabled:opacity-80 outline-none gap-[8px] flex justify-center items-center h-[44px] rounded-[8px] bg-[#612BD3] ps-[20px] pe-[16px]"
-                disabled={
-                  selectedIntegrations.length === 0 || loading || locked
-                }
-                onClick={schedule('draft')}
-              >
-                Save Set
-              </button>
-            )}
-            {!addEditSets && !hideScheduleControls && (
-              <div className="group cursor-pointer relative">
+              )}
+            </div>
+            <div className="flex items-center gap-[8px] shrink-0">
+              {!addEditSets && (
                 <button
                   disabled={
                     selectedIntegrations.length === 0 || loading || locked
                   }
                   onClick={schedule(
-                    pipelineMode
-                      ? 'schedule'
-                      : publishingMode === 'now'
-                        ? 'now'
-                        : 'schedule'
+                    isEditingExistingPost ? 'update' : 'draft'
                   )}
-                  className="text-white relative min-w-[180px] btnSub disabled:cursor-not-allowed disabled:opacity-80 outline-none gap-[8px] flex justify-center items-center h-[44px] rounded-[8px] bg-[#612BD3] ps-[20px] pe-[16px]"
+                  className="relative cursor-pointer disabled:cursor-not-allowed px-[20px] h-[44px] whitespace-nowrap bg-btnSimple justify-center items-center flex rounded-[8px] text-[15px] font-[600]"
                 >
                   {loading && (
                     <div className="absolute left-[50%] top-[50%] -translate-y-[50%] -translate-x-[50%]">
-                      <div className="animate-spin h-[20px] w-[20px] border-4 border-white border-t-transparent rounded-full" />
+                      <div className="animate-spin h-[20px] w-[20px] border-4 border-textColor border-t-transparent rounded-full" />
                     </div>
                   )}
-                  <div
-                    className={clsx(
-                      'text-[15px] font-[600]',
-                      loading && 'invisible'
-                    )}
-                  >
-                    {selectedIntegrations.length === 0
-                      ? t('check_circles_above', 'Check the circles above')
-                      : dummy
-                        ? t('create_output', 'Create output')
-                        : pipelineMode
-                          ? t('add_to_pipeline', 'Add to Pipeline')
-                          : publishingMode === 'now'
-                            ? t('post_now', 'Post Now')
-                            : !existingData?.integration
-                              ? t('add_to_calendar', 'Add to calendar')
-                              : existingData?.posts?.[0]?.state === 'DRAFT'
-                                ? t('schedule', 'Schedule')
-                                : t('update', 'Update')}
+                  <div className={clsx(loading && 'invisible')}>
+                    {isEditingExistingPost
+                      ? t('save', 'Save')
+                      : t('save_as_draft', 'Save as Draft')}
                   </div>
-                  {!dummy && (
-                    <div className="flex justify-center items-center h-[20px] w-[20px] pt-[4px] arrow-change">
-                      <DropdownArrowSmallIcon className="group-hover:rotate-180 text-white" />
-                    </div>
-                  )}
                 </button>
-
-                {!dummy && publishingMode === 'manual' && !pipelineMode && (
+              )}
+              {addEditSets && (
+                <button
+                  className="text-white text-[15px] font-[600] min-w-[180px] btnSub disabled:cursor-not-allowed disabled:opacity-80 outline-none gap-[8px] flex justify-center items-center h-[44px] rounded-[8px] bg-[#612BD3] ps-[20px] pe-[16px]"
+                  disabled={
+                    selectedIntegrations.length === 0 || loading || locked
+                  }
+                  onClick={schedule('draft')}
+                >
+                  Save Set
+                </button>
+              )}
+              {!addEditSets && !hideScheduleControls && (
+                <div className="group cursor-pointer relative">
                   <button
-                    onClick={schedule('now')}
                     disabled={
                       selectedIntegrations.length === 0 || loading || locked
                     }
-                    className="rounded-[8px] z-[300] disabled:cursor-not-allowed disabled:opacity-80 hidden group-hover:flex absolute bottom-[100%] -left-[12px] p-[12px] w-[206px] bg-newBgColorInner"
+                    onClick={schedule(
+                      pipelineMode
+                        ? 'schedule'
+                        : publishingMode === 'now'
+                          ? 'now'
+                          : 'schedule'
+                    )}
+                    className="text-white relative min-w-[180px] whitespace-nowrap btnSub disabled:cursor-not-allowed disabled:opacity-80 outline-none gap-[8px] flex justify-center items-center h-[44px] rounded-[8px] bg-[#612BD3] ps-[20px] pe-[16px]"
                   >
-                    <div className="text-white rounded-[8px] bg-[#D82D7E] h-[44px] w-full flex justify-center items-center post-now">
-                      {t('post_now', 'Post Now')}
+                    {loading && (
+                      <div className="absolute left-[50%] top-[50%] -translate-y-[50%] -translate-x-[50%]">
+                        <div className="animate-spin h-[20px] w-[20px] border-4 border-white border-t-transparent rounded-full" />
+                      </div>
+                    )}
+                    <div
+                      className={clsx(
+                        'text-[15px] font-[600]',
+                        loading && 'invisible'
+                      )}
+                    >
+                      {selectedIntegrations.length === 0
+                        ? t('check_circles_above', 'Check the circles above')
+                        : dummy
+                          ? t('create_output', 'Create output')
+                          : pipelineMode
+                            ? t('add_to_pipeline', 'Add to Pipeline')
+                            : publishingMode === 'now'
+                              ? t('post_now', 'Post Now')
+                              : !existingData?.integration
+                                ? t('add_to_calendar', 'Add to calendar')
+                                : existingData?.posts?.[0]?.state === 'DRAFT'
+                                  ? t('schedule', 'Schedule')
+                                  : t('update', 'Update')}
                     </div>
+                    {!dummy && (
+                      <div className="flex justify-center items-center h-[20px] w-[20px] pt-[4px] arrow-change">
+                        <DropdownArrowSmallIcon className="group-hover:rotate-180 text-white" />
+                      </div>
+                    )}
                   </button>
-                )}
-              </div>
-            )}
+
+                  {!dummy && publishingMode === 'manual' && !pipelineMode && (
+                    <button
+                      onClick={schedule('now')}
+                      disabled={
+                        selectedIntegrations.length === 0 || loading || locked
+                      }
+                      className="rounded-[8px] z-[300] disabled:cursor-not-allowed disabled:opacity-80 hidden group-hover:flex absolute bottom-[100%] -left-[12px] p-[12px] w-[206px] bg-newBgColorInner"
+                    >
+                      <div className="text-white rounded-[8px] bg-[#D82D7E] h-[44px] w-full flex justify-center items-center post-now">
+                        {t('post_now', 'Post Now')}
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

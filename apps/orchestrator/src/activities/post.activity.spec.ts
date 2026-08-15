@@ -77,18 +77,33 @@ jest.mock('@gitroom/nestjs-libraries/integrations/publish.file.sink', () => ({
 import { PostActivity } from './post.activity';
 import { WebhookHttpLogSource } from '@prisma/client';
 
-const activity = (overrides: { logsService?: Record<string, jest.Mock> }) =>
+const activity = (overrides: {
+  logsService?: Record<string, jest.Mock>;
+  integrationService?: Record<string, jest.Mock>;
+}) =>
   new PostActivity(
     {
       getPostByForWebhookId: jest.fn().mockResolvedValue([{ id: 'post-1' }]),
     } as any,
     {} as any,
     {} as any,
-    {} as any,
+    {
+      getIntegrationById: jest.fn().mockResolvedValue({
+        id: 'int-1',
+        name: 'My X',
+        profile: 'me',
+      }),
+      ...overrides.integrationService,
+    } as any,
     {} as any,
     {
       getWebhooks: jest.fn().mockResolvedValue([
-        { id: 'wh-1', url: 'https://example.com/hook', integrations: [] },
+        {
+          id: 'wh-1',
+          name: 'CRM',
+          url: 'https://example.com/hook',
+          integrations: [],
+        },
       ]),
     } as any,
     {
@@ -129,6 +144,10 @@ describe('PostActivity.sendWebhooks', () => {
         method: 'POST',
         url: 'https://example.com/hook',
         response,
+        sourceDisplayName: 'My X',
+        sourceUsername: 'me',
+        targetDisplayName: 'CRM',
+        targetUsername: 'example.com',
       })
     );
   });
@@ -149,6 +168,9 @@ describe('PostActivity.sendWebhooks', () => {
         organizationId: 'org-1',
         webhookId: 'wh-1',
         error,
+        sourceDisplayName: 'My X',
+        targetDisplayName: 'CRM',
+        targetUsername: 'example.com',
       })
     );
   });

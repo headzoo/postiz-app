@@ -43,6 +43,36 @@ describe('LogsRepository', () => {
     );
   });
 
+  it('persists webhook identity fields on create', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'wh-log-1' });
+    const logs = repository({}, { create });
+
+    await logs.createWebhookLog({
+      organizationId: 'org-1',
+      direction: 'INBOUND' as any,
+      source: 'CHANNEL_WEBHOOK' as any,
+      method: 'POST',
+      url: '/channel-webhooks/x',
+      requestHeaders: '{}',
+      requestBody: '{}',
+      responseHeaders: '{}',
+      responseBody: '{}',
+      sourceDisplayName: 'Alice',
+      sourceUsername: 'alice',
+      targetDisplayName: 'My X',
+      targetUsername: 'me',
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        sourceDisplayName: 'Alice',
+        sourceUsername: 'alice',
+        targetDisplayName: 'My X',
+        targetUsername: 'me',
+      }),
+    });
+  });
+
   it('filters webhook logs by organization and optional direction', async () => {
     const findMany = jest.fn().mockResolvedValue([]);
     const count = jest.fn().mockResolvedValue(0);

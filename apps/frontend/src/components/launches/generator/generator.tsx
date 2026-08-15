@@ -20,7 +20,10 @@ import {
 import dayjs from 'dayjs';
 import { Select } from '@gitroom/react/form/select';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
-import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
+import {
+  ADD_EDIT_MODAL_OPTIONS,
+  AddEditModal,
+} from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 
 const FirstStep: FC = (props) => {
@@ -73,7 +76,7 @@ const FirstStep: FC = (props) => {
           if (data?.error) {
             throw new Error(
               data.message ||
-                t('generation_failed', 'Failed to generate posts, please try again.')
+              t('generation_failed', 'Failed to generate posts, please try again.')
             );
           }
 
@@ -159,8 +162,8 @@ const FirstStep: FC = (props) => {
               content: load.hook + '\n' + p.content,
               ...(p?.image?.path
                 ? {
-                    image: [p.image],
-                  }
+                  image: [p.image],
+                }
                 : {}),
             };
           }
@@ -168,23 +171,14 @@ const FirstStep: FC = (props) => {
             content: p.content,
             ...(p?.image?.path
               ? {
-                  image: [p.image],
-                }
+                image: [p.image],
+              }
               : {}),
           };
         });
         setShowStep('');
         modal.openModal({
-          id: 'add-edit-modal',
-          closeOnClickOutside: false,
-          removeLayout: true,
-          closeOnEscape: false,
-          withCloseButton: false,
-          askClose: true,
-          fullScreen: true,
-          classNames: {
-            modal: 'w-[100%] max-w-[1400px] text-textColor',
-          },
+          ...ADD_EDIT_MODAL_OPTIONS,
           children: (
             <AddEditModal
               allIntegrations={integrations.map((p) => ({
@@ -199,12 +193,11 @@ const FirstStep: FC = (props) => {
               onlyValues={messages}
             />
           ),
-          size: '80%',
         });
       } catch (e: any) {
         toaster.show(
           e?.message ||
-            t('generation_failed', 'Failed to generate posts, please try again.'),
+          t('generation_failed', 'Failed to generate posts, please try again.'),
           'warning'
         );
       } finally {

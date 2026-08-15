@@ -350,6 +350,7 @@ export const FollowersComponent: FC = () => {
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
   const [pageNumber, setPageNumber] = useState(1);
   const trimmedSearch = debouncedSearch.trim();
+  const lastSyncedSearchRef = useRef(urlSearch);
 
   const {
     data: channels = [],
@@ -457,11 +458,12 @@ export const FollowersComponent: FC = () => {
   );
 
   useEffect(() => {
-    if (urlSearch === trimmedSearch || urlSearch === search.trim()) {
+    if (urlSearch === lastSyncedSearchRef.current) {
       return;
     }
+    lastSyncedSearchRef.current = urlSearch;
     setSearch(urlSearch);
-  }, [urlSearch, trimmedSearch, search]);
+  }, [urlSearch]);
 
   const previousSearch = useRef(trimmedSearch);
   const previousSlug = useRef(slug);
@@ -488,6 +490,13 @@ export const FollowersComponent: FC = () => {
     ) {
       return;
     }
+    if (
+      lastSyncedSearchRef.current === urlSearch &&
+      nextSearch !== urlSearch
+    ) {
+      return;
+    }
+    lastSyncedSearchRef.current = nextSearch;
     router.replace(
       buildFollowersPageHref({
         slug,
@@ -837,7 +846,10 @@ export const FollowersComponent: FC = () => {
                   'followers_search_placeholder',
                   'Search by username or name'
                 )}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  lastSyncedSearchRef.current = event.target.value.trim();
+                  setSearch(event.target.value);
+                }}
               />
             </div>
             {showSortSelector && (
@@ -946,7 +958,7 @@ export const FollowersComponent: FC = () => {
                 key={option.key}
                 href={buildFollowersPageHref({
                   slug: option.slug,
-                  search: search.trim() || undefined,
+                  search: trimmedSearch || undefined,
                   sort: querySort,
                   direction: querySort ? queryDirection : undefined,
                 })}

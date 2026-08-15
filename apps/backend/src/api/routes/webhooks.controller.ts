@@ -14,6 +14,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { WebhooksService } from '@gitroom/nestjs-libraries/database/prisma/webhooks/webhooks.service';
 import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
+import { hostnameFromUrl } from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.serialize';
 import { WebhookHttpLogSource } from '@prisma/client';
 import { CheckPolicies } from '@gitroom/backend/services/auth/permissions/permissions.ability';
 import {
@@ -67,6 +68,7 @@ export class WebhookController {
   ) {
     const headers = { 'Content-Type': 'application/json' };
     const payload = JSON.stringify(body);
+    const targetUsername = hostnameFromUrl(query.url);
     try {
       const response = await fetch(query.url, {
         method: 'POST',
@@ -83,6 +85,7 @@ export class WebhookController {
         requestHeaders: headers,
         requestBody: payload,
         response,
+        targetUsername,
       });
     } catch (err) {
       await this._logsService.logOutboundWebhook({
@@ -93,6 +96,7 @@ export class WebhookController {
         requestHeaders: headers,
         requestBody: payload,
         error: err,
+        targetUsername,
       });
     }
 

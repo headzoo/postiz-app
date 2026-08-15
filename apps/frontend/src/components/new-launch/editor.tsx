@@ -25,6 +25,7 @@ import {
 } from '@gitroom/frontend/components/new-launch/store';
 import { useShallow } from 'zustand/react/shallow';
 import { AddPostButton } from '@gitroom/frontend/components/new-launch/add.post.button';
+import { TagsComponent } from '@gitroom/frontend/components/launches/tags.component';
 import { MultiMediaComponent } from '@gitroom/frontend/components/media/media.component';
 import { UpDownArrow } from '@gitroom/frontend/components/launches/up.down.arrow';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
@@ -148,6 +149,8 @@ export const EditorWrapper: FC<{
     selectedIntegration,
     chars,
     comments,
+    tags,
+    setTags,
   } = useLaunchStore(
     useShallow((state) => ({
       internal: state.internal.find((p) => p.integration.id === state.current),
@@ -181,6 +184,8 @@ export const EditorWrapper: FC<{
       setLoadedState: state.setLoaded,
       selectedIntegration: state.selectedIntegrations,
       chars: state.chars,
+      tags: state.tags,
+      setTags: state.setTags,
     }))
   );
 
@@ -375,7 +380,7 @@ export const EditorWrapper: FC<{
   return (
     <div
       className={clsx(
-        'relative flex-col gap-[20px] flex-1',
+        'relative flex-col gap-[20px] flex-1 min-h-0',
         (items.length === 1 || !canEdit || !comments) && 'flex',
         ((!canEdit && !isCreateSet) || !comments) &&
         'bg-newSettings rounded-[12px]'
@@ -434,15 +439,15 @@ export const EditorWrapper: FC<{
         <div
           key={g.id}
           className={clsx(
-            'relative flex flex-col gap-[20px] flex-1 bg-newSettings',
+            'relative flex flex-col gap-[20px] flex-1 min-h-0 bg-newSettings',
             index === 0 && 'rounded-t-[12px]',
             (index === items.length - 1 || !comments) && 'rounded-b-[12px]',
             !canEdit && !isCreateSet && 'blur-s',
             ((!canEdit && index > 0) || (!comments && index > 0)) && 'hidden'
           )}
         >
-          <div className="flex gap-[5px] flex-1 w-full">
-            <div className="flex-1 flex w-full">
+          <div className="flex gap-[5px] flex-1 min-h-0 w-full">
+            <div className="flex-1 flex min-h-0 w-full">
               {index > 0 && (
                 <div className="flex justify-center pl-[12px] text-newSep">
                   <ConnectionLineIcon />
@@ -471,13 +476,25 @@ export const EditorWrapper: FC<{
                   <>
                     {(canEdit && items.length - 1 === index) || !comments ? (
                       <div className="flex items-center">
-                        <div className="flex-1">
+                        <div className="flex-1 flex items-center gap-[8px]">
                           {comments && (
                             <AddPostButton
                               num={index}
                               onClick={addValue(index)}
                               postComment={postComment}
                             />
+                          )}
+                          {!dummy && (
+                            <div className="mt-[12px]">
+                              <TagsComponent
+                                name="tags"
+                                label={t('tags', 'Tags')}
+                                initial={tags}
+                                onChange={(e) => {
+                                  setTags(e.target.value);
+                                }}
+                              />
+                            </div>
                           )}
                         </div>
                         {!!internal && !existingData?.integration && (
@@ -753,16 +770,16 @@ export const Editor: FC<{
   }
 
   return (
-    <div className="flex flex-col gap-[20px] flex-1">
+    <div className="flex flex-col gap-[20px] flex-1 min-h-0">
       <div
         className={clsx(
-          'relative flex-1 px-[12px] pt-[12px] pb-[12px] flex flex-col',
+          'relative flex-1 min-h-0 px-[12px] pt-[12px] pb-[12px] flex flex-col',
           num > 0 && '!rounded-bs-[0]'
         )}
         id={id}
       >
-        <div className="relative cursor-text flex flex-1 flex-col">
-          <div {...getRootProps()} className="flex flex-1 flex-col">
+        <div className="relative cursor-text flex flex-1 min-h-0 flex-col">
+          <div {...getRootProps()} className="flex flex-1 min-h-0 flex-col">
             <div
               className={clsx(
                 'absolute left-0 top-0 w-full h-full bg-black/70 z-[300] transition-all items-center justify-center flex text-white text-sm',
@@ -771,7 +788,7 @@ export const Editor: FC<{
             >
               {t('drop_files_here_to_upload', 'Drop your files here to upload')}
             </div>
-            <div className="px-[10px] pt-[10px] bg-newBgColorInner rounded-t-[6px] relative z-[99]">
+            <div className="px-[10px] pt-[10px] bg-newBgColorInner rounded-t-[6px] relative z-[99] flex-1 min-h-0 flex flex-col">
               <OnlyEditor
                 value={props.value}
                 editorType={editorType}
@@ -833,7 +850,7 @@ export const Editor: FC<{
                       text={valueWithoutHtml}
                       truncationWarningAbove={
                         identifier === 'x' &&
-                        (props.totalChars || 0) > X_TRUNCATION_WARNING_LENGTH
+                          (props.totalChars || 0) > X_TRUNCATION_WARNING_LENGTH
                           ? X_TRUNCATION_WARNING_LENGTH
                           : undefined
                       }
@@ -1144,5 +1161,5 @@ export const OnlyEditor = forwardRef<
     editor,
   }));
 
-  return <EditorContent editor={editor} />;
+  return <EditorContent editor={editor} className="flex-1 min-h-0" />;
 });

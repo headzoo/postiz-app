@@ -56,6 +56,10 @@ const webhookRow: WebhookHttpLogRow = {
   requestBody: '[]',
   responseHeaders: '{}',
   responseBody: '{"ok":true}',
+  sourceDisplayName: 'My X',
+  sourceUsername: 'me',
+  targetDisplayName: 'CRM',
+  targetUsername: 'example.com',
   createdAt: '2026-08-13T12:05:00.000Z',
 };
 
@@ -98,6 +102,10 @@ describe('LogsSettings', () => {
 
     expect(screen.getByText('https://example.com/hook')).toBeTruthy();
     expect(screen.getByText('outbound')).toBeTruthy();
+    expect(screen.getByText('My X')).toBeTruthy();
+    expect(screen.getByText('@me')).toBeTruthy();
+    expect(screen.getByText('CRM')).toBeTruthy();
+    expect(screen.getByText('@example.com')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'View' }));
     expect(openModal).toHaveBeenCalledTimes(1);
   });

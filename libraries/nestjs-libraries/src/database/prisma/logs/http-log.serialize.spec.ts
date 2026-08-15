@@ -1,10 +1,13 @@
 import {
   MAX_HTTP_LOG_BODY,
+  eventEndpoints,
+  hostnameFromUrl,
   readCappedHttpLogBody,
   redactHttpLogUrl,
   serializeHttpLogBody,
   serializeHttpLogHeaders,
   truncateHttpLogBody,
+  webhookTargetIdentity,
 } from './http-log.serialize';
 
 describe('HTTP log serialization', () => {
@@ -46,6 +49,47 @@ describe('HTTP log serialization', () => {
     const serialized = truncateHttpLogBody(body);
     expect(serialized.startsWith('x'.repeat(MAX_HTTP_LOG_BODY))).toBe(true);
     expect(serialized).toContain('[truncated 20 chars]');
+  });
+
+  it('extracts a webhook target hostname and event endpoints', () => {
+    expect(hostnameFromUrl('https://hooks.example.com/path')).toBe(
+      'hooks.example.com'
+    );
+    expect(hostnameFromUrl('not-a-url')).toBeUndefined();
+    expect(
+      webhookTargetIdentity('CRM', 'https://hooks.example.com/path')
+    ).toEqual({
+      displayName: 'CRM',
+      username: 'hooks.example.com',
+    });
+    expect(
+      eventEndpoints(
+        {
+          direction: 'inbound',
+          counterparty: { name: 'Alice', username: 'alice' },
+        },
+        { name: 'My X', profile: 'me' }
+      )
+    ).toEqual({
+      sourceDisplayName: 'Alice',
+      sourceUsername: 'alice',
+      targetDisplayName: 'My X',
+      targetUsername: 'me',
+    });
+    expect(
+      eventEndpoints(
+        {
+          direction: 'outbound',
+          counterparty: { name: 'Bob', username: 'bob' },
+        },
+        { name: 'My X', profile: 'me' }
+      )
+    ).toEqual({
+      sourceDisplayName: 'My X',
+      sourceUsername: 'me',
+      targetDisplayName: 'Bob',
+      targetUsername: 'bob',
+    });
   });
 
   it('stops reading a streamed response after the cap', async () => {

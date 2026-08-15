@@ -22,6 +22,7 @@ interface OpenModalInterface {
   closeOnClickOutside?: boolean;
   removeLayout?: boolean;
   fullScreen?: boolean;
+  scrollableBackdrop?: boolean;
   top?: string | number;
   closeOnEscape?: boolean;
   withCloseButton?: boolean;
@@ -131,6 +132,30 @@ export const Component: FC<{
   );
 
   if (modal.removeLayout) {
+    const children =
+      typeof modal.children === 'function'
+        ? modal.children(closeModalFunction)
+        : modal.children;
+
+    if (modal.fullScreen && modal.scrollableBackdrop) {
+      return (
+        <div
+          style={{ zIndex }}
+          className={clsx(
+            'fixed inset-0 overflow-y-auto bg-popup transition-all animate-fadeIn text-newTextColor',
+            !isLast && '!overflow-hidden'
+          )}
+        >
+          <div
+            className={clsx('min-h-full w-full', modal.classNames?.modal)}
+            {...(modal.size && { style: { width: modal.size } })}
+          >
+            {children}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div
         style={{ zIndex }}
@@ -157,9 +182,7 @@ export const Component: FC<{
               )}
               {...(modal.size && { style: { width: modal.size } })}
             >
-              {typeof modal.children === 'function'
-                ? modal.children(closeModalFunction)
-                : modal.children}
+              {children}
             </div>
           </div>
         </div>

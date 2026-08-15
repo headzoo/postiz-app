@@ -5,7 +5,10 @@ import dayjs from 'dayjs';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { SetSelectionModal } from '@gitroom/frontend/components/launches/calendar';
-import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
+import {
+  ADD_EDIT_MODAL_OPTIONS,
+  AddEditModal,
+} from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
 import useSWR, { useSWRConfig } from 'swr';
 
@@ -50,44 +53,35 @@ export const NewPost = ({
     const set: any = !sets.length
       ? undefined
       : await new Promise((resolve) => {
-          modal.openModal({
-            title: t('select_set', 'Select a Set'),
-            closeOnClickOutside: true,
-            closeOnEscape: true,
-            withCloseButton: false,
-            onClose: () => resolve('exit'),
-            classNames: {
-              modal: 'text-textColor',
-            },
-            children: (
-              <SetSelectionModal
-                sets={sets}
-                onSelect={(selectedSet) => {
-                  resolve(selectedSet);
-                  modal.closeAll();
-                }}
-                onContinueWithoutSet={() => {
-                  resolve(undefined);
-                  modal.closeAll();
-                }}
-              />
-            ),
-          });
+        modal.openModal({
+          title: t('select_set', 'Select a Set'),
+          closeOnClickOutside: true,
+          closeOnEscape: true,
+          withCloseButton: false,
+          onClose: () => resolve('exit'),
+          classNames: {
+            modal: 'text-textColor',
+          },
+          children: (
+            <SetSelectionModal
+              sets={sets}
+              onSelect={(selectedSet) => {
+                resolve(selectedSet);
+                modal.closeAll();
+              }}
+              onContinueWithoutSet={() => {
+                resolve(undefined);
+                modal.closeAll();
+              }}
+            />
+          ),
         });
+      });
 
     if (set === 'exit') return;
 
     modal.openModal({
-      id: 'add-edit-modal',
-      closeOnClickOutside: false,
-      removeLayout: true,
-      closeOnEscape: false,
-      withCloseButton: false,
-      askClose: true,
-      fullScreen: true,
-      classNames: {
-        modal: 'w-[100%] max-w-[1400px] text-textColor',
-      },
+      ...ADD_EDIT_MODAL_OPTIONS,
       children: (
         <AddEditModal
           allIntegrations={integrations.map((p) => ({
@@ -100,7 +94,6 @@ export const NewPost = ({
           date={dayjs.utc(date).local()}
         />
       ),
-      size: '80%',
       title: ``,
     });
   }, [integrations, sets]);

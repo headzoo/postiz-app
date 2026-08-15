@@ -11,7 +11,10 @@ import { DNDProvider } from '@gitroom/frontend/components/launches/helpers/dnd.p
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useDecisionModal, useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { useToaster } from '@gitroom/react/toaster/toaster';
-import { AddEditModal } from '@gitroom/frontend/components/new-launch/add.edit.modal';
+import {
+  ADD_EDIT_MODAL_OPTIONS,
+  AddEditModal,
+} from '@gitroom/frontend/components/new-launch/add.edit.modal';
 import { ExistingDataContextProvider } from '@gitroom/frontend/components/launches/helpers/use.existing.data';
 import { useMediaDirectory } from '@gitroom/react/helpers/use.media.directory';
 import { VideoOrImage } from '@gitroom/react/helpers/video.or.image';
@@ -532,7 +535,28 @@ export const PipelineQueue: FC<{ pipeline: PipelineDetail; pipelines: PipelineSu
         ),
         settings: root.settings || {},
       }));
-    modal.openModal({ id: 'add-edit-modal', closeOnClickOutside: false, removeLayout: true, closeOnEscape: false, withCloseButton: false, askClose: true, fullScreen: true, classNames: { modal: 'w-[100%] max-w-[1400px] text-textColor' }, children: <ExistingDataContextProvider value={{ integration: channels[0]?.integration, group: item.group, posts: channels[0]?.posts || [], settings: channels[0]?.settings || {}, channels }}><AddEditModal allIntegrations={pipeline.channels} integrations={pipeline.channels} date={dayjs()} reopenModal={() => { }} mutate={refresh} /></ExistingDataContextProvider> });
+    modal.openModal({
+      ...ADD_EDIT_MODAL_OPTIONS,
+      children: (
+        <ExistingDataContextProvider
+          value={{
+            integration: channels[0]?.integration,
+            group: item.group,
+            posts: channels[0]?.posts || [],
+            settings: channels[0]?.settings || {},
+            channels,
+          }}
+        >
+          <AddEditModal
+            allIntegrations={pipeline.channels}
+            integrations={pipeline.channels}
+            date={dayjs()}
+            reopenModal={() => { }}
+            mutate={refresh}
+          />
+        </ExistingDataContextProvider>
+      ),
+    });
   }, [modal, pipeline.channels, refresh]);
 
   return (
