@@ -35,6 +35,8 @@ export class WebhookLogsQueryDto extends LogsQueryDto {
     'post.delete',
     'post.mention.create',
     'post.repost.create',
+    'post.reply.create',
+    'post.quote.create',
   ])
   eventType?: string;
 }

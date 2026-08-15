@@ -103,7 +103,9 @@ type XActivitySubscriptionSpec = DesiredChannelInteractionSubscription & {
   | 'post.create'
   | 'post.delete'
   | 'post.mention.create'
-  | 'post.repost.create';
+  | 'post.repost.create'
+  | 'post.reply.create'
+  | 'post.quote.create';
   filterDirection?: ChannelInteractionDirection;
 };
 
@@ -185,6 +187,30 @@ const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
   {
     eventKey: 'post.repost.create',
     eventType: 'post.repost.create',
+    direction: 'outbound',
+    filterDirection: 'outbound',
+  },
+  {
+    eventKey: 'post.reply.create',
+    eventType: 'post.reply.create',
+    direction: 'inbound',
+    filterDirection: 'inbound',
+  },
+  {
+    eventKey: 'post.reply.create',
+    eventType: 'post.reply.create',
+    direction: 'outbound',
+    filterDirection: 'outbound',
+  },
+  {
+    eventKey: 'post.quote.create',
+    eventType: 'post.quote.create',
+    direction: 'inbound',
+    filterDirection: 'inbound',
+  },
+  {
+    eventKey: 'post.quote.create',
+    eventType: 'post.quote.create',
     direction: 'outbound',
     filterDirection: 'outbound',
   },
@@ -462,7 +488,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     if (
       eventType === 'post.create' ||
       eventType === 'post.mention.create' ||
-      eventType === 'post.repost.create'
+      eventType === 'post.repost.create' ||
+      eventType === 'post.reply.create' ||
+      eventType === 'post.quote.create'
     ) {
       return this.normalizeTweetInteraction(
         payload,
@@ -509,7 +537,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     tweet: any,
     includes: any,
     connectedAccountId: string,
-    eventType: 'post.create' | 'post.mention.create' | 'post.repost.create',
+    eventType:
+      | 'post.create'
+      | 'post.mention.create'
+      | 'post.repost.create'
+      | 'post.reply.create'
+      | 'post.quote.create',
     eventUuid: string | undefined,
     receivedAt: string
   ): {
@@ -524,7 +557,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     const eventAt = this.xEventTimestamp(tweet, receivedAt);
     const events: NormalizedChannelInteractionEvent[] = [];
     const outbound =
-      (eventType === 'post.create' || eventType === 'post.repost.create') &&
+      eventType !== 'post.mention.create' &&
       actor.externalId === connectedAccountId;
     const references = Array.isArray(tweet?.referenced_tweets)
       ? tweet.referenced_tweets
@@ -587,6 +620,38 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             connectedAccountId,
             relatedObjectId: this.boundedId(repostReference.id),
             metadata: { referenceType: 'repost' },
+          })
+        );
+      }
+    }
+
+    const quoteReference = references.find(
+      (reference: any) => reference?.type === 'quoted'
+    );
+    const quotedPost = this.xIncludedTweet(includes, quoteReference?.id);
+    const quotedAuthor = this.xIncludedProfile(
+      includes,
+      quotedPost?.author_id
+    );
+    const quoteIsRelevant =
+      quoteReference &&
+      quotedAuthor &&
+      (outbound || quotedAuthor.externalId === connectedAccountId);
+    if (quoteIsRelevant) {
+      const counterparty = outbound ? quotedAuthor : actor;
+      if (counterparty.externalId !== connectedAccountId) {
+        events.push(
+          this.xInteractionEvent({
+            eventUuid,
+            sourceType: eventType,
+            sourceId: tweetId,
+            kind: 'mention',
+            direction: outbound ? 'outbound' : 'inbound',
+            eventAt,
+            counterparty,
+            connectedAccountId,
+            relatedObjectId: this.boundedId(quoteReference.id),
+            metadata: { referenceType: 'quote' },
           })
         );
       }

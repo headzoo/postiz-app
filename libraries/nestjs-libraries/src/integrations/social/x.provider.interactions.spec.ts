@@ -266,6 +266,78 @@ describe('XProvider interaction webhooks', () => {
     });
   });
 
+  it('normalizes inbound replies and quotes delivered on dedicated events', async () => {
+    const capability = new XProvider().channelInteractionWebhooks;
+    const reply = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.reply.create',
+          {
+            id: 'reply-in',
+            author_id: '7',
+            created_at: '2024-01-01T00:00:03.000Z',
+            referenced_tweets: [{ type: 'replied_to', id: 'parent' }],
+          },
+          {
+            direction: 'inbound',
+            eventUuid: 'event-reply-dedicated',
+            includes: {
+              users: [user('7'), user('42')],
+              tweets: [{ id: 'parent', author_id: '42' }],
+            },
+          }
+        )
+      )
+    );
+    expect(reply).toMatchObject({
+      accepted: true,
+      events: [
+        {
+          kind: 'reply',
+          direction: 'inbound',
+          counterparty: { externalId: '7' },
+          relatedObjectId: 'parent',
+          eventType: 'post.reply.create',
+        },
+      ],
+    });
+
+    const quote = await capability.verifyAndNormalizeDelivery(
+      signedRequest(
+        activity(
+          'post.quote.create',
+          {
+            id: 'quote-in',
+            author_id: '8',
+            created_at: '2024-01-01T00:00:04.000Z',
+            referenced_tweets: [{ type: 'quoted', id: 'original' }],
+          },
+          {
+            direction: 'inbound',
+            eventUuid: 'event-quote-in',
+            includes: {
+              users: [user('8'), user('42')],
+              tweets: [{ id: 'original', author_id: '42' }],
+            },
+          }
+        )
+      )
+    );
+    expect(quote).toMatchObject({
+      accepted: true,
+      events: [
+        {
+          kind: 'mention',
+          direction: 'inbound',
+          counterparty: { externalId: '8' },
+          relatedObjectId: 'original',
+          metadata: { referenceType: 'quote' },
+          eventType: 'post.quote.create',
+        },
+      ],
+    });
+  });
+
   it('imports standalone outbound posts and marks platform deletes', async () => {
     const capability = new XProvider().channelInteractionWebhooks;
     const created = await capability.verifyAndNormalizeDelivery(
@@ -467,6 +539,10 @@ describe('XProvider interaction webhooks', () => {
       { eventKey: 'post.mention.create', direction: 'inbound' },
       { eventKey: 'post.repost.create', direction: 'inbound' },
       { eventKey: 'post.repost.create', direction: 'outbound' },
+      { eventKey: 'post.reply.create', direction: 'inbound' },
+      { eventKey: 'post.reply.create', direction: 'outbound' },
+      { eventKey: 'post.quote.create', direction: 'inbound' },
+      { eventKey: 'post.quote.create', direction: 'outbound' },
     ]);
     expect(capability.getInteractionCoverage()).toEqual(
       expect.arrayContaining([
@@ -491,6 +567,10 @@ describe('XProvider interaction webhooks', () => {
       ['post.mention.create', undefined],
       ['post.repost.create', 'inbound'],
       ['post.repost.create', 'outbound'],
+      ['post.reply.create', 'inbound'],
+      ['post.reply.create', 'outbound'],
+      ['post.quote.create', 'inbound'],
+      ['post.quote.create', 'outbound'],
     ].map(([eventType, direction], index) => ({
       subscription_id: String(index + 1),
       event_type: eventType,
@@ -713,6 +793,10 @@ describe('XProvider interaction webhooks', () => {
       'post.mention.create',
       'post.repost.create',
       'post.repost.create',
+      'post.reply.create',
+      'post.reply.create',
+      'post.quote.create',
+      'post.quote.create',
     ]);
   });
 

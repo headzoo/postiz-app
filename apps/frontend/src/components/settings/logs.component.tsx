@@ -30,6 +30,8 @@ const WEBHOOK_EVENT_TYPES = [
   'post.delete',
   'post.mention.create',
   'post.repost.create',
+  'post.reply.create',
+  'post.quote.create',
 ] as const;
 
 const WEBHOOK_EVENT_LABELS: Record<string, string> = {
@@ -40,6 +42,8 @@ const WEBHOOK_EVENT_LABELS: Record<string, string> = {
   'post.delete': 'Deleted Post',
   'post.mention.create': 'Mention',
   'post.repost.create': 'Repost',
+  'post.reply.create': 'Reply',
+  'post.quote.create': 'Quote',
 };
 
 const webhookEventLabel = (eventType?: string | null) => {
