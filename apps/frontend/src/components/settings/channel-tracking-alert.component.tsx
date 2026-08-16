@@ -95,6 +95,13 @@ export const ChannelTrackingAlert: FC<{
           ...(subscription.reason ? { reason: subscription.reason } : {}),
         })) || [];
 
+  // Coverage-only partial states (e.g. a provider that cannot track outbound
+  // replies) are inherent limitations, not failures, so they are not
+  // actionable and should not raise an alert.
+  if (!failedSubscriptions.length) {
+    return null;
+  }
+
   const title =
     tracking.state === 'partial'
       ? t('channel_tracking_partial_title', 'Interaction tracking is partial')

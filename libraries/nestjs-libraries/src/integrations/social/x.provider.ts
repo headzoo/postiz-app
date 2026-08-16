@@ -395,11 +395,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     const includes = envelope.includes || {};
 
     if (eventType === 'like.create') {
-      const direction = envelope.filter.direction;
-      if (direction !== 'inbound' && direction !== 'outbound') {
-        throw new Error('Malformed X like direction');
-      }
       const likedAuthorId = this.boundedId(payload.liked_tweet_author_id);
+      // X like subscriptions are directionless, so deliveries may omit
+      // filter.direction. Derive it: if the liked post is ours, the like is
+      // inbound; otherwise we liked someone else's post.
+      const direction =
+        envelope.filter.direction === 'inbound' ||
+        envelope.filter.direction === 'outbound'
+          ? envelope.filter.direction
+          : likedAuthorId && likedAuthorId === connectedAccountId
+            ? 'inbound'
+            : 'outbound';
       const counterpartyId =
         direction === 'outbound'
           ? likedAuthorId

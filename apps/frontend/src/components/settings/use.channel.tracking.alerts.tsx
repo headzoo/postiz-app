@@ -39,7 +39,8 @@ export const useChannelTrackingAlerts = () => {
       .filter(
         (details) =>
           details.tracking.state === 'error' ||
-          details.tracking.state === 'partial'
+          (details.tracking.state === 'partial' &&
+            !!details.tracking.failedSubscriptions?.length)
       )
       .map((details) => ({
         integrationId: details.id,
