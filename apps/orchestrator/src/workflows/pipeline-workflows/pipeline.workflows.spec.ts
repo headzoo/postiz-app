@@ -50,8 +50,8 @@ jest.mock('@temporalio/workflow', () => ({
   continueAsNew,
   defineSignal: (name: string) => name,
   setHandler: jest.fn(),
-  ActivityFailure: class ActivityFailure extends Error {},
-  ApplicationFailure: class ApplicationFailure extends Error {},
+  ActivityFailure: class ActivityFailure extends Error { },
+  ApplicationFailure: class ApplicationFailure extends Error { },
 }));
 
 jest.mock(
@@ -63,7 +63,7 @@ import { pipelineSlotWorkflowV1 } from './pipeline.slot.workflow.v1';
 import { pipelineSchedulerWorkflowV1 } from './pipeline.scheduler.workflow.v1';
 import { pipelineSlotWorkflowV2 } from './pipeline.slot.workflow.v2';
 import { pipelineSchedulerWorkflowV2 } from './pipeline.scheduler.workflow.v2';
-import { postWorkflowV107 } from '../post-workflows/post.workflow.v1.0.7';
+import { postWorkflowV108 } from '../post-workflows/post.workflow.v1.0.8';
 import { InfiniteWorkflowRegister } from '@gitroom/nestjs-libraries/temporal/infinite.workflow.register';
 
 describe('Pipeline Temporal workflow boundaries', () => {
@@ -232,7 +232,7 @@ describe('Pipeline Temporal workflow boundaries', () => {
     expect(sleep).toHaveBeenCalledWith(30 * 1000);
   });
 
-  it('dispatches V2 slots through postWorkflowV107', async () => {
+  it('dispatches V2 slots through postWorkflowV108', async () => {
     claimPipelineSlot.mockResolvedValue({
       outcome: 'CLAIMED',
       executionId: 'execution-v2',
@@ -248,7 +248,7 @@ describe('Pipeline Temporal workflow boundaries', () => {
     });
 
     expect(startChild).toHaveBeenCalledWith(
-      postWorkflowV107,
+      postWorkflowV108,
       expect.objectContaining({
         workflowId: 'post_root-v2',
         args: [{ taskQueue: 'x', postId: 'root-v2', organizationId: 'org' }],
@@ -328,7 +328,7 @@ describe('Pipeline Temporal workflow boundaries', () => {
     ]);
     processPlugV107.mockResolvedValue(true);
 
-    await postWorkflowV107({
+    await postWorkflowV108({
       taskQueue: 'x',
       postId: 'post',
       organizationId: 'org',
@@ -354,7 +354,7 @@ describe('Pipeline Temporal workflow boundaries', () => {
     );
   });
 
-  it('starts repeat children on postWorkflowV107', async () => {
+  it('starts repeat children on postWorkflowV108', async () => {
     const integration = {
       id: 'integration',
       organizationId: 'org',
@@ -385,14 +385,14 @@ describe('Pipeline Temporal workflow boundaries', () => {
     globalPlugsV107.mockResolvedValue([]);
     startChild.mockResolvedValue({});
 
-    await postWorkflowV107({
+    await postWorkflowV108({
       taskQueue: 'x',
       postId: 'repeat-post',
       organizationId: 'org',
     });
 
     expect(startChild).toHaveBeenCalledWith(
-      postWorkflowV107,
+      postWorkflowV108,
       expect.objectContaining({
         parentClosePolicy: 'ABANDON',
         args: [

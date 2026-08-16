@@ -56,6 +56,7 @@ const createHarness = () => {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      delete: jest.fn().mockResolvedValue({}),
     },
     channelRelationshipGradeSnapshot: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -496,6 +497,36 @@ describe('ChannelInteractionRepository', () => {
         },
       })
     );
+  });
+
+  it('removes stale subscriptions that are no longer desired', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelInteractionSubscription.findMany.mockResolvedValue([
+      {
+        id: 'stale',
+        eventKey: 'post.quote.create',
+        direction: ChannelInteractionDirection.OUTBOUND,
+        state: 'ERROR',
+      },
+    ]);
+
+    await repository.applySubscriptionReconciliation('org', 'integration', {
+      state: 'partial',
+      subscriptions: [
+        {
+          eventKey: 'follow.follow',
+          direction: 'inbound',
+          state: 'error',
+          failureCategory: 'authorization',
+          reason: 'missing follows.read',
+        },
+      ],
+      coverage: [],
+    } as any);
+
+    expect(tx.channelInteractionSubscription.delete).toHaveBeenCalledWith({
+      where: { id: 'stale' },
+    });
   });
 
   it('keeps failed cleanup pending and completes it only after remote removal succeeds', async () => {

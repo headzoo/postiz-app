@@ -202,9 +202,16 @@ describe('IntegrationService followers', () => {
       inBetweenSteps: false,
       profileUrl: 'https://x.com/channel',
       tracking: expect.objectContaining({
-        state: 'error',
+        state: 'partial',
         failureCategory: 'authorization',
         reason: 'Tracking permissions do not allow this subscription.',
+        failedSubscriptions: [
+          expect.objectContaining({
+            eventKey: 'like.create',
+            direction: 'inbound',
+            reason: 'Tracking permissions do not allow this subscription.',
+          }),
+        ],
       }),
       subscriptions: [
         expect.objectContaining({

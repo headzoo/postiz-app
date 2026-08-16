@@ -131,7 +131,11 @@ type XWebhookApiErrorCategory =
   | 'invalid_request';
 
 class XWebhookApiError extends Error {
-  constructor(public readonly category: XWebhookApiErrorCategory) {
+  constructor(
+    public readonly category: XWebhookApiErrorCategory,
+    public readonly detail?: string,
+    public readonly status?: number
+  ) {
     super(category);
   }
 }
@@ -1306,14 +1310,18 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       if (response.status === 204) return {} as T;
       return this.parseXWebhookJson<T>(response);
     }
+    let rawProblem = '';
     let problem = '';
     try {
-      problem = (await response.text()).slice(0, 4096).toLowerCase();
+      rawProblem = (await response.text()).slice(0, 4096);
+      problem = rawProblem.toLowerCase();
     } catch {
       // The status code is sufficient for classification.
     }
     throw new XWebhookApiError(
-      this.classifyXWebhookApiError(response.status, problem)
+      this.classifyXWebhookApiError(response.status, problem),
+      this.sanitizeXWebhookProblem(rawProblem),
+      response.status
     );
   }
 
@@ -1334,7 +1342,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     if (
       problem.includes('scope') ||
       problem.includes('like.read') ||
-      problem.includes('tweet.read')
+      problem.includes('tweet.read') ||
+      problem.includes('follows.read')
     ) {
       return 'missing_scope';
     }
@@ -1358,6 +1367,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return 'invalid_request';
   }
 
+  private sanitizeXWebhookProblem(value: string) {
+    return value
+      .replace(
+        /\b(?:bearer|token|secret|oauth)[^\s]{8,}\b/gi,
+        '[redacted]'
+      )
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 240);
+  }
+
   private xWebhookFailure(error: unknown): {
     failureCategory: ChannelInteractionTrackingFailureCategory;
     reason: string;
@@ -1365,6 +1385,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     const category = error instanceof XWebhookApiError
       ? error.category
       : 'transient_failure';
+    const detail = error instanceof XWebhookApiError ? error.detail : undefined;
+    const status = error instanceof XWebhookApiError ? error.status : undefined;
     return {
       failureCategory: {
         authentication_failed: 'authentication',
@@ -1375,16 +1397,66 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         transient_failure: 'transient',
         invalid_request: 'unknown',
       }[category] as ChannelInteractionTrackingFailureCategory,
-      reason: {
-        authentication_failed: 'Tracking authentication needs attention.',
-        auth_mode_unsupported: 'This channel authorization mode cannot create tracking subscriptions.',
-        entitlement_required: 'This provider plan does not include this tracking feature.',
-        missing_scope: 'Tracking permissions do not allow this subscription.',
-        quota_exceeded: 'The provider tracking quota has been reached.',
-        transient_failure: 'The provider is temporarily unavailable.',
-        invalid_request: 'Tracking setup could not be completed.',
-      }[category],
+      reason: this.xTrackingFailureMessage(category, detail, status),
     };
+  }
+
+  private xTrackingFailureMessage(
+    category: XWebhookApiErrorCategory,
+    detail?: string,
+    status?: number
+  ) {
+    const normalizedDetail = detail?.toLowerCase() || '';
+    if (category === 'missing_scope') {
+      if (normalizedDetail.includes('follows.read')) {
+        return 'X requires the follows.read permission for follow tracking. Reconnect the channel and grant all requested permissions.';
+      }
+      if (normalizedDetail.includes('like.read')) {
+        return 'X requires the like.read permission for like tracking. Reconnect the channel and grant all requested permissions.';
+      }
+      if (normalizedDetail.includes('tweet.read')) {
+        return 'X requires the tweet.read permission for post tracking. Reconnect the channel and grant all requested permissions.';
+      }
+      if (detail) {
+        return `X rejected this subscription because of missing permissions. Reconnect the channel and grant all requested permissions. Provider detail: ${detail}`;
+      }
+      return 'X rejected this subscription because of missing permissions. Reconnect the channel and grant all requested permissions.';
+    }
+    if (category === 'auth_mode_unsupported') {
+      return 'This channel authorization mode cannot create tracking subscriptions. Reconnect the channel using the supported X authorization flow.';
+    }
+    if (
+      category === 'invalid_request' &&
+      (normalizedDetail.includes('oauth') ||
+        normalizedDetail.includes('unsupported authentication'))
+    ) {
+      return 'Like and mention tracking require a fresh X OAuth connection. Reconnect the channel and grant all requested permissions.';
+    }
+    if (category === 'entitlement_required') {
+      if (detail) {
+        return `Your X developer plan does not include this tracking feature. Provider detail: ${detail}`;
+      }
+      return 'Your X developer plan does not include this tracking feature. Check entitlements in the X Developer Console.';
+    }
+    if (category === 'quota_exceeded') {
+      if (detail) {
+        return `X tracking quota has been reached. Provider detail: ${detail}`;
+      }
+      return 'X tracking quota has been reached. Tracking will resume when capacity is available.';
+    }
+    if (category === 'authentication_failed') {
+      return 'Tracking authentication needs attention. Reconnect the channel to refresh credentials.';
+    }
+    if (category === 'transient_failure') {
+      if (detail) {
+        return `X is temporarily unavailable while setting up tracking. Provider detail: ${detail}`;
+      }
+      return 'X is temporarily unavailable while setting up tracking. We will retry automatically.';
+    }
+    if (detail) {
+      return `Tracking setup could not be completed${status ? ` (HTTP ${status})` : ''}. Provider detail: ${detail}`;
+    }
+    return 'Tracking setup could not be completed. Check channel settings for subscription details.';
   }
 
   async followers(
@@ -2815,14 +2887,14 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           ];
           return typeof value === 'number'
             ? [
-                {
-                  externalPostId: tweet.id,
-                  metricKey,
-                  label,
-                  valueMode: 'sum' as const,
-                  value,
-                },
-              ]
+              {
+                externalPostId: tweet.id,
+                metricKey,
+                label,
+                valueMode: 'sum' as const,
+                value,
+              },
+            ]
             : [];
         })
       ),

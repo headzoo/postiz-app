@@ -1867,20 +1867,35 @@ export class IntegrationService {
     options?: { rankingAvailability?: boolean }
   ): FollowerPageTracking {
     const states = subscriptions.map((subscription) => subscription.state);
+    const failedSubscriptions = subscriptions
+      .filter(
+        (subscription) => subscription.state === ChannelInteractionTrackingState.ERROR
+      )
+      .map((subscription) => ({
+        eventKey: subscription.eventKey || 'unknown',
+        direction: String(subscription.direction || '').toLowerCase(),
+        ...(subscription.failureReason
+          ? { reason: subscription.failureReason.slice(0, 160) }
+          : {}),
+      }));
     const failedSubscription = subscriptions.find(
       (subscription) => subscription.state === ChannelInteractionTrackingState.ERROR
     );
-    const state = states.includes(ChannelInteractionTrackingState.ERROR)
-      ? 'error'
-      : states.includes(ChannelInteractionTrackingState.PROVISIONING) ||
-        !states.length
-        ? 'provisioning'
-        : states.includes(ChannelInteractionTrackingState.UNCONFIGURED)
-          ? 'unconfigured'
-          : states.includes(ChannelInteractionTrackingState.PARTIAL) ||
-            this.hasLimitedInteractionCoverage(coverage)
-            ? 'partial'
-            : 'active';
+    const hasError = states.includes(ChannelInteractionTrackingState.ERROR);
+    const hasActive = states.includes(ChannelInteractionTrackingState.ACTIVE);
+    const state = hasError && hasActive
+      ? 'partial'
+      : hasError
+        ? 'error'
+        : states.includes(ChannelInteractionTrackingState.PROVISIONING) ||
+          !states.length
+          ? 'provisioning'
+          : states.includes(ChannelInteractionTrackingState.UNCONFIGURED)
+            ? 'unconfigured'
+            : states.includes(ChannelInteractionTrackingState.PARTIAL) ||
+              this.hasLimitedInteractionCoverage(coverage)
+              ? 'partial'
+              : 'active';
     const availability = options?.rankingAvailability
       ? followerSync?.activeGeneration && followerSync.completedAt && computedAt
         ? 'ready'
@@ -1899,6 +1914,11 @@ export class IntegrationService {
     const failureCategory = this.trackingFailureCategory(
       failedSubscription?.failureCategory
     );
+    const failureSummary =
+      failedSubscriptions.length > 1
+        ? `${failedSubscriptions.length} tracking subscriptions failed. See the subscriptions list below for details.`
+        : failedSubscriptions[0]?.reason ||
+        failedSubscription?.failureReason?.slice(0, 160);
     return {
       state,
       ...(availability ? { availability } : {}),
@@ -1911,8 +1931,9 @@ export class IntegrationService {
         : {}),
       ...(computedAt ? { computedAt: computedAt.toISOString() } : {}),
       ...(failureCategory ? { failureCategory } : {}),
-      ...(failedSubscription?.failureReason
-        ? { reason: failedSubscription.failureReason.slice(0, 160) }
+      ...(failureSummary ? { reason: failureSummary } : {}),
+      ...(failedSubscriptions.length
+        ? { failedSubscriptions }
         : {}),
       coverage,
     };

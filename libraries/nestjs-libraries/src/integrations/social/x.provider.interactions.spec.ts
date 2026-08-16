@@ -876,7 +876,37 @@ describe('XProvider interaction webhooks', () => {
     ).resolves.toMatchObject({
       state: 'error',
       subscriptions: expect.arrayContaining([
-        expect.objectContaining({ failureCategory: 'authorization' }),
+        expect.objectContaining({
+          failureCategory: 'authorization',
+          reason: expect.stringContaining('like.read'),
+        }),
+      ]),
+    });
+  });
+
+  it('returns actionable follow scope guidance', async () => {
+    const provider = new XProvider();
+    jest
+      .spyOn(global, 'fetch')
+      .mockImplementationOnce(async () => endpointResponse())
+      .mockImplementationOnce(
+        async () =>
+          new Response('OAuth token requires follows.read scope: secret-token', {
+            status: 403,
+          })
+      );
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret'
+      )
+    ).resolves.toMatchObject({
+      state: 'error',
+      subscriptions: expect.arrayContaining([
+        expect.objectContaining({
+          failureCategory: 'authorization',
+          reason: expect.stringContaining('follows.read'),
+        }),
       ]),
     });
   });

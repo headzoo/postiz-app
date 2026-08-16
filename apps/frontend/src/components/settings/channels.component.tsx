@@ -18,6 +18,7 @@ import {
   ChannelSubscriptionDetail,
   useChannelDetails,
 } from '@gitroom/frontend/components/settings/use.channel.details';
+import { ChannelTrackingAlert } from '@gitroom/frontend/components/settings/channel-tracking-alert.component';
 import {
   ChannelInteractionKindCoverage,
   ChannelInteractionTrackingFailureCategory,
@@ -114,6 +115,18 @@ const trackingFailureMessage = (
   tracking: FollowerPageTracking,
   t: ReturnType<typeof useT>
 ) => {
+  if (tracking.failedSubscriptions?.length) {
+    if (tracking.failedSubscriptions.length > 1) {
+      return t(
+        'channel_tracking_multiple_failures',
+        '{{count}} tracking subscriptions failed. See the subscriptions list below for details.',
+        { count: tracking.failedSubscriptions.length }
+      );
+    }
+    if (tracking.failedSubscriptions[0]?.reason) {
+      return tracking.failedSubscriptions[0].reason;
+    }
+  }
   if (tracking.reason) {
     return tracking.reason;
   }
@@ -122,6 +135,13 @@ const trackingFailureMessage = (
   }
   const message = FAILURE_MESSAGES[tracking.failureCategory];
   return t(message.key, message.defaultLabel);
+};
+
+const subscriptionSortRank = (state: string) => {
+  if (state === 'error') return 0;
+  if (state === 'provisioning') return 1;
+  if (state === 'active') return 2;
+  return 3;
 };
 
 const ChannelDetailPanel: FC<{
@@ -137,6 +157,8 @@ const ChannelDetailPanel: FC<{
     ? TRACKING_STATE_LABELS[tracking.state] || TRACKING_STATE_LABELS.unsupported
     : undefined;
   const failure = tracking ? trackingFailureMessage(tracking, t) : undefined;
+  const showTrackingAlert =
+    tracking?.state === 'error' || tracking?.state === 'partial';
 
   return (
     <div className="flex flex-col gap-[20px] min-w-0">
@@ -196,6 +218,14 @@ const ChannelDetailPanel: FC<{
         </div>
       ) : (
         <>
+          {showTrackingAlert && (
+            <ChannelTrackingAlert
+              channelName={integration.display || integration.name}
+              tracking={tracking}
+              subscriptions={details?.subscriptions}
+            />
+          )}
+
           <div className="flex flex-col gap-[10px] border border-newBorder rounded-[8px] p-[16px]">
             <div className="text-[16px] font-[500]">
               {t('interaction_tracking', 'Interaction tracking')}
@@ -262,10 +292,30 @@ const SubscriptionsTable: FC<{ subscriptions: ChannelSubscriptionDetail[] }> = (
   subscriptions,
 }) => {
   const t = useT();
+  const sortedSubscriptions = [...subscriptions].sort(
+    (left, right) =>
+      subscriptionSortRank(left.state) - subscriptionSortRank(right.state) ||
+      `${left.eventKey}:${left.direction}`.localeCompare(
+        `${right.eventKey}:${right.direction}`
+      )
+  );
+  const errorCount = subscriptions.filter(
+    (subscription) => subscription.state === 'error'
+  ).length;
+
   return (
     <div className="flex flex-col gap-[10px] border border-newBorder rounded-[8px] p-[16px]">
-      <div className="text-[16px] font-[500]">
-        {t('subscriptions', 'Subscriptions')}
+      <div className="flex items-center justify-between gap-[8px]">
+        <div className="text-[16px] font-[500]">
+          {t('subscriptions', 'Subscriptions')}
+        </div>
+        {errorCount > 0 && (
+          <div className="text-[12px] uppercase tracking-wide text-amber-300">
+            {t('subscription_error_count', '{{count}} errors', {
+              count: errorCount,
+            })}
+          </div>
+        )}
       </div>
       {!subscriptions.length ? (
         <div className="text-[14px] text-newTextColor">
@@ -273,16 +323,27 @@ const SubscriptionsTable: FC<{ subscriptions: ChannelSubscriptionDetail[] }> = (
         </div>
       ) : (
         <div className="flex flex-col gap-[12px]">
-          {subscriptions.map((subscription) => (
+          {sortedSubscriptions.map((subscription) => (
             <div
               key={`${subscription.eventKey}:${subscription.direction}`}
-              className="border border-newBorder rounded-[8px] p-[12px] flex flex-col gap-[6px]"
+              className={clsx(
+                'border rounded-[8px] p-[12px] flex flex-col gap-[6px]',
+                subscription.state === 'error'
+                  ? 'border-amber-500/40 bg-amber-500/5'
+                  : 'border-newBorder'
+              )}
             >
               <div className="flex justify-between gap-[8px] text-[14px]">
                 <span>
                   {subscription.eventKey} · {subscription.direction}
                 </span>
-                <span className="uppercase text-[12px]">
+                <span
+                  className={clsx(
+                    'uppercase text-[12px]',
+                    subscription.state === 'error' && 'text-amber-300',
+                    subscription.state === 'active' && 'text-emerald-300'
+                  )}
+                >
                   {subscription.state}
                 </span>
               </div>
@@ -292,7 +353,9 @@ const SubscriptionsTable: FC<{ subscriptions: ChannelSubscriptionDetail[] }> = (
                 </div>
               )}
               {subscription.reason && (
-                <div className="text-[13px]">{subscription.reason}</div>
+                <div className="text-[13px] text-amber-100">
+                  {subscription.reason}
+                </div>
               )}
             </div>
           ))}

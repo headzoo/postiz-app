@@ -15,6 +15,7 @@ import {
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { Integration } from '@prisma/client';
 import { timer } from '@gitroom/helpers/utils/timer';
+import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 
 export type ChannelInteractionMaintenanceCandidate = {
   id: string;
@@ -30,7 +31,8 @@ export class ChannelInteractionActivity {
     private _channelInteractionService: ChannelInteractionService,
     private _integrationService: IntegrationService,
     private _integrationManager: IntegrationManager,
-    private _refreshIntegrationService: RefreshIntegrationService
+    private _refreshIntegrationService: RefreshIntegrationService,
+    private _notificationService: NotificationService
   ) {}
 
   @ActivityMethod()
@@ -64,12 +66,27 @@ export class ChannelInteractionActivity {
       liveIntegration,
       liveIntegration.token
     );
-    await this._repository.applySubscriptionReconciliation(
+    const newlyFailed = await this._repository.applySubscriptionReconciliation(
       candidate.organizationId,
       candidate.id,
       result,
       integration.disabled || !!integration.deletedAt
     );
+    if (newlyFailed.length && !integration.disabled && !integration.deletedAt) {
+      const failedLabels = newlyFailed
+        .map((item) => item.replace(':', ' · '))
+        .join(', ');
+      const channelLabel =
+        integration.profile || integration.name || integration.providerIdentifier;
+      await this._notificationService.inAppNotification(
+        candidate.organizationId,
+        'Interaction tracking needs attention',
+        `${channelLabel}: tracking setup failed for ${failedLabels}. Open Settings → Channels to review the provider error and reconnect if needed.`,
+        false,
+        false,
+        'fail'
+      );
+    }
     return { supported: true, state: result.state };
   }
 

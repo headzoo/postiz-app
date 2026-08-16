@@ -15,6 +15,8 @@ import {
   useWebhookLogs,
   WebhookHttpLogRow,
 } from '@gitroom/frontend/components/settings/use.logs';
+import { ChannelTrackingAlert } from '@gitroom/frontend/components/settings/channel-tracking-alert.component';
+import { useChannelTrackingAlerts } from '@gitroom/frontend/components/settings/use.channel.tracking.alerts';
 
 type LogKind = 'posts' | 'webhooks';
 
@@ -392,6 +394,7 @@ export const LogsSettings: FC = () => {
   const limit = 20;
   const posts = usePostLogs(page, limit);
   const webhooks = useWebhookLogs(page, limit, direction, search, eventType);
+  const trackingAlerts = useChannelTrackingAlerts();
   const current = kind === 'posts' ? posts : webhooks;
   const totalPages = Math.max(1, Math.ceil((current.data?.total || 0) / limit));
 
@@ -430,6 +433,16 @@ export const LogsSettings: FC = () => {
     <div className="flex flex-col">
       <h3 className="text-[20px]">{t('logs', 'Logs')}</h3>
       <div className="text-customColor18 mt-[4px]">{subtitle}</div>
+      {kind === 'webhooks' &&
+        trackingAlerts.data?.map((alert) => (
+          <div key={alert.integrationId} className="mt-[16px]">
+            <ChannelTrackingAlert
+              channelName={alert.channelName}
+              tracking={alert.details.tracking}
+              subscriptions={alert.details.subscriptions}
+            />
+          </div>
+        ))}
       <div className="my-[16px] bg-sixth border-fifth items-center border rounded-[4px] p-[24px] flex flex-col gap-[16px]">
         <div className="flex flex-wrap items-center gap-[8px] w-full">
           <Button

@@ -416,9 +416,25 @@ export class ChannelInteractionRepository {
     integrationId: string,
     result: ChannelInteractionSubscriptionReconciliationResult,
     cleanupPending = false
-  ) {
-    return this.withSerializableRetry(async (tx) => {
+  ): Promise<string[]> {
+    const newlyFailed: string[] = [];
+    await this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const existing = await tx.channelInteractionSubscription.findMany({
+        where: { organizationId, integrationId },
+        select: { id: true, eventKey: true, direction: true, state: true },
+      });
+      const previousStates = new Map(
+        existing.map((subscription) => [
+          `${subscription.eventKey}:${String(subscription.direction).toLowerCase()}`,
+          subscription.state,
+        ])
+      );
+      const reconciledKeys = new Set(
+        result.subscriptions.map(
+          (subscription) => `${subscription.eventKey}:${subscription.direction}`
+        )
+      );
       const trackingStartedAt = new Date();
       for (const subscription of result.subscriptions) {
         const cleanupComplete =
@@ -435,9 +451,15 @@ export class ChannelInteractionRepository {
             : ChannelInteractionTrackingState.REMOVING
           : subscription.state.toUpperCase() as ChannelInteractionTrackingState;
         const failureCategory = subscription.failureCategory || null;
-        const failureReason = subscription.failureCategory
-          ? this.failureReason(subscription.failureCategory)
-          : null;
+        const failureReason = subscription.reason
+          ? subscription.reason.slice(0, 240)
+          : subscription.failureCategory
+            ? this.failureReason(subscription.failureCategory)
+            : null;
+        const remoteIdentifier =
+          subscription.state === 'error'
+            ? null
+            : subscription.remoteIdentifier ?? null;
         await tx.channelInteractionSubscription.upsert({
           where: {
             integrationId_eventKey_direction: {
@@ -451,13 +473,13 @@ export class ChannelInteractionRepository {
             integrationId,
             eventKey: subscription.eventKey,
             direction,
-            remoteIdentifier: subscription.remoteIdentifier,
+            remoteIdentifier,
             state,
             failureCategory,
             failureReason,
           },
           update: {
-            remoteIdentifier: subscription.remoteIdentifier,
+            remoteIdentifier,
             state,
             failureCategory,
             failureReason,
@@ -478,8 +500,24 @@ export class ChannelInteractionRepository {
             data: { trackingStartedAt },
           });
         }
+        if (subscription.state === 'error') {
+          const key = `${subscription.eventKey}:${subscription.direction}`;
+          if (previousStates.get(key) !== ChannelInteractionTrackingState.ERROR) {
+            newlyFailed.push(key);
+          }
+        }
+      }
+
+      for (const subscription of existing) {
+        const key = `${subscription.eventKey}:${String(subscription.direction).toLowerCase()}`;
+        if (!reconciledKeys.has(key)) {
+          await tx.channelInteractionSubscription.delete({
+            where: { id: subscription.id },
+          });
+        }
       }
     });
+    return newlyFailed;
   }
 
   async requestSubscriptionReconciliation(

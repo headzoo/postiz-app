@@ -373,6 +373,11 @@ export type FollowerPageTracking = {
   computedAt?: string;
   failureCategory?: ChannelInteractionTrackingFailureCategory;
   reason?: string;
+  failedSubscriptions?: {
+    eventKey: string;
+    direction: string;
+    reason?: string;
+  }[];
   coverage?: ChannelInteractionKindCoverage[];
 };
 

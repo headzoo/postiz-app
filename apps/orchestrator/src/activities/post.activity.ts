@@ -78,7 +78,7 @@ export class PostActivity {
     private _temporalService: TemporalService,
     private _subscriptionService: SubscriptionService,
     private _pipelinePlugService: PipelinePlugService
-  ) {}
+  ) { }
 
   @ActivityMethod()
   async getIntegrationById(orgId: string, id: string) {
@@ -91,7 +91,7 @@ export class PostActivity {
     for (const post of list) {
       await this._temporalService.client
         .getRawClient()
-        .workflow.signalWithStart('postWorkflowV107', {
+        .workflow.signalWithStart('postWorkflowV108', {
           workflowId: `post_${post.id}`,
           taskQueue: 'main',
           signal: 'poke',

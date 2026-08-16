@@ -301,6 +301,16 @@ const TrackingNotice: FC<{
               })}
             </ul>
           )}
+          {tracking.failedSubscriptions && tracking.failedSubscriptions.length > 0 && (
+            <ul className="mt-[6px] list-disc ps-[18px]">
+              {tracking.failedSubscriptions.map((subscription) => (
+                <li key={`${subscription.eventKey}:${subscription.direction}`}>
+                  {subscription.eventKey} · {subscription.direction}
+                  {subscription.reason ? `: ${subscription.reason}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
       {showFreshness && freshness && (
