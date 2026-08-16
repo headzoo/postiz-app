@@ -1033,12 +1033,10 @@ export class XProvider extends SocialAbstract implements SocialProvider {
 
       for (const spec of X_ACTIVITY_SUBSCRIPTIONS) {
         try {
-          const matching = current.filter((subscription) =>
-            this.xActivitySubscriptionMatches(
-              subscription,
-              spec,
-              integration.internalId
-            )
+          const matching = this.findActivitySubscriptionsForSpec(
+            current,
+            spec,
+            integration.internalId
           );
 
           if (integration.disabled || integration.deletedAt) {
@@ -1069,7 +1067,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           const tag = this.xActivitySubscriptionTag(integration, spec);
           let createdThisPass = false;
           if (!this.boundedId(active?.subscription_id)) {
-            active = await this.createXActivitySubscription(
+            active = await this.createOrRecoverActivitySubscription(
               spec,
               integration.internalId,
               endpoint.remoteWebhookId,
@@ -1094,7 +1092,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
               accessToken,
               spec.eventType
             );
-            active = await this.createXActivitySubscription(
+            active = await this.createOrRecoverActivitySubscription(
               spec,
               integration.internalId,
               endpoint.remoteWebhookId,
@@ -1124,6 +1122,22 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             state: 'active',
           });
         } catch (error) {
+          const recovered = this.isDuplicateSubscriptionError(error)
+            ? await this.recoverActivitySubscription(
+              spec,
+              integration.internalId,
+              accessToken
+            )
+            : undefined;
+          if (recovered && this.boundedId(recovered.subscription_id)) {
+            reconciled.push({
+              eventKey: spec.eventKey,
+              direction: spec.direction,
+              remoteIdentifier: this.boundedId(recovered.subscription_id),
+              state: 'active',
+            });
+            continue;
+          }
           reconciled.push({
             eventKey: spec.eventKey,
             direction: spec.direction,
@@ -1169,6 +1183,77 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       return 'partial';
     }
     return 'error';
+  }
+
+  private xActivitySubscriptionDirectionMatches(
+    subscription: XActivitySubscription,
+    filterDirection?: string
+  ) {
+    if (!filterDirection) {
+      return true;
+    }
+    const direction = subscription.filter?.direction;
+    if (!direction) {
+      return false;
+    }
+    return String(direction).toLowerCase() === filterDirection.toLowerCase();
+  }
+
+  private findActivitySubscriptionsForSpec(
+    subscriptions: XActivitySubscription[],
+    spec: XActivitySubscriptionSpec,
+    userId: string
+  ) {
+    return subscriptions.filter((subscription) =>
+      this.xActivitySubscriptionMatches(subscription, spec, userId)
+    );
+  }
+
+  private isDuplicateSubscriptionError(error: unknown) {
+    if (!(error instanceof XWebhookApiError)) {
+      return false;
+    }
+    return !!error.detail?.toLowerCase().includes('duplicate');
+  }
+
+  private async recoverActivitySubscription(
+    spec: XActivitySubscriptionSpec,
+    userId: string,
+    accessToken: string
+  ) {
+    const refreshed = await this.xActivitySubscriptions(accessToken);
+    return this.findActivitySubscriptionsForSpec(refreshed, spec, userId)[0];
+  }
+
+  private async createOrRecoverActivitySubscription(
+    spec: XActivitySubscriptionSpec,
+    userId: string,
+    webhookId: string,
+    tag: string,
+    accessToken: string
+  ) {
+    try {
+      return await this.createXActivitySubscription(
+        spec,
+        userId,
+        webhookId,
+        tag,
+        accessToken
+      );
+    } catch (error) {
+      if (!this.isDuplicateSubscriptionError(error)) {
+        throw error;
+      }
+      const recovered = await this.recoverActivitySubscription(
+        spec,
+        userId,
+        accessToken
+      );
+      if (!recovered) {
+        throw error;
+      }
+      return recovered;
+    }
   }
 
   private xActivitySubscriptionUsesUserOAuth(eventType: string) {
@@ -1232,7 +1317,10 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return (
       subscription.event_type === spec.eventType &&
       this.boundedId(subscription.filter?.user_id) === userId &&
-      (subscription.filter?.direction || undefined) === spec.filterDirection &&
+      this.xActivitySubscriptionDirectionMatches(
+        subscription,
+        spec.filterDirection
+      ) &&
       !!this.boundedId(subscription.subscription_id)
     );
   }
@@ -1471,7 +1559,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       return 'This channel authorization mode cannot create tracking subscriptions. Reconnect the channel using the supported X authorization flow.';
     }
     if (category === 'invalid_request' && normalizedDetail.includes('duplicate')) {
-      return 'X already has this tracking subscription. Reconciliation will reuse it on the next pass.';
+      return 'This subscription already exists on X and should be reused automatically.';
     }
     if (
       category === 'invalid_request' &&

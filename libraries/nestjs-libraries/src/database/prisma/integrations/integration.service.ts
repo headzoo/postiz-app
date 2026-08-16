@@ -366,12 +366,23 @@ export class IntegrationService {
 
     const coverage =
       provider?.channelInteractionWebhooks?.getInteractionCoverage() ?? [];
-    const tracked = provider?.channelInteractionWebhooks
+    let tracked = provider?.channelInteractionWebhooks
       ? await this._channelInteractionRepository.getInteractionTracking(
         org.id,
         integration.id
       )
       : { followerSync: null, subscriptions: [] };
+    if (provider?.channelInteractionWebhooks) {
+      await this.reconcileInteractionSubscriptionsIfNeeded(
+        integration,
+        provider,
+        tracked.subscriptions
+      );
+      tracked = await this._channelInteractionRepository.getInteractionTracking(
+        org.id,
+        integration.id
+      );
+    }
     const tracking = provider?.channelInteractionWebhooks
       ? this.getInteractionTrackingMetadata(
         tracked.followerSync,
@@ -3346,6 +3357,57 @@ export class IntegrationService {
         ];
       }, [] as number[])
     );
+  }
+
+  private async reconcileInteractionSubscriptionsIfNeeded(
+    integration: Integration,
+    provider: SocialProvider,
+    subscriptions: { state: ChannelInteractionTrackingState }[]
+  ) {
+    if (
+      integration.disabled ||
+      integration.deletedAt ||
+      !provider.channelInteractionWebhooks ||
+      !subscriptions.some(
+        (subscription) =>
+          String(subscription.state).toUpperCase() === 'ERROR'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      let liveIntegration = { ...integration };
+      if (
+        liveIntegration.tokenExpiration &&
+        dayjs(liveIntegration.tokenExpiration).isBefore(dayjs())
+      ) {
+        const refreshed =
+          await this._refreshIntegrationService.refresh(liveIntegration);
+        if (refreshed?.accessToken) {
+          liveIntegration = {
+            ...liveIntegration,
+            token: refreshed.accessToken,
+          };
+        }
+      }
+
+      await this._channelInteractionService.requestReconciliation(
+        liveIntegration
+      );
+      const result =
+        await provider.channelInteractionWebhooks.reconcileSubscriptions(
+          liveIntegration,
+          liveIntegration.token
+        );
+      await this._channelInteractionRepository.applySubscriptionReconciliation(
+        integration.organizationId,
+        integration.id,
+        result
+      );
+    } catch {
+      // Reconciliation is best-effort when loading channel settings.
+    }
   }
 
   private async requestInteractionReconciliation(integration: Integration) {

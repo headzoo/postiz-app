@@ -1004,4 +1004,132 @@ describe('XProvider interaction webhooks', () => {
       ]),
     });
   });
+
+  it('reuses existing like.create subscriptions when create returns duplicate', async () => {
+    const provider = new XProvider();
+    let subscriptionList = [
+      {
+        subscription_id: 'follow-inbound',
+        event_type: 'follow.follow',
+        filter: { user_id: '42' },
+        webhook_id: '123',
+      },
+    ];
+    const likeInbound = {
+      subscription_id: 'like-inbound',
+      event_type: 'like.create',
+      filter: { user_id: '42', direction: 'inbound' },
+      webhook_id: '123',
+    };
+    const likeOutbound = {
+      subscription_id: 'like-outbound',
+      event_type: 'like.create',
+      filter: { user_id: '42', direction: 'outbound' },
+      webhook_id: '123',
+    };
+
+    jest.spyOn(global, 'fetch').mockImplementation(async (url, options) => {
+      const value = String(url);
+      const method = options?.method || 'GET';
+      if (value.endsWith('/2/webhooks')) return endpointResponse();
+      if (method === 'GET' && value.includes('/activity/subscriptions')) {
+        return new Response(
+          JSON.stringify({ data: subscriptionList }),
+          { status: 200 }
+        );
+      }
+      if (method === 'POST') {
+        const body = JSON.parse(String(options?.body || '{}'));
+        if (body.event_type === 'like.create') {
+          subscriptionList = [
+            subscriptionList[0],
+            likeInbound,
+            likeOutbound,
+          ];
+          return new Response(
+            JSON.stringify({ detail: 'Duplicate subscription' }),
+            { status: 400 }
+          );
+        }
+        return new Response(
+          JSON.stringify({ data: { subscription_id: 'new-sub' } }),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ data: { deleted: true } }), {
+        status: 200,
+      });
+    });
+
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret'
+      )
+    ).resolves.toMatchObject({
+      state: 'active',
+      subscriptions: expect.arrayContaining([
+        expect.objectContaining({
+          eventKey: 'like.create',
+          direction: 'inbound',
+          state: 'active',
+          remoteIdentifier: 'like-inbound',
+        }),
+        expect.objectContaining({
+          eventKey: 'like.create',
+          direction: 'outbound',
+          state: 'active',
+          remoteIdentifier: 'like-outbound',
+        }),
+      ]),
+    });
+  });
+
+  it('matches subscriptions regardless of direction casing', async () => {
+    const provider = new XProvider();
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(
+      async (url, options) => {
+        const value = String(url);
+        const method = options?.method || 'GET';
+        if (value.endsWith('/2/webhooks')) return endpointResponse();
+        if (method === 'GET') {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  subscription_id: 'like-inbound',
+                  event_type: 'like.create',
+                  filter: { user_id: '42', direction: 'Inbound' },
+                  webhook_id: '123',
+                },
+              ],
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response(JSON.stringify({ data: {} }), { status: 200 });
+      }
+    );
+
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret'
+      )
+    ).resolves.toMatchObject({
+      subscriptions: expect.arrayContaining([
+        expect.objectContaining({
+          eventKey: 'like.create',
+          direction: 'inbound',
+          state: 'active',
+          remoteIdentifier: 'like-inbound',
+        }),
+      ]),
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([, options]) => (options as RequestInit).method === 'POST'
+      )
+    ).toBe(false);
+  });
 });
