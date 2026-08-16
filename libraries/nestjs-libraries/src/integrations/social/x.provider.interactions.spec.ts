@@ -857,6 +857,53 @@ describe('XProvider interaction webhooks', () => {
     ).toBe(false);
   });
 
+  it('creates follow subscriptions with user OAuth credentials', async () => {
+    const provider = new XProvider();
+    const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (url, options) => {
+      const value = String(url);
+      const method = options?.method || 'GET';
+      if (value.endsWith('/2/webhooks')) return endpointResponse();
+      if (method === 'GET') {
+        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      }
+      if (method === 'POST') {
+        const body = JSON.parse(String(options?.body || '{}'));
+        expect(body.event_type).toBe('follow.follow');
+        expect((options as RequestInit).headers).toEqual(
+          expect.objectContaining({
+            Authorization: expect.stringMatching(/^OAuth /),
+          })
+        );
+        return new Response(
+          JSON.stringify({ data: { subscription_id: 'follow-1' } }),
+          { status: 200 }
+        );
+      }
+      return new Response(JSON.stringify({ data: { deleted: true } }), {
+        status: 200,
+      });
+    });
+
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret'
+      )
+    ).resolves.toMatchObject({
+      state: 'active',
+      subscriptions: expect.arrayContaining([
+        expect.objectContaining({
+          eventKey: 'follow.follow',
+          direction: 'inbound',
+          state: 'active',
+          remoteIdentifier: 'follow-1',
+        }),
+      ]),
+    });
+
+    fetchMock.mockRestore();
+  });
+
   it('returns a sanitized scope classification', async () => {
     const provider = new XProvider();
     jest

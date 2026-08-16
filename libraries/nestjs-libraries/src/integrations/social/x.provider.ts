@@ -1045,7 +1045,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             for (const subscription of matching) {
               await this.deleteXActivitySubscription(
                 subscription.subscription_id,
-                accessToken
+                accessToken,
+                spec.eventType
               );
             }
             reconciled.push({
@@ -1060,7 +1061,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           for (const duplicate of matching.slice(1)) {
             await this.deleteXActivitySubscription(
               duplicate.subscription_id,
-              accessToken
+              accessToken,
+              spec.eventType
             );
           }
 
@@ -1087,7 +1089,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           // missing or points at a different endpoint, delete and recreate the
           // subscription with our webhook attached from the start.
           if (!createdThisPass && attachedWebhookId !== endpoint.remoteWebhookId) {
-            await this.deleteXActivitySubscription(remoteIdentifier);
+            await this.deleteXActivitySubscription(
+              remoteIdentifier,
+              accessToken,
+              spec.eventType
+            );
             active = await this.createXActivitySubscription(
               spec,
               integration.internalId,
@@ -1165,26 +1171,57 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return 'error';
   }
 
+  private xActivitySubscriptionUsesUserOAuth(eventType: string) {
+    return [
+      'like.create',
+      'follow.follow',
+      'follow.unfollow',
+      'post.mention.create',
+      'post.reply.create',
+      'post.quote.create',
+      'post.repost.create',
+    ].includes(eventType);
+  }
+
   private async xActivitySubscriptions(accessToken: string) {
-    const subscriptions: XActivitySubscription[] = [];
-    let paginationToken: string | undefined;
-    do {
-      const url = new URL(`${X_WEBHOOK_API_BASE}/activity/subscriptions`);
-      url.searchParams.set('max_results', '1000');
-      if (paginationToken) {
-        url.searchParams.set('pagination_token', paginationToken);
-      }
-      const response = await this.xWebhookApi<{
-        data?: XActivitySubscription[];
-        meta?: { next_token?: string };
-      }>(url.toString(), { method: 'GET' }, 'bearer');
-      if (response.data !== undefined && !Array.isArray(response.data)) {
-        throw new XWebhookApiError('invalid_request');
-      }
-      subscriptions.push(...(response.data || []));
-      paginationToken = this.boundedId(response.meta?.next_token);
-    } while (paginationToken);
-    return subscriptions;
+    const merged = new Map<string, XActivitySubscription>();
+    const sources: Array<{ authentication: 'bearer' | 'oauth1'; token?: string }> =
+      [{ authentication: 'bearer' }];
+    if (accessToken.includes(':')) {
+      sources.push({ authentication: 'oauth1', token: accessToken });
+    }
+
+    for (const source of sources) {
+      let paginationToken: string | undefined;
+      do {
+        const url = new URL(`${X_WEBHOOK_API_BASE}/activity/subscriptions`);
+        url.searchParams.set('max_results', '1000');
+        if (paginationToken) {
+          url.searchParams.set('pagination_token', paginationToken);
+        }
+        const response = await this.xWebhookApi<{
+          data?: XActivitySubscription[];
+          meta?: { next_token?: string };
+        }>(
+          url.toString(),
+          { method: 'GET' },
+          source.authentication,
+          source.token
+        );
+        if (response.data !== undefined && !Array.isArray(response.data)) {
+          throw new XWebhookApiError('invalid_request');
+        }
+        for (const subscription of response.data || []) {
+          const id = this.boundedId(subscription.subscription_id);
+          if (id) {
+            merged.set(id, subscription);
+          }
+        }
+        paginationToken = this.boundedId(response.meta?.next_token);
+      } while (paginationToken);
+    }
+
+    return [...merged.values()];
   }
 
   private xActivitySubscriptionMatches(
@@ -1216,13 +1253,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     tag: string,
     accessToken: string
   ) {
-    const isPrivateEvent = [
-      'like.create',
-      'post.mention.create',
-      'post.reply.create',
-      'post.quote.create',
-      'post.repost.create',
-    ].includes(spec.eventType);
+    const usesUserOAuth = this.xActivitySubscriptionUsesUserOAuth(spec.eventType);
 
     const created = await this.xWebhookApi<{
       data?:
@@ -1244,8 +1275,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           tag,
         }),
       },
-      isPrivateEvent ? 'oauth1' : 'bearer',
-      isPrivateEvent ? accessToken : undefined
+      usesUserOAuth ? 'oauth1' : 'bearer',
+      usesUserOAuth ? accessToken : undefined
     );
     return this.xActivitySubscriptionFromResponse(created);
   }
@@ -1271,14 +1302,19 @@ export class XProvider extends SocialAbstract implements SocialProvider {
 
   private async deleteXActivitySubscription(
     subscriptionId: string | undefined,
-    _accessToken?: string
+    accessToken?: string,
+    eventType?: string
   ) {
     const id = this.boundedId(subscriptionId);
     if (!id) throw new XWebhookApiError('invalid_request');
+    const usesUserOAuth = eventType
+      ? this.xActivitySubscriptionUsesUserOAuth(eventType)
+      : false;
     await this.xWebhookApi(
       `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(id)}`,
       { method: 'DELETE' },
-      'bearer'
+      usesUserOAuth ? 'oauth1' : 'bearer',
+      usesUserOAuth ? accessToken : undefined
     );
   }
 
@@ -1348,9 +1384,15 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       return 'missing_scope';
     }
     if (
+      problem.includes('oauth user access token') ||
+      problem.includes('user access token is required')
+    ) {
+      return 'missing_scope';
+    }
+    if (
       problem.includes('unsupported authentication') ||
       problem.includes('auth mode') ||
-      problem.includes('oauth')
+      (problem.includes('oauth') && !problem.includes('duplicate'))
     ) {
       return 'auth_mode_unsupported';
     }
@@ -1408,6 +1450,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   ) {
     const normalizedDetail = detail?.toLowerCase() || '';
     if (category === 'missing_scope') {
+      if (normalizedDetail.includes('oauth user access token')) {
+        return 'Follow and like tracking require your connected X account authorization. Use Refresh OAuth in channel settings to reconnect @headzoo.';
+      }
       if (normalizedDetail.includes('follows.read')) {
         return 'X requires the follows.read permission for follow tracking. Reconnect the channel and grant all requested permissions.';
       }
@@ -1424,6 +1469,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     }
     if (category === 'auth_mode_unsupported') {
       return 'This channel authorization mode cannot create tracking subscriptions. Reconnect the channel using the supported X authorization flow.';
+    }
+    if (category === 'invalid_request' && normalizedDetail.includes('duplicate')) {
+      return 'X already has this tracking subscription. Reconciliation will reuse it on the next pass.';
     }
     if (
       category === 'invalid_request' &&

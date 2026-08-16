@@ -476,30 +476,51 @@ export const WeekView = () => {
     return days;
   }, [i18next.resolvedLanguage, startDate]);
 
-  const earliestHour = useMemo(() => {
+  const scrollTarget = useMemo(() => {
     if (loading) {
       return null;
     }
 
     const weekStart = newDayjs(startDate).startOf('day');
     const weekEnd = newDayjs(endDate).endOf('day');
-    let minHour: number | null = null;
+    const now = newDayjs();
+    const todayInWeek = !now.isBefore(weekStart) && !now.isAfter(weekEnd);
 
+    let earliest: dayjs.Dayjs | null = null;
     for (const post of posts) {
       const local = newDayjs(post.publishDate).local();
       if (local.isBefore(weekStart) || local.isAfter(weekEnd)) {
         continue;
       }
-      const hour = local.hour();
-      if (minHour === null || hour < minHour) {
-        minHour = hour;
+      if (earliest === null || local.isBefore(earliest)) {
+        earliest = local;
       }
     }
 
-    return minHour ?? 0;
+    if (todayInWeek && (earliest === null || now.isAfter(earliest))) {
+      return {
+        hour: now.hour(),
+        minuteFraction: now.minute() / 60,
+        dateKey: now.format('YYYY-MM-DD'),
+      };
+    }
+
+    if (earliest) {
+      return {
+        hour: earliest.hour(),
+        minuteFraction: earliest.minute() / 60,
+        dateKey: earliest.format('YYYY-MM-DD'),
+      };
+    }
+
+    return {
+      hour: 0,
+      minuteFraction: 0,
+      dateKey: null,
+    };
   }, [endDate, loading, posts, startDate]);
 
-  useScrollToHour(scrollRef, earliestHour, `${startDate}:${endDate}`);
+  useScrollToHour(scrollRef, scrollTarget, `${startDate}:${endDate}`);
 
   return (
     <div className="flex flex-col text-textColor flex-1">
@@ -543,7 +564,11 @@ export const WeekView = () => {
                 <Fragment
                   key={`${startDate}-${day.date.format('YYYY-MM-DD')}-${hour}`}
                 >
-                  <div className="relative">
+                  <div
+                    className="relative"
+                    data-calendar-cell={day.date.format('YYYY-MM-DD')}
+                    data-hour={hour}
+                  >
                     <CalendarColumn
                       getDate={day.date.hour(hour).startOf('hour')}
                     />
@@ -798,6 +823,22 @@ export const CalendarColumn: FC<{
       .isBefore(newDayjs().startOf('hour').utc());
   }, [getDate, num]);
 
+  const isCurrentHourCell = useMemo(() => {
+    const now = newDayjs();
+    return getDate.isSame(now, 'day') && getDate.hour() === now.hour();
+  }, [getDate, num]);
+
+  const cellContentRef = useRef<HTMLDivElement>(null);
+  const [minuteOffsetPx, setMinuteOffsetPx] = useState(0);
+
+  const updateNowLine = useCallback(() => {
+    const el = cellContentRef.current;
+    if (!el) {
+      return;
+    }
+    setMinuteOffsetPx((newDayjs().minute() / 60) * el.clientHeight);
+  }, []);
+
   const { start, stop } = useInterval(
     useCallback(() => {
       if (isBeforeNow) {
@@ -808,12 +849,45 @@ export const CalendarColumn: FC<{
     random(120000, 150000)
   );
 
+  const { start: startNowTick, stop: stopNowTick } = useInterval(
+    useCallback(() => {
+      setNum((current) => current + 1);
+    }, []),
+    60000
+  );
+
   useEffect(() => {
     start();
     return () => {
       stop();
     };
   }, []);
+
+  useEffect(() => {
+    if (display === 'week' && isCurrentHourCell) {
+      startNowTick();
+      return () => {
+        stopNowTick();
+      };
+    }
+    stopNowTick();
+  }, [display, isCurrentHourCell, startNowTick, stopNowTick]);
+
+  useEffect(() => {
+    if (display !== 'week' || !isCurrentHourCell) {
+      return;
+    }
+    updateNowLine();
+    const el = cellContentRef.current;
+    if (!el) {
+      return;
+    }
+    const observer = new ResizeObserver(updateNowLine);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [display, isCurrentHourCell, list.length, showAll, updateNowLine, num]);
   const [{ canDrop }, drop] = useDrop(() => ({
     accept: 'post',
     drop: async (item: any) => {
@@ -1034,11 +1108,18 @@ export const CalendarColumn: FC<{
         <div className={clsx('pt-[6px] text-[14px]')}>{getDate.date()}</div>
       )}
       <div
+        ref={cellContentRef}
         className={clsx(
           'relative flex flex-col flex-1 text-white rounded-[8px] min-h-[70px]',
           canDrop && 'border border-[#eb3825]'
         )}
       >
+        {display === 'week' && isCurrentHourCell && (
+          <div
+            className="absolute left-0 right-0 h-[4px] bg-white rounded-full z-[30] pointer-events-none -translate-y-1/2"
+            style={{ top: `${minuteOffsetPx}px` }}
+          />
+        )}
         <div
           className={clsx(
             'flex-col text-[12px] pointer w-full flex scrollbar scrollbar-thumb-tableBorder scrollbar-track-secondary',
