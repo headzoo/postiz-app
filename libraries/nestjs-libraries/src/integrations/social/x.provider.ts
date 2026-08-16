@@ -153,12 +153,6 @@ const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
     filterDirection: 'inbound',
   },
   {
-    eventKey: 'like.create',
-    eventType: 'like.create',
-    direction: 'outbound',
-    filterDirection: 'outbound',
-  },
-  {
     eventKey: 'follow.follow',
     eventType: 'follow.follow',
     direction: 'inbound',
