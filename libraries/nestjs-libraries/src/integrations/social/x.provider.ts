@@ -1278,7 +1278,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     accessToken: string
   ) {
     if (!spec.filterDirection) {
-      return false;
+      return [];
     }
     const refreshed = await this.xActivitySubscriptions(accessToken);
     const conflicting = refreshed.filter(
@@ -1295,7 +1295,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         spec.eventType
       );
     }
-    return conflicting.length > 0;
+    return conflicting;
   }
 
   private async createOrRecoverActivitySubscription(
@@ -1326,22 +1326,41 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         return recovered;
       }
       // X treats a directionless subscription as a duplicate of directional
-      // ones. Remove the conflicting directionless subscription and retry.
+      // ones. Remove the conflicting directionless subscription and retry,
+      // restoring it if the directional subscription cannot be created.
       const removed = await this.deleteConflictingDirectionlessSubscription(
         spec,
         userId,
         accessToken
       );
-      if (removed) {
-        return this.createXActivitySubscription(
+      if (!removed.length) {
+        throw error;
+      }
+      try {
+        return await this.createXActivitySubscription(
           spec,
           userId,
           webhookId,
           tag,
           accessToken
         );
+      } catch (retryError) {
+        for (const subscription of removed) {
+          try {
+            await this.createXActivitySubscription(
+              { ...spec, filterDirection: undefined },
+              userId,
+              webhookId,
+              subscription.tag || tag,
+              accessToken
+            );
+          } catch {
+            // The directionless subscription could not be restored; the
+            // reconciliation result reports the original failure.
+          }
+        }
+        throw retryError;
       }
-      throw error;
     }
   }
 
@@ -1424,15 +1443,14 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     );
   }
 
-  private async createXActivitySubscription(
+  private async postXActivitySubscription(
     spec: XActivitySubscriptionSpec,
     userId: string,
     webhookId: string,
     tag: string,
-    accessToken: string
+    accessToken: string,
+    authentication: 'bearer' | 'oauth1'
   ) {
-    const usesUserOAuth = this.xActivitySubscriptionUsesUserOAuth(spec.eventType);
-
     const created = await this.xWebhookApi<{
       data?:
       | XActivitySubscription
@@ -1453,10 +1471,61 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           tag,
         }),
       },
-      usesUserOAuth ? 'oauth1' : 'bearer',
-      usesUserOAuth ? accessToken : undefined
+      authentication,
+      authentication === 'oauth1' ? accessToken : undefined
     );
     return this.xActivitySubscriptionFromResponse(created);
+  }
+
+  private async createXActivitySubscription(
+    spec: XActivitySubscriptionSpec,
+    userId: string,
+    webhookId: string,
+    tag: string,
+    accessToken: string
+  ) {
+    const usesUserOAuth = this.xActivitySubscriptionUsesUserOAuth(spec.eventType);
+    if (!usesUserOAuth) {
+      return this.postXActivitySubscription(
+        spec,
+        userId,
+        webhookId,
+        tag,
+        accessToken,
+        'bearer'
+      );
+    }
+
+    try {
+      return await this.postXActivitySubscription(
+        spec,
+        userId,
+        webhookId,
+        tag,
+        accessToken,
+        'oauth1'
+      );
+    } catch (error) {
+      // Some event types reject the channel's OAuth1 context even though they
+      // are documented as private; app-only auth still registers them.
+      const category =
+        error instanceof XWebhookApiError ? error.category : undefined;
+      if (
+        category !== 'auth_mode_unsupported' &&
+        category !== 'authentication_failed' &&
+        category !== 'missing_scope'
+      ) {
+        throw error;
+      }
+      return this.postXActivitySubscription(
+        spec,
+        userId,
+        webhookId,
+        tag,
+        accessToken,
+        'bearer'
+      );
+    }
   }
 
   private xActivitySubscriptionTag(
@@ -1532,6 +1601,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     } catch {
       // The status code is sufficient for classification.
     }
+    console.log(
+      '[X webhook api] failed',
+      method,
+      new URL(url).pathname,
+      'auth:',
+      authentication,
+      'status:',
+      response.status,
+      'body:',
+      this.sanitizeXWebhookProblem(rawProblem)
+    );
     throw new XWebhookApiError(
       this.classifyXWebhookApiError(response.status, problem),
       this.sanitizeXWebhookProblem(rawProblem),
