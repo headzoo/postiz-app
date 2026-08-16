@@ -48,6 +48,7 @@ import { ContextDocumentsController } from '@gitroom/backend/api/routes/context-
 import { FollowersController } from '@gitroom/backend/api/routes/followers.controller';
 import { ChannelWebhooksController } from '@gitroom/backend/api/routes/channel-webhooks.controller';
 import { LogsController } from '@gitroom/backend/api/routes/logs.controller';
+import { PipelineAutopostController } from '@gitroom/backend/api/routes/pipeline-autopost.controller';
 
 const authenticatedController = [
   UsersController,
@@ -70,6 +71,7 @@ const authenticatedController = [
   AnnouncementsController,
   AdminController,
   PipelinesController,
+  PipelineAutopostController,
   ContextDocumentsController,
   FollowersController,
   LogsController,

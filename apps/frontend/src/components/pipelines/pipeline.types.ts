@@ -140,3 +140,28 @@ export interface PipelineScheduleDragItem {
 export interface ReorderPipelineQueuePayload {
   itemIds: string[];
 }
+
+export interface PipelineAutopost {
+  id: string;
+  title: string;
+  content?: string | null;
+  lastUrl?: string | null;
+  syncLast: boolean;
+  url: string;
+  active: boolean;
+  addPicture: boolean;
+  generateContent: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PipelineAutopostPayload {
+  title: string;
+  content?: string;
+  lastUrl?: string;
+  syncLast: boolean;
+  url: string;
+  active: boolean;
+  addPicture: boolean;
+  generateContent: boolean;
+}

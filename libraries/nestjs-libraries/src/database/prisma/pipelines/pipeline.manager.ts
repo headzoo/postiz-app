@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { PostsService } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.service';
-import { PipelineRepository } from './pipeline.repository';
+import {
+  isActivePipelineIntegration,
+  PipelineRepository,
+} from './pipeline.repository';
 import { EnqueuePipelinePostDto } from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
 
 @Injectable()
@@ -16,12 +19,29 @@ export class PipelineManager {
     private _postsService: PostsService
   ) {}
 
-  async enqueue(orgId: string, body: EnqueuePipelinePostDto) {
+  async enqueue(
+    orgId: string,
+    body: EnqueuePipelinePostDto,
+    createdBy: 'API' | 'AUTOPOST' = 'API',
+    idempotencyKey?: string
+  ) {
     const pipeline = await this._pipelineRepository.getPipeline(orgId, body.pipelineId);
     if (!pipeline) {
       throw new NotFoundException('Pipeline not found');
     }
+    if (idempotencyKey) {
+      const existing =
+        await this._pipelineRepository.getQueueItemByIdempotencyKey(
+          orgId,
+          pipeline.id,
+          idempotencyKey
+        );
+      if (existing) {
+        return { id: existing.id, group: existing.group };
+      }
+    }
     const pipelineChannels = pipeline.integrations
+      .filter((item) => isActivePipelineIntegration(item.integration))
       .map((item) => item.integrationId)
       .sort();
     const postChannels = body.post.posts.map((item) => item.integration.id).sort();
@@ -60,12 +80,19 @@ export class PipelineManager {
     );
 
     try {
-      await this._postsService.createPost(orgId, draft, 'API', true);
-      const queueItem = await this._pipelineRepository.publishQueueItem(
-        orgId,
-        pipeline.id,
-        group
-      );
+      await this._postsService.createPost(orgId, draft, createdBy, true);
+      const queueItem = idempotencyKey
+        ? await this._pipelineRepository.publishQueueItem(
+            orgId,
+            pipeline.id,
+            group,
+            idempotencyKey
+          )
+        : await this._pipelineRepository.publishQueueItem(
+            orgId,
+            pipeline.id,
+            group
+          );
       if (queueItem === false) {
         throw new BadRequestException(
           'Pipeline content no longer matches its configured integrations'
@@ -79,6 +106,17 @@ export class PipelineManager {
       await this._pipelineRepository
         .discardUnlinkedDraftPosts(orgId, group)
         .catch(() => undefined);
+      if ((error as { code?: string })?.code === 'P2002' && idempotencyKey) {
+        const existing =
+          await this._pipelineRepository.getQueueItemByIdempotencyKey(
+            orgId,
+            pipeline.id,
+            idempotencyKey
+          );
+        if (existing) {
+          return { id: existing.id, group: existing.group };
+        }
+      }
       throw error;
     }
   }

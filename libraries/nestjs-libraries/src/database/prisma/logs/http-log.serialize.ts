@@ -61,6 +61,31 @@ export function webhookTargetIdentity(
   };
 }
 
+export function logEventType(
+  event?: {
+    eventType?: string;
+    kind?: string;
+    metadata?: { referenceType?: string };
+  }
+) {
+  const eventType = event?.eventType;
+  if (eventType !== 'post.create') {
+    return eventType;
+  }
+  if (event?.kind === 'reply') {
+    return 'post.reply.create';
+  }
+  if (event?.kind === 'repost') {
+    return 'post.repost.create';
+  }
+  if (event?.kind === 'mention') {
+    return event.metadata?.referenceType === 'quote'
+      ? 'post.quote.create'
+      : 'post.mention.create';
+  }
+  return eventType;
+}
+
 export function eventEndpoints(
   event:
     | {

@@ -20,6 +20,15 @@ class PipelineScheduleRevisionChangedError extends Error {}
 class PipelineScheduleSourceChangedError extends Error {}
 class PipelineContextDocumentsChangedError extends Error {}
 
+export const activePipelineIntegrationWhere = {
+  deletedAt: null,
+  disabled: false,
+} satisfies Prisma.IntegrationWhereInput;
+
+export const isActivePipelineIntegration = (
+  integration?: { disabled?: boolean; deletedAt?: Date | string | null } | null
+) => !integration || (!integration.disabled && !integration.deletedAt);
+
 export const pipelineIntegrationSelect = {
   id: true,
   internalId: true,
@@ -28,6 +37,7 @@ export const pipelineIntegrationSelect = {
   providerIdentifier: true,
   type: true,
   disabled: true,
+  deletedAt: true,
   inBetweenSteps: true,
   refreshNeeded: true,
   postingTimes: true,
@@ -165,8 +175,7 @@ export class PipelineRepository {
     return this._integration.model.integration.findMany({
       where: {
         organizationId: orgId,
-        deletedAt: null,
-        disabled: false,
+        ...activePipelineIntegrationWhere,
         id: { in: integrationIds },
       },
       select: { id: true },
@@ -564,11 +573,37 @@ export class PipelineRepository {
     });
   }
 
-  async publishQueueItem(orgId: string, pipelineId: string, group: string) {
+  getQueueItemByIdempotencyKey(
+    orgId: string,
+    pipelineId: string,
+    idempotencyKey: string
+  ) {
+    return this._queueItem.model.pipelineQueueItem.findFirst({
+      where: {
+        pipelineId,
+        idempotencyKey,
+        pipeline: { organizationId: orgId, deletedAt: null },
+      },
+    });
+  }
+
+  async publishQueueItem(
+    orgId: string,
+    pipelineId: string,
+    group: string,
+    idempotencyKey?: string
+  ) {
     return this.withSerializableRetry(async (tx) => {
       const pipeline = await tx.pipeline.findFirst({
         where: { id: pipelineId, organizationId: orgId, deletedAt: null },
-        include: { integrations: { select: { integrationId: true } } },
+        include: {
+          integrations: {
+            where: {
+              integration: activePipelineIntegrationWhere,
+            },
+            select: { integrationId: true },
+          },
+        },
       });
       if (!pipeline) {
         return null;
@@ -610,6 +645,7 @@ export class PipelineRepository {
         data: {
           pipelineId,
           group,
+          ...(idempotencyKey ? { idempotencyKey } : {}),
           position: (last?.position || 0) + QUEUE_POSITION_INCREMENT,
           status: 'CREATING',
         },

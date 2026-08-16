@@ -2,6 +2,7 @@ import {
   MAX_HTTP_LOG_BODY,
   capHttpLogEventType,
   eventEndpoints,
+  logEventType,
   hostnameFromUrl,
   readCappedHttpLogBody,
   redactHttpLogUrl,
@@ -54,6 +55,30 @@ describe('HTTP log serialization', () => {
     const serialized = truncateHttpLogBody(body);
     expect(serialized.startsWith('x'.repeat(MAX_HTTP_LOG_BODY))).toBe(true);
     expect(serialized).toContain('[truncated 20 chars]');
+  });
+
+  it('remaps post.create logs to the normalized interaction kind', () => {
+    expect(logEventType({ eventType: 'like.create', kind: 'like' })).toBe(
+      'like.create'
+    );
+    expect(logEventType({ eventType: 'post.create', kind: 'reply' })).toBe(
+      'post.reply.create'
+    );
+    expect(logEventType({ eventType: 'post.create', kind: 'repost' })).toBe(
+      'post.repost.create'
+    );
+    expect(
+      logEventType({
+        eventType: 'post.create',
+        kind: 'mention',
+        metadata: { referenceType: 'quote' },
+      })
+    ).toBe('post.quote.create');
+    expect(logEventType({ eventType: 'post.create', kind: 'mention' })).toBe(
+      'post.mention.create'
+    );
+    expect(logEventType({ eventType: 'post.create' })).toBe('post.create');
+    expect(logEventType(undefined)).toBeUndefined();
   });
 
   it('extracts a webhook target hostname and event endpoints', () => {

@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { AutopostRepository } from '@gitroom/nestjs-libraries/database/prisma/autopost/autopost.repository';
-import { AutopostDto } from '@gitroom/nestjs-libraries/dtos/autopost/autopost.dto';
+import {
+  AutopostDto,
+  PipelineAutopostDto,
+} from '@gitroom/nestjs-libraries/dtos/autopost/autopost.dto';
 import dayjs from 'dayjs';
 import { END, START, StateGraph } from '@langchain/langgraph';
 import { AutoPost, Integration } from '@prisma/client';
@@ -19,6 +22,7 @@ import { TypedSearchAttributes } from '@temporalio/common';
 import {
   organizationId,
 } from '@gitroom/nestjs-libraries/temporal/temporal.search.attribute';
+import { PipelineManager } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.manager';
 const parser = new Parser();
 
 interface WorkflowChannelsState {
@@ -64,7 +68,8 @@ export class AutopostService {
     private _autopostsRepository: AutopostRepository,
     private _temporalService: TemporalService,
     private _integrationService: IntegrationService,
-    private _postsService: PostsService
+    private _postsService: PostsService,
+    private _pipelineManager: PipelineManager
   ) {}
 
   async stopAll(org: string) {
@@ -96,6 +101,7 @@ export class AutopostService {
       id,
       active
     );
+    if (!data) throw new NotFoundException('Autopost not found');
     await this.processCron(active, orgId, id);
     return data;
   }
@@ -103,9 +109,9 @@ export class AutopostService {
   async processCron(active: boolean, orgId: string, id: string) {
     if (active) {
       try {
-        return this._temporalService.client
+        return await this._temporalService.client
           .getRawClient()
-          ?.workflow.start('autoPostWorkflow', {
+          ?.workflow.start('autoPostWorkflowV2', {
             workflowId: `autopost-${id}`,
             taskQueue: 'main',
             args: [{ id, immediately: true }],
@@ -116,7 +122,15 @@ export class AutopostService {
               },
             ]),
           });
-      } catch (err) {}
+      } catch (error) {
+        if (
+          (error as { name?: string })?.name ===
+          'WorkflowExecutionAlreadyStartedError'
+        ) {
+          return true;
+        }
+        return false;
+      }
     }
 
     try {
@@ -128,8 +142,98 @@ export class AutopostService {
 
   async deleteAutopost(orgId: string, id: string) {
     const data = await this._autopostsRepository.deleteAutopost(orgId, id);
+    if (!data) throw new NotFoundException('Autopost not found');
     await this.processCron(false, orgId, id);
     return data;
+  }
+
+  async getPipelineAutoposts(orgId: string, pipelineId: string) {
+    await this.getOwnedPipeline(orgId, pipelineId);
+    return this._autopostsRepository.getPipelineAutoposts(orgId, pipelineId);
+  }
+
+  async createPipelineAutopost(
+    orgId: string,
+    pipelineId: string,
+    body: PipelineAutopostDto
+  ) {
+    await this.getOwnedPipeline(orgId, pipelineId);
+    const autopost = await this._autopostsRepository.createPipelineAutopost(
+      orgId,
+      pipelineId,
+      body
+    );
+    await this.processCron(autopost.active, orgId, autopost.id);
+    return autopost;
+  }
+
+  async updatePipelineAutopost(
+    orgId: string,
+    pipelineId: string,
+    id: string,
+    body: PipelineAutopostDto
+  ) {
+    await this.getOwnedPipeline(orgId, pipelineId);
+    const autopost = await this._autopostsRepository.updatePipelineAutopost(
+      orgId,
+      pipelineId,
+      id,
+      body
+    );
+    if (!autopost) throw new NotFoundException('Pipeline autopost not found');
+    await this.processCron(autopost.active, orgId, autopost.id);
+    return autopost;
+  }
+
+  async changePipelineAutopostActive(
+    orgId: string,
+    pipelineId: string,
+    id: string,
+    active: boolean
+  ) {
+    await this.getOwnedPipeline(orgId, pipelineId);
+    const autopost =
+      await this._autopostsRepository.changePipelineAutopostActive(
+        orgId,
+        pipelineId,
+        id,
+        active
+      );
+    if (!autopost) throw new NotFoundException('Pipeline autopost not found');
+    await this.processCron(active, orgId, id);
+    return autopost;
+  }
+
+  async deletePipelineAutopost(orgId: string, pipelineId: string, id: string) {
+    await this.getOwnedPipeline(orgId, pipelineId);
+    const autopost = await this._autopostsRepository.deletePipelineAutopost(
+      orgId,
+      pipelineId,
+      id
+    );
+    if (!autopost) throw new NotFoundException('Pipeline autopost not found');
+    await this.processCron(false, orgId, id);
+    return autopost;
+  }
+
+  async disablePipelineAutoposts(orgId: string, pipelineId: string) {
+    const autoposts = await this._autopostsRepository.disablePipelineAutoposts(
+      orgId,
+      pipelineId
+    );
+    await Promise.all(
+      autoposts.map((autopost) => this.processCron(false, orgId, autopost.id))
+    );
+    return autoposts;
+  }
+
+  private async getOwnedPipeline(orgId: string, pipelineId: string) {
+    const pipeline = await this._autopostsRepository.getPipeline(
+      orgId,
+      pipelineId
+    );
+    if (!pipeline) throw new NotFoundException('Pipeline not found');
+    return pipeline;
   }
 
   async loadXML(url: string) {
@@ -263,6 +367,54 @@ export class AutopostService {
   }
 
   async schedulePost(state: WorkflowChannelsState) {
+    const posts = state.integrations.map((i) => ({
+      settings: {
+        __type: i.providerIdentifier as any,
+        title: '',
+        tags: [],
+        subreddit: [],
+      },
+      group: makeId(10),
+      integration: { id: i.id },
+      value: [
+        {
+          id: makeId(10),
+          delay: 0,
+          content:
+            state.description.replace(/\n/g, '\n\n') + '\n\n' + state.load.url,
+          image: !state.image
+            ? []
+            : [
+                {
+                  id: makeId(10),
+                  name: makeId(10),
+                  path: state.image,
+                  organizationId: state.integrations[0].organizationId,
+                },
+              ],
+        },
+      ],
+    }));
+
+    if (state.body.pipelineId) {
+      await this._pipelineManager.enqueue(
+        state.integrations[0].organizationId,
+        {
+          pipelineId: state.body.pipelineId,
+          post: {
+            order: makeId(10),
+            shortLink: false,
+            type: 'draft',
+            tags: [],
+            posts,
+          },
+        },
+        'AUTOPOST',
+        `autopost:${state.id}:${state.load.url}`
+      );
+      return;
+    }
+
     const nextTime = await this._postsService.findFreeDateTime(
       state.integrations[0].organizationId
     );
@@ -273,36 +425,7 @@ export class AutopostService {
       shortLink: false,
       type: 'draft',
       tags: [],
-      posts: state.integrations.map((i) => ({
-        settings: {
-          __type: i.providerIdentifier as any,
-          title: '',
-          tags: [],
-          subreddit: [],
-        },
-        group: makeId(10),
-        integration: { id: i.id },
-        value: [
-          {
-            id: makeId(10),
-            delay: 0,
-            content:
-              state.description.replace(/\n/g, '\n\n') +
-              '\n\n' +
-              state.load.url,
-            image: !state.image
-              ? []
-              : [
-                  {
-                    id: makeId(10),
-                    name: makeId(10),
-                    path: state.image,
-                    organizationId: state.integrations[0].organizationId,
-                  },
-                ],
-          },
-        ],
-      })),
+      posts,
     }, 'AUTOPOST');
   }
 
@@ -311,7 +434,7 @@ export class AutopostService {
   }
 
   async startAutopost(id: string) {
-    const getPost = await this._autopostsRepository.getAutopost(id);
+    const getPost = await this._autopostsRepository.getAutopostForWorkflow(id);
     if (!getPost || !getPost.active) {
       return;
     }
@@ -321,17 +444,9 @@ export class AutopostService {
       return;
     }
 
-    const integrations = await this._integrationService.getIntegrationsList(
-      getPost.organizationId
-    );
-
-    const parseIntegrations = JSON.parse(getPost.integrations || '[]') || [];
-    const neededIntegrations = integrations.filter((i) =>
-      parseIntegrations.some((ii: any) => ii.id === i.id)
-    );
-
-    const integrationsToSend =
-      parseIntegrations.length === 0 ? integrations : neededIntegrations;
+    const integrationsToSend = getPost.pipelineId
+      ? await this.getPipelineIntegrations(getPost.organizationId, getPost.pipelineId)
+      : await this.getGlobalIntegrations(getPost.organizationId, getPost.integrations);
     if (integrationsToSend.length === 0) {
       return;
     }
@@ -367,5 +482,25 @@ export class AutopostService {
       load,
       integrations: integrationsToSend,
     });
+  }
+
+  private async getGlobalIntegrations(orgId: string, selected: string) {
+    const integrations = await this._integrationService.getIntegrationsList(orgId);
+    const parseIntegrations = JSON.parse(selected || '[]') || [];
+    const neededIntegrations = integrations.filter((i) =>
+      parseIntegrations.some((ii: any) => ii.id === i.id)
+    );
+    return parseIntegrations.length === 0 ? integrations : neededIntegrations;
+  }
+
+  private async getPipelineIntegrations(orgId: string, pipelineId: string) {
+    const pipeline = await this._autopostsRepository.getPipeline(
+      orgId,
+      pipelineId
+    );
+    if (!pipeline || pipeline.deletedAt) {
+      return [];
+    }
+    return pipeline.integrations.map((entry) => entry.integration);
   }
 }

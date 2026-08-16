@@ -25,6 +25,31 @@ import {
 } from '@gitroom/nestjs-libraries/dtos/pipelines/pipeline.dto';
 
 describe('Pipeline API boundaries', () => {
+  it('stops Pipeline feeds before soft-deleting a Pipeline', async () => {
+    const repository = {
+      getPipeline: jest.fn().mockResolvedValue({ id: 'pipeline' }),
+      deletePipeline: jest.fn().mockResolvedValue({ id: 'pipeline' }),
+    };
+    const autopostService = {
+      disablePipelineAutoposts: jest.fn().mockResolvedValue([]),
+    };
+    const service = new PipelineService(
+      repository as any,
+      {} as any,
+      autopostService as any
+    );
+
+    await expect(service.deletePipeline('org', 'pipeline')).resolves.toEqual({
+      id: 'pipeline',
+      detached: true,
+    });
+    expect(autopostService.disablePipelineAutoposts).toHaveBeenCalledWith(
+      'org',
+      'pipeline'
+    );
+    expect(repository.deletePipeline).toHaveBeenCalledWith('org', 'pipeline');
+  });
+
   it('returns credential-free composer data for every queued channel', async () => {
     const twitter = {
       id: 'twitter',
@@ -1427,6 +1452,85 @@ describe('Pipeline API boundaries', () => {
       'org',
       'pipeline',
       expect.any(String)
+    );
+  });
+
+  it('reuses an accepted queue item for an idempotency key', async () => {
+    const repository = {
+      getPipeline: jest.fn().mockResolvedValue({
+        id: 'pipeline',
+        integrations: [{ integrationId: 'linkedin' }],
+      }),
+      getQueueItemByIdempotencyKey: jest
+        .fn()
+        .mockResolvedValue({ id: 'queue-item', group: 'existing-group' }),
+      publishQueueItem: jest.fn(),
+      discardUnlinkedDraftPosts: jest.fn(),
+    };
+    const posts = {
+      validatePosts: jest.fn(),
+      mapTypeToPost: jest.fn(),
+      createPost: jest.fn(),
+    };
+    const manager = new PipelineManager(repository as any, posts as any);
+    const body = {
+      pipelineId: 'pipeline',
+      post: {
+        posts: [{ integration: { id: 'linkedin' }, value: [{ content: 'Content' }] }],
+      },
+    } as any;
+
+    await expect(
+      manager.enqueue('org', body, 'AUTOPOST', 'autopost:feed:item-url')
+    ).resolves.toEqual({ id: 'queue-item', group: 'existing-group' });
+
+    expect(posts.createPost).not.toHaveBeenCalled();
+    expect(repository.publishQueueItem).not.toHaveBeenCalled();
+  });
+
+  it('ignores soft-deleted Pipeline integrations during enqueue validation', async () => {
+    const repository = {
+      getPipeline: jest.fn().mockResolvedValue({
+        id: 'pipeline',
+        integrations: [
+          {
+            integrationId: 'linkedin',
+            integration: { disabled: false, deletedAt: null },
+          },
+          {
+            integrationId: 'twitter',
+            integration: {
+              disabled: false,
+              deletedAt: new Date('2026-08-10T10:00:00.000Z'),
+            },
+          },
+        ],
+      }),
+      publishQueueItem: jest.fn().mockResolvedValue({ id: 'queue-item' }),
+      discardUnlinkedDraftPosts: jest.fn(),
+    };
+    const posts = {
+      validatePosts: jest.fn().mockResolvedValue([
+        { valid: true, errors: true, emptyContent: false, tooLong: false },
+      ]),
+      mapTypeToPost: jest.fn().mockImplementation((body) => body),
+      createPost: jest.fn().mockResolvedValue([]),
+    };
+    const manager = new PipelineManager(repository as any, posts as any);
+
+    await expect(
+      manager.enqueue('org', {
+        pipelineId: 'pipeline',
+        post: {
+          type: 'schedule',
+          date: '2026-08-10T10:00:00.000Z',
+          posts: [
+            { integration: { id: 'linkedin' }, value: [{ content: 'LinkedIn' }] },
+          ],
+        },
+      } as any)
+    ).resolves.toEqual(
+      expect.objectContaining({ id: 'queue-item', group: expect.any(String) })
     );
   });
 

@@ -1,16 +1,23 @@
 import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
 import { Injectable } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
-import { AutopostDto } from '@gitroom/nestjs-libraries/dtos/autopost/autopost.dto';
+import {
+  AutopostDto,
+  PipelineAutopostDto,
+} from '@gitroom/nestjs-libraries/dtos/autopost/autopost.dto';
 
 @Injectable()
 export class AutopostRepository {
-  constructor(private _autoPost: PrismaRepository<'autoPost'>) {}
+  constructor(
+    private _autoPost: PrismaRepository<'autoPost'>,
+    private _pipeline: PrismaRepository<'pipeline'>
+  ) {}
 
   getTotal(orgId: string) {
     return this._autoPost.model.autoPost.count({
       where: {
         organizationId: orgId,
+        pipelineId: null,
         deletedAt: null,
       },
     });
@@ -20,29 +27,32 @@ export class AutopostRepository {
     return this._autoPost.model.autoPost.findMany({
       where: {
         organizationId: orgId,
+        pipelineId: null,
         deletedAt: null,
       },
     });
   }
 
-  deleteAutopost(orgId: string, id: string) {
+  async deleteAutopost(orgId: string, id: string) {
+    const autopost = await this._autoPost.model.autoPost.findFirst({
+      where: { id, organizationId: orgId, pipelineId: null, deletedAt: null },
+    });
+    if (!autopost) return null;
     return this._autoPost.model.autoPost.update({
-      where: {
-        id,
-        organizationId: orgId,
-      },
-      data: {
-        deletedAt: new Date(),
-      },
+      where: { id },
+      data: { deletedAt: new Date() },
     });
   }
 
   getAutopost(id: string) {
-    return this._autoPost.model.autoPost.findUnique({
-      where: {
-        id,
-        deletedAt: null,
-      },
+    return this._autoPost.model.autoPost.findFirst({
+      where: { id, pipelineId: null, deletedAt: null },
+    });
+  }
+
+  getAutopostForWorkflow(id: string) {
+    return this._autoPost.model.autoPost.findFirst({
+      where: { id, deletedAt: null },
     });
   }
 
@@ -57,51 +67,153 @@ export class AutopostRepository {
     });
   }
 
-  changeActive(orgId: string, id: string, active: boolean) {
+  async changeActive(orgId: string, id: string, active: boolean) {
+    const autopost = await this._autoPost.model.autoPost.findFirst({
+      where: { id, organizationId: orgId, pipelineId: null, deletedAt: null },
+    });
+    if (!autopost) return null;
     return this._autoPost.model.autoPost.update({
-      where: {
-        id,
-        organizationId: orgId,
-      },
-      data: {
-        active,
-      },
+      where: { id },
+      data: { active },
     });
   }
 
   async createAutopost(orgId: string, body: AutopostDto, id?: string) {
-    const { id: newId, active } = await this._autoPost.model.autoPost.upsert({
-      where: {
-        id: id || uuidv4(),
-        organizationId: orgId,
+    const data = {
+      url: body.url,
+      title: body.title,
+      integrations: JSON.stringify(body.integrations),
+      active: body.active,
+      content: body.content,
+      generateContent: body.generateContent,
+      addPicture: body.addPicture,
+      syncLast: body.syncLast,
+      onSlot: body.onSlot,
+      lastUrl: body.lastUrl,
+    };
+    const existing = id
+      ? await this._autoPost.model.autoPost.findFirst({
+          where: { id, organizationId: orgId, pipelineId: null, deletedAt: null },
+        })
+      : null;
+    const autopost = existing
+      ? await this._autoPost.model.autoPost.update({ where: { id }, data })
+      : await this._autoPost.model.autoPost.create({
+          data: { id: id || uuidv4(), organizationId: orgId, pipelineId: null, ...data },
+        });
+
+    return { id: autopost.id, active: autopost.active };
+  }
+
+  getPipeline(orgId: string, pipelineId: string) {
+    return this._pipeline.model.pipeline.findFirst({
+      where: { id: pipelineId, organizationId: orgId, deletedAt: null },
+      include: {
+        integrations: {
+          where: {
+            integration: {
+              deletedAt: null,
+              disabled: false,
+            },
+          },
+          include: {
+            integration: true,
+          },
+        },
       },
-      create: {
+    });
+  }
+
+  getPipelineAutoposts(orgId: string, pipelineId: string) {
+    return this._autoPost.model.autoPost.findMany({
+      where: { organizationId: orgId, pipelineId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  getPipelineAutopost(orgId: string, pipelineId: string, id: string) {
+    return this._autoPost.model.autoPost.findFirst({
+      where: { id, organizationId: orgId, pipelineId, deletedAt: null },
+    });
+  }
+
+  createPipelineAutopost(
+    orgId: string,
+    pipelineId: string,
+    body: PipelineAutopostDto
+  ) {
+    return this._autoPost.model.autoPost.create({
+      data: {
         organizationId: orgId,
+        pipelineId,
         url: body.url,
         title: body.title,
-        integrations: JSON.stringify(body.integrations),
+        integrations: '[]',
         active: body.active,
         content: body.content,
         generateContent: body.generateContent,
         addPicture: body.addPicture,
         syncLast: body.syncLast,
-        onSlot: body.onSlot,
-        lastUrl: body.lastUrl,
-      },
-      update: {
-        url: body.url,
-        title: body.title,
-        integrations: JSON.stringify(body.integrations),
-        active: body.active,
-        content: body.content,
-        generateContent: body.generateContent,
-        addPicture: body.addPicture,
-        syncLast: body.syncLast,
-        onSlot: body.onSlot,
+        onSlot: true,
         lastUrl: body.lastUrl,
       },
     });
+  }
 
-    return { id: newId, active };
+  async updatePipelineAutopost(
+    orgId: string,
+    pipelineId: string,
+    id: string,
+    body: PipelineAutopostDto
+  ) {
+    const autopost = await this.getPipelineAutopost(orgId, pipelineId, id);
+    if (!autopost) return null;
+    return this._autoPost.model.autoPost.update({
+      where: { id },
+      data: {
+        url: body.url,
+        title: body.title,
+        active: body.active,
+        content: body.content,
+        generateContent: body.generateContent,
+        addPicture: body.addPicture,
+        syncLast: body.syncLast,
+        lastUrl: body.lastUrl,
+      },
+    });
+  }
+
+  async changePipelineAutopostActive(
+    orgId: string,
+    pipelineId: string,
+    id: string,
+    active: boolean
+  ) {
+    const autopost = await this.getPipelineAutopost(orgId, pipelineId, id);
+    if (!autopost) return null;
+    return this._autoPost.model.autoPost.update({
+      where: { id },
+      data: { active },
+    });
+  }
+
+  async deletePipelineAutopost(orgId: string, pipelineId: string, id: string) {
+    const autopost = await this.getPipelineAutopost(orgId, pipelineId, id);
+    if (!autopost) return null;
+    return this._autoPost.model.autoPost.update({
+      where: { id },
+      data: { active: false, deletedAt: new Date() },
+    });
+  }
+
+  async disablePipelineAutoposts(orgId: string, pipelineId: string) {
+    const autoposts = await this.getPipelineAutoposts(orgId, pipelineId);
+    if (autoposts.length) {
+      await this._autoPost.model.autoPost.updateMany({
+        where: { organizationId: orgId, pipelineId, deletedAt: null },
+        data: { active: false, deletedAt: new Date() },
+      });
+    }
+    return autoposts;
   }
 }

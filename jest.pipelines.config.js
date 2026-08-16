@@ -3,6 +3,7 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: [
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/pipelines/**/*.spec.ts',
+    '<rootDir>/libraries/nestjs-libraries/src/database/prisma/autopost/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/context-documents/**/*.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/chat/tools/pipeline.context-document.tools.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/chat/load.tools.service.spec.ts',
@@ -15,6 +16,7 @@ module.exports = {
     '<rootDir>/apps/backend/src/api/routes/followers.controller.spec.ts',
     '<rootDir>/apps/backend/src/api/routes/channel-webhooks.controller.spec.ts',
     '<rootDir>/apps/orchestrator/src/activities/post.activity.spec.ts',
+    '<rootDir>/apps/orchestrator/src/workflows/autopost.workflow.v2.spec.ts',
     '<rootDir>/apps/frontend/src/components/settings/logs.component.spec.tsx',
     '<rootDir>/apps/frontend/src/components/settings/channels.component.spec.tsx',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/file.provider.spec.ts',
@@ -26,6 +28,7 @@ module.exports = {
     '<rootDir>/libraries/nestjs-libraries/src/database/prisma/media/media.service.spec.ts',
     '<rootDir>/apps/orchestrator/src/workflows/pipeline-workflows/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/pipelines/**/*.spec.ts',
+    '<rootDir>/apps/frontend/src/components/pipelines/**/*.spec.tsx',
     '<rootDir>/apps/frontend/src/components/plugs/plug.utils.spec.ts',
     '<rootDir>/apps/frontend/src/components/new-launch/open-graph/**/*.spec.ts',
     '<rootDir>/apps/frontend/src/components/media/**/*.spec.tsx',

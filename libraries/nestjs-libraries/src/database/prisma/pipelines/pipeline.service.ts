@@ -22,6 +22,7 @@ import {
 } from './pipeline.schedule';
 import { PipelineRepository } from './pipeline.repository';
 import { PipelineManager } from './pipeline.manager';
+import { AutopostService } from '@gitroom/nestjs-libraries/database/prisma/autopost/autopost.service';
 import { socialIntegrationList } from '@gitroom/nestjs-libraries/integrations/integration.manager';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -32,7 +33,8 @@ dayjs.extend(utc);
 export class PipelineService {
   constructor(
     private _pipelineRepository: PipelineRepository,
-    private _pipelineManager: PipelineManager
+    private _pipelineManager: PipelineManager,
+    private _autopostService: AutopostService
   ) {}
 
   async getPipelines(orgId: string) {
@@ -371,6 +373,9 @@ export class PipelineService {
   }
 
   async deletePipeline(orgId: string, id: string) {
+    const existingPipeline = await this._pipelineRepository.getPipeline(orgId, id);
+    if (!existingPipeline) throw new NotFoundException('Pipeline not found');
+    await this._autopostService.disablePipelineAutoposts(orgId, id);
     const pipeline = await this._pipelineRepository.deletePipeline(orgId, id);
     if (!pipeline) throw new NotFoundException('Pipeline not found');
     return { id: pipeline.id, detached: true };

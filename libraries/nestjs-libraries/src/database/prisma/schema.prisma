@@ -698,6 +698,7 @@ model Webhooks {
 model AutoPost {
   id              String       @id @default(uuid())
   organizationId  String
+  pipelineId      String?
   title           String
   content         String?
   onSlot          Boolean
@@ -712,8 +713,11 @@ model AutoPost {
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   organization    Organization @relation(fields: [organizationId], references: [id])
+  pipeline        Pipeline?    @relation(fields: [pipelineId], references: [id])
 
   @@index([deletedAt])
+  @@index([organizationId, pipelineId, deletedAt])
+  @@index([pipelineId])
 }
 
 model Pipeline {
@@ -734,6 +738,7 @@ model Pipeline {
   slotExecutions   PipelineSlotExecution[]
   contextDocuments PipelineContextDocument[]
   plugs            PipelinePlug[]
+  autoposts        AutoPost[]
 
   @@index([organizationId, deletedAt])
   @@index([organizationId, active])
@@ -772,6 +777,7 @@ model PipelineQueueItem {
   id             String                  @id @default(uuid())
   pipelineId     String
   group          String                  @unique
+  idempotencyKey String?                 @unique
   position       Int
   status         PipelineQueueItemStatus @default(QUEUED)
   claimedAt      DateTime?

@@ -10,10 +10,11 @@ import { PipelineActivity } from '@gitroom/orchestrator/activities/pipeline.acti
 import { ChannelInteractionActivity } from '@gitroom/orchestrator/activities/channel-interaction.activity';
 import { ChannelRelationshipGradeActivity } from '@gitroom/orchestrator/activities/channel-relationship-grade.activity';
 import { ChannelAnalyticsSnapshotActivity } from '@gitroom/orchestrator/activities/channel-analytics-snapshot.activity';
+import { AutopostActivity } from '@gitroom/orchestrator/activities/autopost.activity';
 
 const activities = [
   PostActivity,
-  AutopostService,
+  AutopostActivity,
   EmailActivity,
   IntegrationsActivity,
   PipelineActivity,

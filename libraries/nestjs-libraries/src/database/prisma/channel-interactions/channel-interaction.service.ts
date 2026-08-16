@@ -28,6 +28,7 @@ import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs
 import {
   eventEndpoints,
   integrationIdentity,
+  logEventType,
 } from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.serialize';
 import { PostsRepository } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.repository';
 import {
@@ -302,7 +303,7 @@ export class ChannelInteractionService {
             responseHeaders: { 'content-type': 'application/json' },
             responseBody: input.responseBody,
             error: input.error,
-            eventType: firstEvent?.eventType,
+            eventType: logEventType(firstEvent),
             ...endpoints,
           });
         })

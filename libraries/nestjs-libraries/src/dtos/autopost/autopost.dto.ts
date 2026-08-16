@@ -62,3 +62,41 @@ export class AutopostDto {
   @ValidateNested({ each: true })
   integrations: Integrations[];
 }
+
+export class PipelineAutopostDto {
+  @IsString()
+  @IsDefined()
+  title: string;
+
+  @IsString()
+  @IsOptional()
+  content: string;
+
+  @IsString()
+  @IsOptional()
+  lastUrl: string;
+
+  @IsBoolean()
+  @IsDefined()
+  syncLast: boolean;
+
+  @IsUrl()
+  @IsDefined()
+  @IsSafeWebhookUrl({
+    message:
+      'Autopost URL must be a public HTTPS URL and cannot point to internal network addresses',
+  })
+  url: string;
+
+  @IsBoolean()
+  @IsDefined()
+  active: boolean;
+
+  @IsBoolean()
+  @IsDefined()
+  addPicture: boolean;
+
+  @IsBoolean()
+  @IsDefined()
+  generateContent: boolean;
+}
