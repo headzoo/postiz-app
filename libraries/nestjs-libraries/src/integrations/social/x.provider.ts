@@ -147,10 +147,11 @@ const X_WEBHOOK_MAX_CRC_TOKEN_LENGTH = 1024;
 const X_WEBHOOK_API_BASE = 'https://api.x.com/2';
 const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
   {
+    // X like subscriptions are directionless; delivery direction is derived
+    // from the payload during normalization.
     eventKey: 'like.create',
     eventType: 'like.create',
     direction: 'inbound',
-    filterDirection: 'inbound',
   },
   {
     eventKey: 'follow.follow',
