@@ -538,18 +538,15 @@ describe('XProvider interaction webhooks', () => {
       { eventKey: 'post.delete', direction: 'outbound' },
       { eventKey: 'post.mention.create', direction: 'inbound' },
       { eventKey: 'post.repost.create', direction: 'inbound' },
-      { eventKey: 'post.repost.create', direction: 'outbound' },
       { eventKey: 'post.reply.create', direction: 'inbound' },
-      { eventKey: 'post.reply.create', direction: 'outbound' },
       { eventKey: 'post.quote.create', direction: 'inbound' },
-      { eventKey: 'post.quote.create', direction: 'outbound' },
     ]);
     expect(capability.getInteractionCoverage()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'repost',
           inbound: 'supported',
-          outbound: 'supported',
+          outbound: 'unsupported',
         }),
       ])
     );
@@ -565,12 +562,9 @@ describe('XProvider interaction webhooks', () => {
       ['post.create', undefined],
       ['post.delete', undefined],
       ['post.mention.create', undefined],
-      ['post.repost.create', 'inbound'],
-      ['post.repost.create', 'outbound'],
-      ['post.reply.create', 'inbound'],
-      ['post.reply.create', 'outbound'],
-      ['post.quote.create', 'inbound'],
-      ['post.quote.create', 'outbound'],
+      ['post.repost.create', undefined],
+      ['post.reply.create', undefined],
+      ['post.quote.create', undefined],
     ].map(([eventType, direction], index) => ({
       subscription_id: String(index + 1),
       event_type: eventType,
@@ -792,10 +786,7 @@ describe('XProvider interaction webhooks', () => {
       'post.delete',
       'post.mention.create',
       'post.repost.create',
-      'post.repost.create',
       'post.reply.create',
-      'post.reply.create',
-      'post.quote.create',
       'post.quote.create',
     ]);
   });

@@ -182,37 +182,16 @@ const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
     eventKey: 'post.repost.create',
     eventType: 'post.repost.create',
     direction: 'inbound',
-    filterDirection: 'inbound',
-  },
-  {
-    eventKey: 'post.repost.create',
-    eventType: 'post.repost.create',
-    direction: 'outbound',
-    filterDirection: 'outbound',
   },
   {
     eventKey: 'post.reply.create',
     eventType: 'post.reply.create',
     direction: 'inbound',
-    filterDirection: 'inbound',
-  },
-  {
-    eventKey: 'post.reply.create',
-    eventType: 'post.reply.create',
-    direction: 'outbound',
-    filterDirection: 'outbound',
   },
   {
     eventKey: 'post.quote.create',
     eventType: 'post.quote.create',
     direction: 'inbound',
-    filterDirection: 'inbound',
-  },
-  {
-    eventKey: 'post.quote.create',
-    eventType: 'post.quote.create',
-    direction: 'outbound',
-    filterDirection: 'outbound',
   },
 ];
 
@@ -935,9 +914,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return [
       { kind: 'like', inbound: 'supported', outbound: 'supported' },
       { kind: 'follow', inbound: 'supported', outbound: 'supported' },
-      { kind: 'reply', inbound: 'supported', outbound: 'supported' },
-      { kind: 'mention', inbound: 'supported', outbound: 'supported' },
-      { kind: 'repost', inbound: 'supported', outbound: 'supported' },
+      { kind: 'reply', inbound: 'supported', outbound: 'unsupported' },
+      { kind: 'mention', inbound: 'supported', outbound: 'unsupported' },
+      { kind: 'repost', inbound: 'supported', outbound: 'unsupported' },
     ];
   }
 
@@ -1088,7 +1067,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
               spec,
               integration.internalId,
               endpoint.remoteWebhookId,
-              tag
+              tag,
+              accessToken
             );
             createdThisPass = true;
           }
@@ -1108,7 +1088,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
               spec,
               integration.internalId,
               endpoint.remoteWebhookId,
-              tag
+              tag,
+              accessToken
             );
           }
           const liveIdentifier =
@@ -1228,8 +1209,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     spec: XActivitySubscriptionSpec,
     userId: string,
     webhookId: string,
-    tag: string
+    tag: string,
+    accessToken: string
   ) {
+    const isPrivateEvent = [
+      'like.create',
+      'post.mention.create',
+      'post.reply.create',
+      'post.quote.create',
+      'post.repost.create',
+    ].includes(spec.eventType);
+
     const created = await this.xWebhookApi<{
       data?:
       | XActivitySubscription
@@ -1250,7 +1240,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           tag,
         }),
       },
-      'bearer'
+      isPrivateEvent ? 'oauth1' : 'bearer',
+      isPrivateEvent ? accessToken : undefined
     );
     return this.xActivitySubscriptionFromResponse(created);
   }
