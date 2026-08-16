@@ -61,12 +61,18 @@ describe('InfiniteWorkflowRegister', () => {
       })
     );
     expect(workflow.start).toHaveBeenCalledWith(
-      'channelAnalyticsSnapshotWorkflowV1',
+      'channelAnalyticsSnapshotWorkflowV2',
       expect.objectContaining({
-        workflowId: 'channel-analytics-snapshot-workflow-v1',
+        workflowId: 'channel-analytics-snapshot-workflow-v2',
         taskQueue: 'main',
         args: [{}],
       })
+    );
+    expect(workflow.getHandle).toHaveBeenCalledWith(
+      'channel-analytics-snapshot-workflow-v2'
+    );
+    expect(workflow.getHandle().signal).toHaveBeenCalledWith(
+      'channelAnalyticsSnapshot'
     );
   });
 
@@ -87,9 +93,9 @@ describe('InfiniteWorkflowRegister', () => {
 
     await expect(register.onModuleInit()).resolves.toBeUndefined();
     expect(workflow.start).toHaveBeenLastCalledWith(
-      'channelAnalyticsSnapshotWorkflowV1',
+      'channelAnalyticsSnapshotWorkflowV2',
       expect.objectContaining({
-        workflowId: 'channel-analytics-snapshot-workflow-v1',
+        workflowId: 'channel-analytics-snapshot-workflow-v2',
       })
     );
   });

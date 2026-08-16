@@ -1,4 +1,9 @@
-import { NotFoundException } from '@nestjs/common';
+jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
+  IntegrationManager: class IntegrationManager { },
+  socialIntegrationList: [],
+}));
+
+import { HttpException, NotFoundException } from '@nestjs/common';
 import { ChannelAnalyticsService } from './channel-analytics.service';
 import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 
@@ -13,11 +18,39 @@ describe('ChannelAnalytics API shaping', () => {
   const createRepository = () => ({
     findOwnedIntegration: jest.fn(),
     getDailyPoints: jest.fn().mockResolvedValue([]),
-    getSyncState: jest.fn(),
+    getSyncState: jest.fn().mockResolvedValue(null),
+    scheduleImmediateCapture: jest.fn().mockResolvedValue({}),
   });
 
-  const createService = (repository = createRepository()) =>
-    new ChannelAnalyticsService(repository as any);
+  const createTemporal = () => {
+    const signal = jest.fn().mockResolvedValue(undefined);
+    return {
+      signal,
+      service: {
+        client: {
+          getRawClient: () => ({
+            workflow: {
+              getHandle: jest.fn().mockReturnValue({ signal }),
+            },
+          }),
+        },
+      },
+    };
+  };
+
+  const createService = (
+    repository = createRepository(),
+    temporal = createTemporal()
+  ) =>
+    new ChannelAnalyticsService(
+      repository as any,
+      {
+        getAnalyticsSnapshotIntegrations: jest
+          .fn()
+          .mockReturnValue(['facebook', 'instagram']),
+      } as any,
+      temporal.service as any
+    );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -212,5 +245,84 @@ describe('ChannelAnalytics API shaping', () => {
         lastSuccessfulSnapshotAt: new Date(),
       })
     ).toBe(false);
+  });
+
+  it('rejects capture requests for unknown integrations', async () => {
+    const repository = createRepository();
+    repository.findOwnedIntegration.mockResolvedValue(null);
+    const service = createService(repository);
+
+    await expect(
+      service.requestCapture('org-a', 'integration-a')
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repository.scheduleImmediateCapture).not.toHaveBeenCalled();
+  });
+
+  it('rejects capture for providers without snapshot support', async () => {
+    const repository = createRepository();
+    repository.findOwnedIntegration.mockResolvedValue({
+      id: 'integration-a',
+      type: 'social',
+      disabled: false,
+      deletedAt: null,
+      providerIdentifier: 'discord',
+    });
+    const service = createService(repository);
+
+    await expect(
+      service.requestCapture('org-a', 'integration-a')
+    ).rejects.toThrow('Analytics capture is unavailable');
+    expect(repository.scheduleImmediateCapture).not.toHaveBeenCalled();
+  });
+
+  it('enforces a one-hour capture cooldown', async () => {
+    const repository = createRepository();
+    repository.findOwnedIntegration.mockResolvedValue({
+      id: 'integration-a',
+      type: 'social',
+      disabled: false,
+      deletedAt: null,
+      providerIdentifier: 'facebook',
+    });
+    (ioRedis.set as jest.Mock).mockResolvedValue(null);
+    const service = createService(repository);
+
+    await expect(
+      service.requestCapture('org-a', 'integration-a')
+    ).rejects.toBeInstanceOf(HttpException);
+    expect(repository.scheduleImmediateCapture).not.toHaveBeenCalled();
+  });
+
+  it('queues capture and pokes the analytics snapshot workflow', async () => {
+    const repository = createRepository();
+    repository.findOwnedIntegration.mockResolvedValue({
+      id: 'integration-a',
+      type: 'social',
+      disabled: false,
+      deletedAt: null,
+      providerIdentifier: 'facebook',
+    });
+    const temporal = createTemporal();
+    const service = createService(repository, temporal);
+
+    await expect(
+      service.requestCapture('org-a', 'integration-a')
+    ).resolves.toEqual({
+      status: 'queued',
+      message: 'Analytics collection started. This may take a few minutes.',
+    });
+    expect(ioRedis.set).toHaveBeenCalledWith(
+      'analytics-capture-request:org-a:integration-a',
+      '1',
+      'EX',
+      3600,
+      'NX'
+    );
+    expect(repository.scheduleImmediateCapture).toHaveBeenCalledWith(
+      'org-a',
+      'integration-a',
+      new Date(0)
+    );
+    expect(temporal.signal).toHaveBeenCalledWith('channelAnalyticsSnapshot');
   });
 });

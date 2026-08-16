@@ -32,7 +32,7 @@ export class ChannelAnalyticsRepository {
     >,
     private _integration: PrismaRepository<'integration'>,
     private _transaction: PrismaTransaction
-  ) {}
+  ) { }
 
   async listDueCandidates(
     providerIdentifiers: string[],
@@ -57,7 +57,10 @@ export class ChannelAnalyticsRepository {
           },
         ],
       },
-      orderBy: { id: 'asc' },
+      orderBy: [
+        { channelAnalyticsSyncState: { nextAttemptAt: 'asc' } },
+        { id: 'asc' },
+      ],
       take: take + 1,
       select: { id: true, organizationId: true, providerIdentifier: true },
     });
@@ -304,7 +307,32 @@ export class ChannelAnalyticsRepository {
   findOwnedIntegration(organizationId: string, integrationId: string) {
     return this._integration.model.integration.findFirst({
       where: { id: integrationId, organizationId },
-      select: { id: true, type: true },
+      select: {
+        id: true,
+        type: true,
+        disabled: true,
+        deletedAt: true,
+        providerIdentifier: true,
+      },
+    });
+  }
+
+  scheduleImmediateCapture(
+    organizationId: string,
+    integrationId: string,
+    nextAttemptAt = new Date(0)
+  ) {
+    return this.inTransaction(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      return tx.channelAnalyticsSyncState.upsert({
+        where: { integrationId },
+        create: {
+          organizationId,
+          integrationId,
+          nextAttemptAt,
+        },
+        update: { nextAttemptAt },
+      });
     });
   }
 
@@ -375,19 +403,19 @@ export class ChannelAnalyticsRepository {
       state.pendingCoverageEndDay;
     const coverage = hasPendingCoverage
       ? mergeCoverage(
-          state?.coverageStartDay,
-          state?.coverageEndDay,
-          state.pendingCoverageStartDay,
-          state.pendingCoverageEndDay
-        )
+        state?.coverageStartDay,
+        state?.coverageEndDay,
+        state.pendingCoverageStartDay,
+        state.pendingCoverageEndDay
+      )
       : coveredDay
-      ? mergeCoverage(
+        ? mergeCoverage(
           state?.coverageStartDay,
           state?.coverageEndDay,
           coveredDay,
           coveredDay
         )
-      : undefined;
+        : undefined;
     return tx.channelAnalyticsSyncState.upsert({
       where: { integrationId },
       create: {
@@ -396,10 +424,10 @@ export class ChannelAnalyticsRepository {
         lastSuccessfulSnapshotAt: snapshotAt,
         ...(coverage
           ? {
-              coverageStartDay: coverage.startDay,
-              coverageEndDay: coverage.endDay,
-              lastCoveredDay: coverage.endDay,
-            }
+            coverageStartDay: coverage.startDay,
+            coverageEndDay: coverage.endDay,
+            lastCoveredDay: coverage.endDay,
+          }
           : {}),
         nextAttemptAt: nextUtcDay(snapshotAt),
       },
@@ -407,17 +435,17 @@ export class ChannelAnalyticsRepository {
         lastSuccessfulSnapshotAt: snapshotAt,
         ...(coverage
           ? {
-              coverageStartDay: coverage.startDay,
-              coverageEndDay: coverage.endDay,
-              lastCoveredDay: coverage.endDay,
-            }
+            coverageStartDay: coverage.startDay,
+            coverageEndDay: coverage.endDay,
+            lastCoveredDay: coverage.endDay,
+          }
           : {}),
         ...(hasPendingCoverage
           ? {
-              pendingCoverageSnapshotAt: null,
-              pendingCoverageStartDay: null,
-              pendingCoverageEndDay: null,
-            }
+            pendingCoverageSnapshotAt: null,
+            pendingCoverageStartDay: null,
+            pendingCoverageEndDay: null,
+          }
           : {}),
         nextAttemptAt: nextUtcDay(snapshotAt),
         failureCount: 0,

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -118,7 +119,7 @@ export class ChannelInteractionService {
       responseBody: result.accepted ? result.responseBody : undefined,
       error: result.accepted ? undefined : 'Channel webhook challenge rejected',
     });
-    return result;
+    return { ...result, logged: true };
   }
 
   async handleDelivery(
@@ -186,7 +187,60 @@ export class ChannelInteractionService {
         ? undefined
         : 'Channel webhook delivery rejected',
     });
-    return delivery;
+    return { ...delivery, logged: true };
+  }
+
+  async logInboundAttempt(input: {
+    providerIdentifier: string;
+    method: string;
+    requestHeaders?: unknown;
+    requestBody?: unknown;
+    statusCode: number;
+    error: string;
+  }) {
+    const connectedAccountId = Buffer.isBuffer(input.requestBody)
+      ? this.peekConnectedAccountId(input.requestBody)
+      : undefined;
+    await this.logInboundRequest({
+      providerIdentifier: input.providerIdentifier,
+      method: input.method,
+      integrations: await this.resolveLogIntegrations(
+        input.providerIdentifier,
+        connectedAccountId
+      ),
+      requestHeaders: input.requestHeaders,
+      requestBody: input.requestBody,
+      statusCode: input.statusCode,
+      error: input.error,
+    });
+  }
+
+  statusFromError(error: unknown) {
+    if (error instanceof HttpException) {
+      return error.getStatus();
+    }
+    return 500;
+  }
+
+  messageFromError(error: unknown) {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return response;
+      }
+      if (
+        response &&
+        typeof response === 'object' &&
+        'message' in response &&
+        typeof (response as { message: unknown }).message === 'string'
+      ) {
+        return (response as { message: string }).message;
+      }
+    }
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return 'Channel webhook request failed';
   }
 
   private peekConnectedAccountId(rawBody: Buffer) {

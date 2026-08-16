@@ -134,8 +134,21 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
       );
     }
     try {
-      await workflow.start('channelAnalyticsSnapshotWorkflowV1', {
-        workflowId: 'channel-analytics-snapshot-workflow-v1',
+      const v1 = workflow.getHandle('channel-analytics-snapshot-workflow-v1');
+      const description = await v1.describe();
+      if (description.status.name === 'RUNNING') {
+        await v1.terminate('Migrating Channel analytics snapshot to V2');
+      }
+    } catch (error) {
+      if (!this.isMissingOrClosed(error)) {
+        this._logger.error('Failed to stop Channel analytics snapshot V1', error);
+        throw error;
+      }
+    }
+
+    try {
+      await workflow.start('channelAnalyticsSnapshotWorkflowV2', {
+        workflowId: 'channel-analytics-snapshot-workflow-v2',
         taskQueue: 'main',
         args: [{}],
       });
@@ -144,6 +157,16 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
         this._logger.error('Failed to start Channel analytics snapshot', error);
         throw error;
       }
+    }
+    try {
+      await workflow
+        .getHandle('channel-analytics-snapshot-workflow-v2')
+        .signal('channelAnalyticsSnapshot');
+    } catch (error) {
+      this._logger.warn(
+        'Channel analytics snapshot was not poked after start',
+        error
+      );
     }
   }
 

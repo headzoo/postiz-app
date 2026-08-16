@@ -23,6 +23,7 @@ import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import {
   AnalyticsCard,
   analyticsTotal,
+  CollectAnalyticsButton,
 } from '@gitroom/frontend/components/platform-analytics/render.analytics';
 import {
   DashboardChannelAnalytics,
@@ -34,12 +35,20 @@ const dateOptions: Array<7 | 30 | 90> = [7, 30, 90];
 const ChannelState = ({
   channel,
   empty,
+  collecting,
+  onCollect,
+  canCollect,
 }: {
   channel: DashboardChannelAnalytics;
   empty?: boolean;
+  collecting?: boolean;
+  onCollect?: () => void;
+  canCollect?: boolean;
 }) => {
   const message = empty
-    ? 'No analytics data for this period'
+    ? collecting
+      ? 'Analytics collection started. This may take a few minutes.'
+      : 'No analytics data for this period'
     : channel.state === 'unsupported'
       ? 'Analytics not supported'
       : channel.state === 'unavailable'
@@ -53,8 +62,16 @@ const ChannelState = ({
   }
 
   return (
-    <div className="rounded-[12px] border border-newTableBorder bg-newTableHeader px-[20px] py-[24px] text-[14px] text-newTableText">
+    <div className="rounded-[12px] border border-newTableBorder bg-newTableHeader px-[20px] py-[24px] text-[14px] text-newTableText text-center">
       {message}
+      {empty && canCollect && (
+        <CollectAnalyticsButton
+          integrationId={channel.id}
+          providerIdentifier={channel.identifier}
+          disabled={collecting}
+          onQueued={onCollect}
+        />
+      )}
     </div>
   );
 };
@@ -64,6 +81,7 @@ export const Dashboard = () => {
   const router = useRouter();
   const [date, setDate] = useState<7 | 30 | 90>(7);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
+  const [polling, setPolling] = useState(false);
   const {
     data: integrations,
     isLoading: integrationsLoading,
@@ -93,11 +111,34 @@ export const Dashboard = () => {
   const {
     data: channels,
     isLoading: analyticsLoading,
-  } = useDashboardAnalytics(date, selectedIntegrationId);
+  } = useDashboardAnalytics(
+    date,
+    selectedIntegrationId,
+    polling ? 15_000 : 0
+  );
   const selectedChannel = channels?.[0];
   const selectedIntegration = integrations.find(
     (integration) => integration.id === selectedIntegrationId
   );
+
+  useEffect(() => {
+    setPolling(false);
+  }, [selectedIntegrationId]);
+
+  useEffect(() => {
+    if (selectedChannel?.analytics.length) {
+      setPolling(false);
+    }
+  }, [selectedChannel?.analytics.length]);
+
+  useEffect(() => {
+    if (!polling) {
+      return;
+    }
+    const timeout = setTimeout(() => setPolling(false), 5 * 60 * 1000);
+    timeout.unref?.();
+    return () => clearTimeout(timeout);
+  }, [polling]);
 
   const changeItemGroup = useCallback(
     async (id: string, group: string) => {
@@ -269,7 +310,13 @@ export const Dashboard = () => {
                     ))}
                   </div>
                 ) : (
-                  <ChannelState channel={selectedChannel} empty />
+                  <ChannelState
+                    channel={selectedChannel}
+                    empty
+                    collecting={polling}
+                    canCollect={!selectedIntegration?.refreshNeeded}
+                    onCollect={() => setPolling(true)}
+                  />
                 )
               ) : (
                 <ChannelState channel={selectedChannel} />

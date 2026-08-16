@@ -1,5 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ChannelAnalyticsValueMode as PrismaValueMode } from '@prisma/client';
+import { TemporalService } from 'nestjs-temporal-core';
 import {
   AnalyticsData,
   ChannelAnalyticsCapturePage,
@@ -8,6 +14,8 @@ import {
   ChannelAnalyticsPostLifetimePoint,
   ChannelAnalyticsValueMode,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
+import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import {
   AnalyticsDailyPointInput,
   AnalyticsPostMetricInput,
@@ -17,10 +25,21 @@ import {
 const WINDOW_DAYS = new Set([7, 30, 90]);
 const MAX_PAGE_POINTS = 1_000;
 const MAX_TEXT_LENGTH = 256;
+const CAPTURE_COOLDOWN_SECONDS = 60 * 60;
+const CAPTURE_PRIORITY_AT = new Date(0);
+
+export type RequestCaptureResult = {
+  status: 'queued' | 'already_queued';
+  message: string;
+};
 
 @Injectable()
 export class ChannelAnalyticsService {
-  constructor(private _repository: ChannelAnalyticsRepository) {}
+  constructor(
+    private _repository: ChannelAnalyticsRepository,
+    private _integrationManager: IntegrationManager,
+    private _temporalService: TemporalService
+  ) { }
 
   persistCapturePage(
     organizationId: string,
@@ -70,16 +89,16 @@ export class ChannelAnalyticsService {
     if (coveredDay) this.validateUtcDay(coveredDay, 'coveredDay');
     return kind === 'daily'
       ? this._repository.finalizeDailyCapture(
-          organizationId,
-          integrationId,
-          snapshotAt,
-          coveredDay
-        )
+        organizationId,
+        integrationId,
+        snapshotAt,
+        coveredDay
+      )
       : this._repository.finalizePostLifetimeCapture(
-          organizationId,
-          integrationId,
-          snapshotAt
-        );
+        organizationId,
+        integrationId,
+        snapshotAt
+      );
   }
 
   recordFailure(
@@ -99,6 +118,70 @@ export class ChannelAnalyticsService {
       message,
       attemptedAt
     );
+  }
+
+  async requestCapture(
+    organizationId: string,
+    integrationId: string,
+    now = new Date()
+  ): Promise<RequestCaptureResult> {
+    const integration = await this._repository.findOwnedIntegration(
+      organizationId,
+      integrationId
+    );
+    if (!integration) {
+      throw new NotFoundException('Invalid integration');
+    }
+    if (
+      integration.type !== 'social' ||
+      integration.disabled ||
+      integration.deletedAt
+    ) {
+      throw new BadRequestException('Analytics capture is unavailable');
+    }
+    const supported = this._integrationManager.getAnalyticsSnapshotIntegrations();
+    if (!supported.includes(integration.providerIdentifier)) {
+      throw new BadRequestException('Analytics capture is unavailable');
+    }
+
+    const cooldownKey = `analytics-capture-request:${organizationId}:${integrationId}`;
+    const reserved = await ioRedis.set(
+      cooldownKey,
+      '1',
+      'EX',
+      CAPTURE_COOLDOWN_SECONDS,
+      'NX'
+    );
+    if (!reserved) {
+      throw new HttpException(
+        'Analytics collection was already requested. Try again in an hour.',
+        429
+      );
+    }
+
+    const syncState = await this._repository.getSyncState(
+      organizationId,
+      integrationId
+    );
+    const alreadyQueued =
+      !!syncState?.nextAttemptAt &&
+      syncState.nextAttemptAt.getTime() <= now.getTime();
+    await this._repository.scheduleImmediateCapture(
+      organizationId,
+      integrationId,
+      CAPTURE_PRIORITY_AT
+    );
+    await this.pokeChannelAnalyticsSnapshot();
+    if (alreadyQueued) {
+      return {
+        status: 'already_queued',
+        message: 'Analytics collection is already queued.',
+      };
+    }
+    return {
+      status: 'queued',
+      message: 'Analytics collection started. This may take a few minutes.',
+    };
   }
 
   async getStoredAnalytics(
@@ -220,14 +303,14 @@ export class ChannelAnalyticsService {
           (currentObservations.length > 0 && previousObservations.length > 0);
         const trend =
           !previousWindowCovered ||
-          !currentWindowCovered ||
-          !hasObservationsForTrend
+            !currentWindowCovered ||
+            !hasObservationsForTrend
             ? null
             : valueMode === 'average'
               ? currentTotal - previousTotal
               : previousTotal !== 0
                 ? ((currentTotal - previousTotal) / Math.abs(previousTotal)) *
-                  100
+                100
                 : null;
         const responsePoints =
           valueMode === 'sum' ? current : currentObservations;
@@ -374,11 +457,11 @@ export class ChannelAnalyticsService {
       const point = byDay.get(day.toISOString());
       filled.push(
         point ||
-          ({
-            ...template,
-            day: new Date(day),
-            value: { toNumber: () => 0 },
-          } as T)
+        ({
+          ...template,
+          day: new Date(day),
+          value: { toNumber: () => 0 },
+        } as T)
       );
     }
     return filled;
@@ -409,22 +492,33 @@ export class ChannelAnalyticsService {
       );
     }
   }
+
+  private async pokeChannelAnalyticsSnapshot() {
+    try {
+      const workflow = this._temporalService.client?.getRawClient()?.workflow;
+      await workflow
+        ?.getHandle('channel-analytics-snapshot-workflow-v2')
+        .signal('channelAnalyticsSnapshot');
+    } catch {
+      // The workflow may not be running yet; its hourly pass processes persisted state.
+    }
+  }
 }
 
 const prismaValueMode = (value: ChannelAnalyticsValueMode) =>
-  ({
-    sum: PrismaValueMode.SUM,
-    average: PrismaValueMode.AVERAGE,
-    latest: PrismaValueMode.LATEST,
-  }[value]);
+({
+  sum: PrismaValueMode.SUM,
+  average: PrismaValueMode.AVERAGE,
+  latest: PrismaValueMode.LATEST,
+}[value]);
 
 const prismaDisplayUnit = (value: ChannelAnalyticsDisplayUnit) =>
-  ({
-    count: 'COUNT',
-    percentage: 'PERCENTAGE',
-    duration: 'DURATION',
-    decimal: 'DECIMAL',
-  }[value] as 'COUNT' | 'PERCENTAGE' | 'DURATION' | 'DECIMAL');
+({
+  count: 'COUNT',
+  percentage: 'PERCENTAGE',
+  duration: 'DURATION',
+  decimal: 'DECIMAL',
+}[value] as 'COUNT' | 'PERCENTAGE' | 'DURATION' | 'DECIMAL');
 
 const mapDisplayUnit = (
   value: string | null | undefined
@@ -451,11 +545,11 @@ const resolveDisplayUnit = (
 };
 
 const mapValueMode = (value: PrismaValueMode): ChannelAnalyticsValueMode =>
-  ({
-    [PrismaValueMode.SUM]: 'sum',
-    [PrismaValueMode.AVERAGE]: 'average',
-    [PrismaValueMode.LATEST]: 'latest',
-  }[value] as ChannelAnalyticsValueMode);
+({
+  [PrismaValueMode.SUM]: 'sum',
+  [PrismaValueMode.AVERAGE]: 'average',
+  [PrismaValueMode.LATEST]: 'latest',
+}[value] as ChannelAnalyticsValueMode);
 
 const aggregate = (
   points: Array<{ value: { toNumber(): number }; day: Date }>,
@@ -475,9 +569,9 @@ const utcDay = (value: Date) =>
 const isCoverageComplete = (
   state:
     | {
-        coverageStartDay?: Date | null;
-        coverageEndDay?: Date | null;
-      }
+      coverageStartDay?: Date | null;
+      coverageEndDay?: Date | null;
+    }
     | null
     | undefined,
   from: Date,

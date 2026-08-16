@@ -40,7 +40,10 @@ describe('ChannelAnalyticsRepository', () => {
           disabled: false,
           deletedAt: null,
         }),
-        orderBy: { id: 'asc' },
+        orderBy: [
+          { channelAnalyticsSyncState: { nextAttemptAt: 'asc' } },
+          { id: 'asc' },
+        ],
         take: 51,
       })
     );
@@ -384,5 +387,26 @@ describe('ChannelAnalyticsRepository', () => {
         }),
       })
     );
+  });
+
+  it('schedules an immediate capture without clearing failure state', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAnalyticsSyncState.findUnique.mockResolvedValue({
+      failureCount: 2,
+    });
+    await repository.scheduleImmediateCapture(
+      'org',
+      'integration',
+      new Date(0)
+    );
+    expect(tx.channelAnalyticsSyncState.upsert).toHaveBeenCalledWith({
+      where: { integrationId: 'integration' },
+      create: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        nextAttemptAt: new Date(0),
+      },
+      update: { nextAttemptAt: new Date(0) },
+    });
   });
 });

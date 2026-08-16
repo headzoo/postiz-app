@@ -781,6 +781,80 @@ describe('ChannelInteractionService', () => {
     );
   });
 
+  it('logs an inbound attempt using a peeked connected account', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([
+      { id: 'integration-a', organizationId: 'org-a' },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      undefined,
+      logsService as any
+    );
+
+    await service.logInboundAttempt({
+      providerIdentifier: 'x',
+      method: 'POST',
+      requestHeaders: {},
+      requestBody: Buffer.from(
+        JSON.stringify({ data: { filter: { user_id: '42' } } })
+      ),
+      statusCode: 400,
+      error: 'Missing raw webhook body',
+    });
+
+    expect(logsService.logInboundWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        method: 'POST',
+        statusCode: 400,
+        error: 'Missing raw webhook body',
+        url: '/channel-webhooks/x',
+      })
+    );
+    expect(repository.getActiveIntegrationsForAccount).toHaveBeenCalledWith(
+      'x',
+      '42'
+    );
+  });
+
+  it('returns logged true after writing an inbound webhook log', async () => {
+    const repository = createRepository();
+    repository.getActiveIntegrationsForAccount.mockResolvedValue([
+      { id: 'integration-a', organizationId: 'org-a' },
+    ]);
+    const logsService = {
+      logInboundWebhook: jest.fn().mockResolvedValue(undefined),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: {
+          verifyAndNormalizeDelivery: jest.fn().mockResolvedValue({
+            accepted: false,
+            statusCode: 401,
+          }),
+        },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any,
+      logsService as any
+    );
+
+    await expect(
+      service.handleDelivery('x', {
+        rawBody: Buffer.from(
+          JSON.stringify({ data: { filter: { user_id: '42' } } })
+        ),
+        headers: {},
+      })
+    ).resolves.toEqual(expect.objectContaining({ accepted: false, logged: true }));
+  });
+
   it('logs a challenge against the sole org that owns the provider', async () => {
     const repository = createRepository();
     repository.getActiveIntegrationsForProvider.mockResolvedValue([

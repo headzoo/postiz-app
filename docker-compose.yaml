@@ -32,6 +32,14 @@ services:
       # prepared post/comment/status payloads as JSON files instead.
       # PUBLISH_FILE_SINK_DIR: '/publish-file-sink'
 
+      # === Incoming Webhook File Log (Optional)
+      # When set to an absolute path, each inbound channel webhook is written as
+      # raw JSON before validation. Contains full payloads and signatures.
+      # Mount a writable volume at this exact path when enabled.
+      # Unmatched multi-tenant deliveries are not stored in the DB logs; they
+      # appear here when this sink is enabled.
+      INCOMING_WEBHOOK_LOG_DIR: 'incoming-webhook-logs'
+
       # === Cloudflare (R2) Settings
       CLOUDFLARE_ACCOUNT_ID: xx
       CLOUDFLARE_ACCESS_KEY: xx
@@ -134,6 +142,7 @@ services:
     volumes:
       - postiz-config:/config/
       - postiz-uploads:/uploads/
+
     ports:
       - '4007:5000'
     networks:

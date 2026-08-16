@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { Organization } from '@prisma/client';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
 import { ApiTags } from '@nestjs/swagger';
@@ -36,6 +36,14 @@ export class AnalyticsController {
     @Query('date') date: string
   ) {
     return this._postsService.checkPostAnalytics(org.id, postId, +date);
+  }
+
+  @Post('/:integration/capture')
+  requestCapture(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integration') integration: string
+  ) {
+    return this._channelAnalyticsService.requestCapture(org.id, integration);
   }
 
   @Get('/:integration')

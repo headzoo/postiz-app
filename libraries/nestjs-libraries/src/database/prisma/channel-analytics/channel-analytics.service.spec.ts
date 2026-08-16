@@ -1,7 +1,21 @@
+jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
+  IntegrationManager: class IntegrationManager { },
+  socialIntegrationList: [],
+}));
+
 import { BadRequestException } from '@nestjs/common';
 import { ChannelAnalyticsService } from './channel-analytics.service';
 
 const decimal = (value: number) => ({ toNumber: () => value });
+
+const createService = (repository: any) =>
+  new ChannelAnalyticsService(
+    repository,
+    {
+      getAnalyticsSnapshotIntegrations: jest.fn().mockReturnValue(['facebook']),
+    } as any,
+    { client: { getRawClient: () => undefined } } as any
+  );
 
 describe('ChannelAnalyticsService', () => {
   const createRepository = () => ({
@@ -16,7 +30,7 @@ describe('ChannelAnalyticsService', () => {
 
   it('validates and persists provider dated points as UTC days', async () => {
     const repository = createRepository();
-    const service = new ChannelAnalyticsService(repository as any);
+    const service = createService(repository);
     await service.persistCapturePage('org', 'integration', new Date(), {
       kind: 'daily',
       coverage: { fromDay: '2026-08-15', toDay: '2026-08-15' },
@@ -43,8 +57,8 @@ describe('ChannelAnalyticsService', () => {
   });
 
   it('rejects invalid provider values before persistence', async () => {
-    const service = new ChannelAnalyticsService(createRepository() as any);
-    await expect(
+    const service = createService(createRepository());
+    expect(() =>
       service.persistCapturePage('org', 'integration', new Date(), {
         kind: 'daily',
         coverage: { fromDay: '2026-08-15', toDay: '2026-08-15' },
@@ -58,7 +72,7 @@ describe('ChannelAnalyticsService', () => {
           },
         ],
       })
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).toThrow(BadRequestException);
   });
 
   it('returns sum, average, and latest window values with trends', async () => {
@@ -107,9 +121,7 @@ describe('ChannelAnalyticsService', () => {
         value: decimal(9),
       },
     ]);
-    const result = await new ChannelAnalyticsService(
-      repository as any
-    ).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
+    const result = await createService(repository).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
     expect(
       result.metrics.map(({ metricKey, total }) => ({ metricKey, total }))
     ).toEqual([
@@ -138,9 +150,7 @@ describe('ChannelAnalyticsService', () => {
         value: decimal(2),
       },
     ]);
-    const result = await new ChannelAnalyticsService(
-      repository as any
-    ).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
+    const result = await createService(repository).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
     expect(result.metrics[0].trend).toBeNull();
   });
 
@@ -167,9 +177,7 @@ describe('ChannelAnalyticsService', () => {
       },
     ]);
 
-    const result = await new ChannelAnalyticsService(
-      repository as any
-    ).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
+    const result = await createService(repository).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
 
     expect(result.metrics[0]).toMatchObject({
       total: 4,
@@ -205,9 +213,7 @@ describe('ChannelAnalyticsService', () => {
       },
     ]);
 
-    const result = await new ChannelAnalyticsService(
-      repository as any
-    ).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
+    const result = await createService(repository).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
 
     expect(result.metrics.map((metric) => metric.metricKey)).toEqual([
       'impressions',
@@ -244,9 +250,7 @@ describe('ChannelAnalyticsService', () => {
       },
     ]);
 
-    const result = await new ChannelAnalyticsService(
-      repository as any
-    ).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
+    const result = await createService(repository).getWindow('org', 'integration', 7, new Date('2026-08-14T12:00:00.000Z'));
 
     const engagement = result.metrics.find(
       (metric) => metric.metricKey === 'engagement_rate'

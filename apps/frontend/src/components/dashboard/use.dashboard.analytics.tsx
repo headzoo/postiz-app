@@ -25,7 +25,8 @@ export type DashboardChannelAnalytics = {
 
 export const useDashboardAnalytics = (
   date: 7 | 30 | 90,
-  integrationId?: string
+  integrationId?: string,
+  refreshInterval = 0
 ) => {
   const fetch = useFetch();
 
@@ -47,6 +48,7 @@ export const useDashboardAnalytics = (
       : null,
     load,
     {
+      refreshInterval,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       revalidateIfStale: false,

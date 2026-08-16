@@ -19,7 +19,34 @@ jest.mock('@gitroom/frontend/components/analytics/chart-social', () => ({
     [...data].sort((a, b) => a.date.localeCompare(b.date)),
 }));
 
+jest.mock('@gitroom/react/form/button', () => ({
+  Button: ({
+    children,
+    onClick,
+    disabled,
+  }: {
+    children?: unknown;
+    onClick?: () => void;
+    disabled?: boolean;
+  }) => (
+    <button type="button" onClick={onClick} disabled={disabled}>
+      {children as never}
+    </button>
+  ),
+}));
+
 const usePlatformAnalytics = jest.fn();
+const requestCapture = jest.fn();
+
+jest.mock(
+  '@gitroom/frontend/components/platform-analytics/use.request.analytics.capture',
+  () => ({
+    useRequestAnalyticsCapture: () => ({
+      requestCapture,
+      isRequesting: false,
+    }),
+  })
+);
 
 jest.mock(
   '@gitroom/frontend/components/platform-analytics/use.platform.analytics',
@@ -29,7 +56,7 @@ jest.mock(
 );
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   AnalyticsCard,
   analyticsTotal,
@@ -38,6 +65,19 @@ import {
   resolveDisplayUnit,
   resolveValueMode,
 } from './render.analytics';
+
+expect.extend({
+  toBeInTheDocument(received: unknown) {
+    const pass = received != null;
+    return {
+      pass,
+      message: () =>
+        pass
+          ? 'expected element not to be in the document'
+          : 'expected element to be in the document',
+    };
+  },
+});
 
 describe('resolveValueMode', () => {
   it('prefers valueMode over legacy average flag', () => {
@@ -216,6 +256,7 @@ describe('RenderAnalytics collecting state', () => {
         integration={
           {
             id: 'integration-1',
+            providerIdentifier: 'facebook',
           } as any
         }
         date={7}
@@ -226,7 +267,34 @@ describe('RenderAnalytics collecting state', () => {
       screen.getByText(
         'Analytics history is still being collected. Metrics will appear after the first daily snapshots.'
       )
-    ).toBeInTheDocument();
-    expect(screen.queryByText('Refresh Channel')).not.toBeInTheDocument();
+    ).toBeTruthy();
+    expect(screen.getByText('Collect analytics')).toBeTruthy();
+    expect(screen.queryByText('Refresh Channel')).toBeNull();
+  });
+
+  it('requests an on-demand capture from the empty state', async () => {
+    usePlatformAnalytics.mockReturnValue({
+      data: [],
+      isLoading: false,
+    });
+    requestCapture.mockResolvedValue({
+      status: 'queued',
+      message: 'Analytics collection started. This may take a few minutes.',
+    });
+
+    render(
+      <RenderAnalytics
+        integration={
+          {
+            id: 'integration-1',
+            providerIdentifier: 'facebook',
+          } as any
+        }
+        date={7}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Collect analytics'));
+    await waitFor(() => expect(requestCapture).toHaveBeenCalled());
   });
 });

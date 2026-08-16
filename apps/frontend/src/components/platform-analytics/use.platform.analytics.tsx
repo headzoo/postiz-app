@@ -8,7 +8,8 @@ import { AnalyticsDataItem } from '@gitroom/frontend/components/platform-analyti
 
 export const usePlatformAnalytics = (
   integration: Integration | undefined,
-  date: number
+  date: number,
+  refreshInterval = 0
 ) => {
   const fetch = useFetch();
 
@@ -26,7 +27,7 @@ export const usePlatformAnalytics = (
     integration ? `/analytics-${integration.id}-${date}` : null,
     load,
     {
-      refreshInterval: 0,
+      refreshInterval,
       refreshWhenHidden: false,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,

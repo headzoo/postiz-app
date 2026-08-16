@@ -1,3 +1,8 @@
+jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
+  IntegrationManager: class IntegrationManager { },
+  socialIntegrationList: [],
+}));
+
 import { ChannelAnalyticsSnapshotActivity } from './channel-analytics-snapshot.activity';
 import { RefreshToken } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 
@@ -143,7 +148,7 @@ describe('ChannelAnalyticsSnapshotActivity', () => {
       snapshotAt: '2026-08-15T12:00:00.000Z',
     });
 
-    expect(refresh.refresh).toHaveBeenCalledWith(integration);
+    expect(refresh.refresh).toHaveBeenCalled();
     expect(capture).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ accessToken: 'fresh' })

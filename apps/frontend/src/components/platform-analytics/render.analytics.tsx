@@ -1,4 +1,4 @@
-import { FC, useMemo } from 'react';
+import { FC, useEffect, useMemo, useState } from 'react';
 import { Integration } from '@prisma/client';
 import {
   AnalyticsValueMode,
@@ -8,6 +8,9 @@ import {
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { usePlatformAnalytics } from '@gitroom/frontend/components/platform-analytics/use.platform.analytics';
+import { useRequestAnalyticsCapture } from '@gitroom/frontend/components/platform-analytics/use.request.analytics.capture';
+import { Button } from '@gitroom/react/form/button';
+import { useToaster } from '@gitroom/react/toaster/toaster';
 
 export type AnalyticsDisplayUnit =
   | 'count'
@@ -118,9 +121,8 @@ const TrendIndicator: FC<{
 
   return (
     <div
-      className={`flex items-center gap-[4px] text-[13px] font-medium ${
-        isPositive ? 'text-[#32d583]' : 'text-[#f97066]'
-      }`}
+      className={`flex items-center gap-[4px] text-[13px] font-medium ${isPositive ? 'text-[#32d583]' : 'text-[#f97066]'
+        }`}
     >
       <svg
         width="12"
@@ -221,7 +223,73 @@ export const AnalyticsCard: FC<{
   );
 };
 
-const EmptyState: FC = () => {
+const ANALYTICS_POLL_INTERVAL_MS = 15_000;
+const ANALYTICS_POLL_DURATION_MS = 5 * 60 * 1000;
+
+export const CollectAnalyticsButton: FC<{
+  integrationId: string;
+  providerIdentifier?: string;
+  disabled?: boolean;
+  onQueued?: () => void;
+}> = ({ integrationId, providerIdentifier, disabled, onQueued }) => {
+  const t = useT();
+  const toaster = useToaster();
+  const { requestCapture, isRequesting } = useRequestAnalyticsCapture(
+    integrationId
+  );
+
+  const collect = async () => {
+    try {
+      const result = await requestCapture();
+      toaster.show(
+        result.message ||
+        t(
+          'analytics_collection_started',
+          'Analytics collection started. This may take a few minutes.'
+        ),
+        'success'
+      );
+      onQueued?.();
+    } catch (error) {
+      toaster.show(
+        error instanceof Error
+          ? error.message
+          : t(
+            'analytics_collection_failed',
+            'Unable to start analytics collection'
+          ),
+        'warning'
+      );
+    }
+  };
+
+  return (
+    <div className="mt-[16px] flex flex-col items-center gap-[8px]">
+      <Button
+        onClick={collect}
+        loading={isRequesting}
+        disabled={disabled || isRequesting}
+      >
+        {t('collect_analytics', 'Collect analytics')}
+      </Button>
+      {providerIdentifier === 'x' && (
+        <p className="text-[13px] text-newTableText text-center max-w-[420px]">
+          {t(
+            'analytics_x_two_collections',
+            'X analytics may require two collections before charts appear.'
+          )}
+        </p>
+      )}
+    </div>
+  );
+};
+
+const EmptyState: FC<{
+  integrationId: string;
+  providerIdentifier?: string;
+  collecting?: boolean;
+  onCollect?: () => void;
+}> = ({ integrationId, providerIdentifier, collecting, onCollect }) => {
   const t = useT();
 
   return (
@@ -241,11 +309,22 @@ const EmptyState: FC = () => {
         </svg>
       </div>
       <p className="text-[15px] text-newTableText text-center">
-        {t(
-          'analytics_collecting_history',
-          'Analytics history is still being collected. Metrics will appear after the first daily snapshots.'
-        )}
+        {collecting
+          ? t(
+            'analytics_collection_in_progress',
+            'Analytics collection started. This may take a few minutes.'
+          )
+          : t(
+            'analytics_collecting_history',
+            'Analytics history is still being collected. Metrics will appear after the first daily snapshots.'
+          )}
       </p>
+      <CollectAnalyticsButton
+        integrationId={integrationId}
+        providerIdentifier={providerIdentifier}
+        disabled={collecting}
+        onQueued={onCollect}
+      />
     </div>
   );
 };
@@ -255,7 +334,30 @@ export const RenderAnalytics: FC<{
   date: number;
 }> = (props) => {
   const { integration, date } = props;
-  const { data, isLoading } = usePlatformAnalytics(integration, date);
+  const [polling, setPolling] = useState(false);
+  const { data, isLoading } = usePlatformAnalytics(
+    integration,
+    date,
+    polling ? ANALYTICS_POLL_INTERVAL_MS : 0
+  );
+
+  useEffect(() => {
+    if (data?.length) {
+      setPolling(false);
+    }
+  }, [data]);
+
+  useEffect(() => {
+    if (!polling) {
+      return;
+    }
+    const timeout = setTimeout(
+      () => setPolling(false),
+      ANALYTICS_POLL_DURATION_MS
+    );
+    timeout.unref?.();
+    return () => clearTimeout(timeout);
+  }, [polling]);
 
   const totals = useMemo(() => {
     return data?.map((item: AnalyticsDataItem) => analyticsTotal(item));
@@ -271,7 +373,14 @@ export const RenderAnalytics: FC<{
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[16px]">
-      {data?.length === 0 && <EmptyState />}
+      {data?.length === 0 && (
+        <EmptyState
+          integrationId={integration.id}
+          providerIdentifier={integration.providerIdentifier}
+          collecting={polling}
+          onCollect={() => setPolling(true)}
+        />
+      )}
       {data?.map((item: AnalyticsDataItem, index: number) => (
         <AnalyticsCard
           key={`analytics-${index}`}

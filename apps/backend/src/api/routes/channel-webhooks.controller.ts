@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
+import { sinkIncomingWebhook } from '@gitroom/nestjs-libraries/integrations/webhook.file.sink';
 
 const MAX_QUERY_ENTRIES = 32;
 const MAX_HEADER_ENTRIES = 64;
@@ -30,16 +31,33 @@ export class ChannelWebhooksController {
     @Param('providerIdentifier') providerIdentifier: string,
     @Query() query: Record<string, string | string[] | undefined>
   ) {
-    const result = await this._channelInteractionService.handleChallenge(
-      this.boundedProviderIdentifier(providerIdentifier),
-      { query: this.boundedValues(query, MAX_QUERY_ENTRIES) }
-    );
-    if (result.accepted) {
-      return result.responseBody;
-    }
-    throw new HttpException(
-      'Channel webhook challenge rejected',
-      ('statusCode' in result && result.statusCode) || 400
+    const boundedQuery = this.boundedValues(query, MAX_QUERY_ENTRIES);
+    void sinkIncomingWebhook({
+      method: 'GET',
+      providerIdentifier,
+      query: boundedQuery,
+    });
+    return this.runWithInboundLog(
+      {
+        providerIdentifier,
+        method: 'GET',
+        requestHeaders: boundedQuery,
+        requestBody: boundedQuery,
+      },
+      async (markLogged) => {
+        const result = await this._channelInteractionService.handleChallenge(
+          this.boundedProviderIdentifier(providerIdentifier),
+          { query: boundedQuery }
+        );
+        markLogged();
+        if (result.accepted) {
+          return result.responseBody;
+        }
+        throw new HttpException(
+          'Channel webhook challenge rejected',
+          ('statusCode' in result && result.statusCode) || 400
+        );
+      }
     );
   }
 
@@ -48,26 +66,84 @@ export class ChannelWebhooksController {
     @Param('providerIdentifier') providerIdentifier: string,
     @Req() request: RawBodyRequest<any>
   ) {
-    if (!Buffer.isBuffer(request.rawBody) || !request.rawBody.length) {
-      throw new BadRequestException('Missing raw webhook body');
-    }
-    const result = await this._channelInteractionService.handleDelivery(
-      this.boundedProviderIdentifier(providerIdentifier),
+    const rawBody = Buffer.isBuffer(request.rawBody)
+      ? request.rawBody
+      : undefined;
+    const boundedHeaders = this.boundedValues(
+      request.headers as Record<string, string | string[] | undefined>,
+      MAX_HEADER_ENTRIES
+    );
+    void sinkIncomingWebhook({
+      method: 'POST',
+      providerIdentifier,
+      headers: boundedHeaders,
+      rawBody,
+    });
+    return this.runWithInboundLog(
       {
-        rawBody: request.rawBody,
-        headers: this.boundedValues(
-          request.headers as Record<string, string | string[] | undefined>,
-          MAX_HEADER_ENTRIES
-        ),
+        providerIdentifier,
+        method: 'POST',
+        requestHeaders: boundedHeaders,
+        requestBody: rawBody,
+      },
+      async (markLogged) => {
+        if (!rawBody?.length) {
+          throw new BadRequestException('Missing raw webhook body');
+        }
+        const result = await this._channelInteractionService.handleDelivery(
+          this.boundedProviderIdentifier(providerIdentifier),
+          {
+            rawBody,
+            headers: boundedHeaders,
+          }
+        );
+        markLogged();
+        if (result.accepted) {
+          return { ok: true };
+        }
+        throw new HttpException(
+          'Channel webhook delivery rejected',
+          ('statusCode' in result && result.statusCode) || 400
+        );
       }
     );
-    if (result.accepted) {
-      return { ok: true };
+  }
+
+  private async runWithInboundLog<T>(
+    attempt: {
+      providerIdentifier: string;
+      method: string;
+      requestHeaders?: unknown;
+      requestBody?: unknown;
+    },
+    work: (markLogged: () => void) => Promise<T>
+  ) {
+    let logged = false;
+    try {
+      return await work(() => {
+        logged = true;
+      });
+    } catch (error) {
+      if (!logged) {
+        await this._channelInteractionService.logInboundAttempt({
+          providerIdentifier: this.logProviderIdentifier(
+            attempt.providerIdentifier
+          ),
+          method: attempt.method,
+          requestHeaders: attempt.requestHeaders,
+          requestBody: attempt.requestBody,
+          statusCode: this._channelInteractionService.statusFromError(error),
+          error: this._channelInteractionService.messageFromError(error),
+        });
+      }
+      throw error;
     }
-    throw new HttpException(
-      'Channel webhook delivery rejected',
-      ('statusCode' in result && result.statusCode) || 400
-    );
+  }
+
+  private logProviderIdentifier(value: string) {
+    return typeof value === 'string' && /^[a-z0-9_-]{1,128}$/i.test(value)
+      ? value
+      : 'invalid';
   }
 
   private boundedProviderIdentifier(value: string) {
