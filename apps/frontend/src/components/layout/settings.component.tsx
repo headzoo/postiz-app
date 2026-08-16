@@ -34,6 +34,7 @@ import { GlobalSettings } from '@gitroom/frontend/components/settings/global.set
 import { ApprovedAppsComponent } from '@gitroom/frontend/components/approved-apps/approved-apps.component';
 import { ThirdPartyComponent } from '@gitroom/frontend/components/third-parties/third-party.component';
 import { LogsSettings } from '@gitroom/frontend/components/settings/logs.component';
+import { ChannelsSettings } from '@gitroom/frontend/components/settings/channels.component';
 export const SettingsPopup: FC<{
   getRef?: Ref<any>;
 }> = (props) => {
@@ -107,6 +108,7 @@ export const SettingsPopup: FC<{
     if (user?.tier.current !== 'FREE') {
       arr.push({ tab: 'sets', label: t('sets', 'Sets') });
     }
+    arr.push({ tab: 'channels', label: t('channels', 'Channels') });
     if (user?.tier.current !== 'FREE') {
       arr.push({ tab: 'signatures', label: t('signatures', 'Signatures') });
     }
@@ -216,6 +218,12 @@ export const SettingsPopup: FC<{
               {tab === 'sets' && user?.tier.current !== 'FREE' && (
                 <div>
                   <Sets />
+                </div>
+              )}
+
+              {tab === 'channels' && (
+                <div>
+                  <ChannelsSettings />
                 </div>
               )}
 

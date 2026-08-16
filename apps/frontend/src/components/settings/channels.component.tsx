@@ -1,0 +1,395 @@
+'use client';
+
+import React, { FC, useCallback, useEffect, useMemo, useState } from 'react';
+import clsx from 'clsx';
+import { Button } from '@gitroom/react/form/button';
+import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { useToaster } from '@gitroom/react/toaster/toaster';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { DNDProvider } from '@gitroom/frontend/components/launches/helpers/dnd.provider';
+import { ChannelMenu } from '@gitroom/frontend/components/launches/channels.sidebar';
+import {
+  IntegrationListItem,
+  useIntegrationList,
+} from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import {
+  ChannelDetails,
+  ChannelSubscriptionDetail,
+  useChannelDetails,
+} from '@gitroom/frontend/components/settings/use.channel.details';
+import {
+  ChannelInteractionKindCoverage,
+  ChannelInteractionTrackingFailureCategory,
+  FollowerPageTracking,
+} from '@gitroom/frontend/components/followers/use.followers';
+
+const TRACKING_STATE_LABELS: Record<string, { key: string; defaultLabel: string }> = {
+  active: { key: 'channel_tracking_active', defaultLabel: 'Active' },
+  partial: { key: 'channel_tracking_partial', defaultLabel: 'Partial' },
+  error: { key: 'channel_tracking_error', defaultLabel: 'Error' },
+  provisioning: {
+    key: 'channel_tracking_provisioning',
+    defaultLabel: 'Provisioning',
+  },
+  unconfigured: {
+    key: 'channel_tracking_unconfigured',
+    defaultLabel: 'Unconfigured',
+  },
+  unsupported: {
+    key: 'channel_tracking_unsupported',
+    defaultLabel: 'Unsupported',
+  },
+};
+
+const FAILURE_MESSAGES: Record<
+  ChannelInteractionTrackingFailureCategory,
+  { key: string; defaultLabel: string }
+> = {
+  configuration: {
+    key: 'followers_tracking_configuration',
+    defaultLabel:
+      'Interaction tracking needs channel configuration before it can start.',
+  },
+  authentication: {
+    key: 'followers_tracking_authentication',
+    defaultLabel:
+      'Interaction tracking needs authentication. Reconnecting the channel may help.',
+  },
+  authorization: {
+    key: 'followers_tracking_authorization',
+    defaultLabel:
+      'Interaction tracking does not have the required channel permissions.',
+  },
+  entitlement: {
+    key: 'followers_tracking_entitlement',
+    defaultLabel:
+      'Your provider plan does not include this interaction tracking feature.',
+  },
+  quota: {
+    key: 'followers_tracking_quota',
+    defaultLabel:
+      'The provider tracking quota has been reached. Tracking will resume when capacity is available.',
+  },
+  transient: {
+    key: 'followers_tracking_transient',
+    defaultLabel: 'The provider is temporarily unavailable. We will retry tracking setup.',
+  },
+  unknown: {
+    key: 'followers_tracking_unknown',
+    defaultLabel: 'Interaction tracking could not be set up right now.',
+  },
+};
+
+const formatTimestamp = (value?: string) => {
+  if (!value) {
+    return '—';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const DetailRow: FC<{ label: string; children: React.ReactNode }> = ({
+  label,
+  children,
+}) => (
+  <div className="grid grid-cols-[140px_1fr] gap-[12px] text-[14px] items-start">
+    <div className="text-newTextColor uppercase text-[12px] tracking-wide pt-[2px]">
+      {label}
+    </div>
+    <div className="min-w-0 break-words">{children}</div>
+  </div>
+);
+
+const trackingFailureMessage = (
+  tracking: FollowerPageTracking,
+  t: ReturnType<typeof useT>
+) => {
+  if (tracking.reason) {
+    return tracking.reason;
+  }
+  if (!tracking.failureCategory) {
+    return undefined;
+  }
+  const message = FAILURE_MESSAGES[tracking.failureCategory];
+  return t(message.key, message.defaultLabel);
+};
+
+const ChannelDetailPanel: FC<{
+  integration: IntegrationListItem;
+  details?: ChannelDetails;
+  loading: boolean;
+  onRefreshOauth: () => void;
+  refreshing: boolean;
+}> = ({ integration, details, loading, onRefreshOauth, refreshing }) => {
+  const t = useT();
+  const tracking = details?.tracking;
+  const stateLabel = tracking
+    ? TRACKING_STATE_LABELS[tracking.state] || TRACKING_STATE_LABELS.unsupported
+    : undefined;
+  const failure = tracking ? trackingFailureMessage(tracking, t) : undefined;
+
+  return (
+    <div className="flex flex-col gap-[20px] min-w-0">
+      <div className="flex items-start justify-between gap-[12px]">
+        <div className="min-w-0">
+          <div className="text-[20px] font-[500] truncate">{integration.name}</div>
+          <div className="text-[14px] text-newTextColor truncate">
+            {integration.display || integration.identifier}
+          </div>
+        </div>
+        <Button
+          type="button"
+          secondary
+          loading={refreshing}
+          disabled={refreshing}
+          onClick={onRefreshOauth}
+        >
+          {t('refresh_oauth', 'Refresh OAuth')}
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-[10px] border border-newBorder rounded-[8px] p-[16px]">
+        <DetailRow label={t('provider', 'Provider')}>
+          {integration.identifier}
+        </DetailRow>
+        <DetailRow label={t('account_id', 'Account ID')}>
+          {details?.internalId || integration.internalId || '—'}
+        </DetailRow>
+        <DetailRow label={t('status', 'Status')}>
+          {details?.deleted
+            ? t('deleted', 'Deleted')
+            : integration.disabled
+              ? t('disabled', 'Disabled')
+              : integration.refreshNeeded
+                ? t('reconnect_needed', 'Reconnect needed')
+                : integration.inBetweenSteps
+                  ? t('setup_incomplete', 'Setup incomplete')
+                  : t('connected', 'Connected')}
+        </DetailRow>
+        {details?.profileUrl && (
+          <DetailRow label={t('profile', 'Profile')}>
+            <a
+              href={details.profileUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              {details.profileUrl}
+            </a>
+          </DetailRow>
+        )}
+      </div>
+
+      {loading && !details ? (
+        <div className="flex justify-center py-[40px]">
+          <LoadingComponent />
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-col gap-[10px] border border-newBorder rounded-[8px] p-[16px]">
+            <div className="text-[16px] font-[500]">
+              {t('interaction_tracking', 'Interaction tracking')}
+            </div>
+            <DetailRow label={t('state', 'State')}>
+              {stateLabel
+                ? t(stateLabel.key, stateLabel.defaultLabel)
+                : '—'}
+            </DetailRow>
+            {tracking?.availability && (
+              <DetailRow label={t('availability', 'Availability')}>
+                {tracking.availability}
+              </DetailRow>
+            )}
+            {failure && (
+              <DetailRow label={t('reason', 'Reason')}>{failure}</DetailRow>
+            )}
+            <DetailRow label={t('tracking_started', 'Tracking started')}>
+              {formatTimestamp(tracking?.trackingStartedAt)}
+            </DetailRow>
+            <DetailRow label={t('follower_sync', 'Follower sync')}>
+              {formatTimestamp(tracking?.followerSnapshotAt)}
+            </DetailRow>
+          </div>
+
+          <CoverageTable coverage={tracking?.coverage} />
+          <SubscriptionsTable subscriptions={details?.subscriptions || []} />
+        </>
+      )}
+    </div>
+  );
+};
+
+const CoverageTable: FC<{ coverage?: ChannelInteractionKindCoverage[] }> = ({
+  coverage,
+}) => {
+  const t = useT();
+  if (!coverage?.length) {
+    return null;
+  }
+  return (
+    <div className="flex flex-col gap-[10px] border border-newBorder rounded-[8px] p-[16px]">
+      <div className="text-[16px] font-[500]">{t('coverage', 'Coverage')}</div>
+      <div className="grid grid-cols-[1fr_1fr_1fr] gap-[8px] text-[12px] uppercase text-newTextColor">
+        <div>{t('kind', 'Kind')}</div>
+        <div>{t('inbound', 'Inbound')}</div>
+        <div>{t('outbound', 'Outbound')}</div>
+      </div>
+      {coverage.map((item) => (
+        <div
+          key={item.kind}
+          className="grid grid-cols-[1fr_1fr_1fr] gap-[8px] text-[14px]"
+        >
+          <div>{item.kind}</div>
+          <div>{item.inbound}</div>
+          <div>{item.outbound}</div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const SubscriptionsTable: FC<{ subscriptions: ChannelSubscriptionDetail[] }> = ({
+  subscriptions,
+}) => {
+  const t = useT();
+  return (
+    <div className="flex flex-col gap-[10px] border border-newBorder rounded-[8px] p-[16px]">
+      <div className="text-[16px] font-[500]">
+        {t('subscriptions', 'Subscriptions')}
+      </div>
+      {!subscriptions.length ? (
+        <div className="text-[14px] text-newTextColor">
+          {t('no_subscriptions', 'No tracking subscriptions yet.')}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-[12px]">
+          {subscriptions.map((subscription) => (
+            <div
+              key={`${subscription.eventKey}:${subscription.direction}`}
+              className="border border-newBorder rounded-[8px] p-[12px] flex flex-col gap-[6px]"
+            >
+              <div className="flex justify-between gap-[8px] text-[14px]">
+                <span>
+                  {subscription.eventKey} · {subscription.direction}
+                </span>
+                <span className="uppercase text-[12px]">
+                  {subscription.state}
+                </span>
+              </div>
+              {subscription.remoteIdentifier && (
+                <div className="text-[12px] text-newTextColor break-all">
+                  {subscription.remoteIdentifier}
+                </div>
+              )}
+              {subscription.reason && (
+                <div className="text-[13px]">{subscription.reason}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export const ChannelsSettings: FC = () => {
+  const t = useT();
+  const toast = useToaster();
+  const fetch = useFetch();
+  const { data: integrations, isLoading } = useIntegrationList();
+  const [selectedId, setSelectedId] = useState<string>();
+  const [refreshing, setRefreshing] = useState(false);
+  const selected = useMemo(
+    () => integrations?.find((item) => item.id === selectedId),
+    [integrations, selectedId]
+  );
+  const details = useChannelDetails(selected?.id);
+
+  useEffect(() => {
+    if (!integrations?.length) {
+      return;
+    }
+    if (!selectedId || !integrations.some((item) => item.id === selectedId)) {
+      setSelectedId(integrations[0].id);
+    }
+  }, [integrations, selectedId]);
+
+  const refreshOauth = useCallback(async () => {
+    if (!selected) {
+      return;
+    }
+    setRefreshing(true);
+    try {
+      const response = await fetch(
+        `/integrations/social/${selected.identifier}?refresh=${selected.internalId}`
+      );
+      const body = await response.json();
+      if (!response.ok || !body?.url) {
+        throw new Error('missing url');
+      }
+      window.location.href = body.url;
+    } catch {
+      setRefreshing(false);
+      toast.show(t('oauth_refresh_failed', 'Could not start OAuth refresh.'));
+    }
+  }, [fetch, selected, t, toast]);
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-[40px]">
+        <LoadingComponent />
+      </div>
+    );
+  }
+
+  if (!integrations?.length) {
+    return (
+      <div className="text-[14px]">
+        {t('no_channels', 'No channels yet')}
+      </div>
+    );
+  }
+
+  return (
+    <DNDProvider>
+      <div className="flex gap-[20px] min-h-[480px]">
+        <div className="w-[240px] shrink-0 overflow-y-auto">
+          <ChannelMenu
+            collapsed={false}
+            integrations={integrations}
+            selectedIds={selectedId ? [selectedId] : []}
+            onSelect={(integration) => setSelectedId(integration.id)}
+          />
+        </div>
+        <div
+          className={clsx(
+            'flex-1 min-w-0 overflow-y-auto',
+            !selected && 'flex items-center justify-center text-newTextColor'
+          )}
+        >
+          {selected ? (
+            <ChannelDetailPanel
+              integration={selected}
+              details={details.data}
+              loading={!!details.isLoading}
+              onRefreshOauth={refreshOauth}
+              refreshing={refreshing}
+            />
+          ) : (
+            t('select_a_channel', 'Select a channel')
+          )}
+        </div>
+      </div>
+    </DNDProvider>
+  );
+};

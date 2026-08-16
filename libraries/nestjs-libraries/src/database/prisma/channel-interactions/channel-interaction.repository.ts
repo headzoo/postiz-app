@@ -913,11 +913,17 @@ export class ChannelInteractionRepository {
       this._subscription.model.channelInteractionSubscription.findMany({
         where: { organizationId, integrationId },
         select: {
+          eventKey: true,
+          direction: true,
+          remoteIdentifier: true,
           state: true,
           trackingStartedAt: true,
           failureCategory: true,
           failureReason: true,
+          createdAt: true,
+          updatedAt: true,
         },
+        orderBy: [{ eventKey: 'asc' }, { direction: 'asc' }],
       }),
     ]);
     return { followerSync, subscriptions };

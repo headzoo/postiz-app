@@ -137,6 +137,122 @@ describe('IntegrationService followers', () => {
     );
   });
 
+  it('returns channel details with subscription diagnostics', async () => {
+    const service = createService(
+      [
+        {
+          ...integration,
+          internalId: '1911740070',
+          refreshNeeded: false,
+          inBetweenSteps: false,
+        },
+      ],
+      {
+        supported: {
+          profileUrl: () => 'https://x.com/channel',
+          channelInteractionWebhooks: {
+            getInteractionCoverage: () => [
+              { kind: 'like', inbound: 'supported', outbound: 'supported' },
+              { kind: 'follow', inbound: 'supported', outbound: 'supported' },
+            ],
+          },
+        },
+      }
+    );
+    (service as any)._channelInteractionRepository.getInteractionTracking.mockResolvedValue({
+      followerSync: {
+        activeGeneration: 'gen-1',
+        status: 'COMPLETE',
+        completedAt: new Date('2026-08-15T16:00:00.000Z'),
+      },
+      subscriptions: [
+        {
+          eventKey: 'like.create',
+          direction: 'INBOUND',
+          remoteIdentifier: 'sub-like',
+          state: 'ERROR',
+          failureCategory: 'authorization',
+          failureReason: 'Tracking permissions do not allow this subscription.',
+          trackingStartedAt: null,
+          createdAt: new Date('2026-08-15T20:12:00.000Z'),
+          updatedAt: new Date('2026-08-15T20:12:00.000Z'),
+        },
+        {
+          eventKey: 'follow.follow',
+          direction: 'INBOUND',
+          remoteIdentifier: 'sub-follow',
+          state: 'ACTIVE',
+          trackingStartedAt: new Date('2026-08-15T20:12:00.000Z'),
+          createdAt: new Date('2026-08-15T20:12:00.000Z'),
+          updatedAt: new Date('2026-08-15T20:12:00.000Z'),
+        },
+      ],
+    });
+
+    await expect(service.getChannelDetails(org, 'channel-a')).resolves.toEqual({
+      id: 'channel-a',
+      name: 'Channel A',
+      picture: 'https://example.com/channel.png',
+      display: '@channel',
+      identifier: 'supported',
+      internalId: '1911740070',
+      type: 'social',
+      disabled: false,
+      refreshNeeded: false,
+      inBetweenSteps: false,
+      profileUrl: 'https://x.com/channel',
+      tracking: expect.objectContaining({
+        state: 'error',
+        failureCategory: 'authorization',
+        reason: 'Tracking permissions do not allow this subscription.',
+      }),
+      subscriptions: [
+        expect.objectContaining({
+          eventKey: 'like.create',
+          direction: 'inbound',
+          state: 'error',
+          remoteIdentifier: 'sub-like',
+          failureCategory: 'authorization',
+        }),
+        expect.objectContaining({
+          eventKey: 'follow.follow',
+          direction: 'inbound',
+          state: 'active',
+          remoteIdentifier: 'sub-follow',
+        }),
+      ],
+    });
+  });
+
+  it('returns unsupported tracking for channels without interaction webhooks', async () => {
+    const service = createService(
+      [{ ...integration, internalId: '42', refreshNeeded: true, inBetweenSteps: false }],
+      { supported: { followers: jest.fn() } }
+    );
+
+    await expect(service.getChannelDetails(org, 'channel-a')).resolves.toMatchObject({
+      id: 'channel-a',
+      refreshNeeded: true,
+      tracking: {
+        state: 'unsupported',
+        availability: 'unavailable',
+        noBackfill: true,
+        coverage: [],
+      },
+      subscriptions: [],
+    });
+    expect(
+      (service as any)._channelInteractionRepository.getInteractionTracking
+    ).not.toHaveBeenCalled();
+  });
+
+  it('rejects channel details for another organization', async () => {
+    const service = createService([integration], { supported: {} });
+    await expect(
+      service.getChannelDetails({ id: 'org-b' } as any, 'channel-a')
+    ).rejects.toBeInstanceOf(HttpException);
+  });
+
   it('uses an organization-scoped integration and validates declared sorting', async () => {
     const followers = jest.fn().mockResolvedValue({
       items: [

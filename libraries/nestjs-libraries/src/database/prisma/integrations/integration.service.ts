@@ -346,6 +346,107 @@ export class IntegrationService {
     );
   }
 
+  async getChannelDetails(org: Organization, integrationId: string) {
+    const integration = await this._integrationRepository.getIntegrationById(
+      org.id,
+      integrationId
+    );
+    if (!integration) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+
+    let provider: SocialProvider | undefined;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      provider = undefined;
+    }
+
+    const coverage =
+      provider?.channelInteractionWebhooks?.getInteractionCoverage() ?? [];
+    const tracked = provider?.channelInteractionWebhooks
+      ? await this._channelInteractionRepository.getInteractionTracking(
+        org.id,
+        integration.id
+      )
+      : { followerSync: null, subscriptions: [] };
+    const tracking = provider?.channelInteractionWebhooks
+      ? this.getInteractionTrackingMetadata(
+        tracked.followerSync,
+        tracked.subscriptions,
+        coverage,
+        undefined,
+        { rankingAvailability: false }
+      )
+      : this.getUnsupportedTrackingMetadata(coverage);
+    let profileUrl: string | undefined;
+    try {
+      profileUrl = this.sanitizeHttpUrl(provider?.profileUrl?.(integration));
+    } catch { }
+
+    return {
+      id: integration.id,
+      name: integration.name,
+      picture: this.sanitizeHttpUrl(integration.picture) || '/no-picture.jpg',
+      display: integration.profile || undefined,
+      identifier: integration.providerIdentifier,
+      internalId: integration.internalId,
+      type: integration.type,
+      disabled: integration.disabled,
+      refreshNeeded: integration.refreshNeeded,
+      inBetweenSteps: integration.inBetweenSteps,
+      ...(integration.deletedAt ? { deleted: true } : {}),
+      ...(profileUrl ? { profileUrl } : {}),
+      tracking,
+      subscriptions: this.mapChannelSubscriptions(tracked.subscriptions),
+    };
+  }
+
+  private mapChannelSubscriptions(
+    subscriptions: {
+      eventKey?: string;
+      direction?: string;
+      remoteIdentifier?: string | null;
+      state: ChannelInteractionTrackingState;
+      trackingStartedAt?: Date | null;
+      failureCategory?: string | null;
+      failureReason?: string | null;
+      createdAt?: Date;
+      updatedAt?: Date;
+    }[]
+  ) {
+    return subscriptions
+      .filter((subscription) => subscription.eventKey)
+      .map((subscription) => {
+        const failureCategory = this.trackingFailureCategory(
+          subscription.failureCategory
+        );
+        return {
+          eventKey: subscription.eventKey as string,
+          direction: String(subscription.direction || '').toLowerCase(),
+          state: String(subscription.state).toLowerCase(),
+          ...(subscription.remoteIdentifier
+            ? { remoteIdentifier: subscription.remoteIdentifier }
+            : {}),
+          ...(failureCategory ? { failureCategory } : {}),
+          ...(subscription.failureReason
+            ? { reason: subscription.failureReason.slice(0, 160) }
+            : {}),
+          ...(subscription.trackingStartedAt
+            ? { trackingStartedAt: subscription.trackingStartedAt.toISOString() }
+            : {}),
+          ...(subscription.createdAt
+            ? { createdAt: subscription.createdAt.toISOString() }
+            : {}),
+          ...(subscription.updatedAt
+            ? { updatedAt: subscription.updatedAt.toISOString() }
+            : {}),
+        };
+      });
+  }
+
   async getFollowers(
     org: Organization,
     user: User,
@@ -1751,10 +1852,15 @@ export class IntegrationService {
       completedAt: Date | null;
     } | null | undefined,
     subscriptions: {
+      eventKey?: string;
+      direction?: string;
+      remoteIdentifier?: string | null;
       state: ChannelInteractionTrackingState;
       trackingStartedAt?: Date | null;
       failureCategory?: string | null;
       failureReason?: string | null;
+      createdAt?: Date;
+      updatedAt?: Date;
     }[],
     coverage: ChannelInteractionKindCoverage[],
     computedAt?: Date,

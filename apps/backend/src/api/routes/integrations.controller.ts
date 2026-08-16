@@ -124,6 +124,14 @@ export class IntegrationsController {
     return this._integrationService.updateOnCustomerName(org.id, id, body.name);
   }
 
+  @Get('/:id/channel-details')
+  async getChannelDetails(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ) {
+    return this._integrationService.getChannelDetails(org, id);
+  }
+
   @Get('/list')
   async getIntegrationList(@GetOrgFromRequest() org: Organization) {
     return {

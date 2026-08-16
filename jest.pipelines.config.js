@@ -16,6 +16,7 @@ module.exports = {
     '<rootDir>/apps/backend/src/api/routes/channel-webhooks.controller.spec.ts',
     '<rootDir>/apps/orchestrator/src/activities/post.activity.spec.ts',
     '<rootDir>/apps/frontend/src/components/settings/logs.component.spec.tsx',
+    '<rootDir>/apps/frontend/src/components/settings/channels.component.spec.tsx',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/file.provider.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/integrations/social/x.provider.interactions.spec.ts',
     '<rootDir>/libraries/nestjs-libraries/src/temporal/infinite.workflow.register.spec.ts',

@@ -1219,7 +1219,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return (
       this.boundedId(subscription?.webhook_id) ||
       this.boundedId(subscription?.webhook?.id) ||
-      this.boundedId(subscription?.webhook?.webhook_id)
+      this.boundedId(subscription?.webhook?.webhook_id) ||
+      this.boundedId((subscription as { webhookId?: unknown } | undefined)?.webhookId)
     );
   }
 
