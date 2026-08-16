@@ -182,12 +182,15 @@ services:
 
 volumes:
   redisinsight:
+    external: true
+    name: postiz-app_redisinsight
   postgres-volume:
-    external: false
+    external: true
+    name: postiz-app_postgres-volume
 
 networks:
   postiz-network:
     external: false
   temporal-network:
-    driver: bridge
+    external: true
     name: temporal-network

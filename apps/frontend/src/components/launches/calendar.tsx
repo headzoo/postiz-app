@@ -453,10 +453,51 @@ export const DayView = () => {
     </div>
   );
 };
+const CurrentTimeLine = () => {
+  const [now, setNow] = useState(() => newDayjs());
+  const { start, stop } = useInterval(
+    useCallback(() => {
+      setNow(newDayjs());
+    }, []),
+    60000
+  );
+
+  useEffect(() => {
+    start();
+    return () => {
+      stop();
+    };
+  }, [start, stop]);
+
+  return (
+    <div
+      title={now.format(isUSCitizen() ? 'MMMM D, YYYY' : 'D MMMM YYYY')}
+      className="absolute left-1/2 -translate-x-1/2 h-[4px] bg-textColor opacity-80 rounded-full z-[30] pointer-events-auto -translate-y-1/2"
+      style={{ top: `${(now.minute() / 60) * 100}%`, width: 'calc(100% - 4px)' }}
+    />
+  );
+};
+
 export const WeekView = () => {
   const { startDate, endDate, posts, loading } = useCalendar();
   const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [nowTick, setNowTick] = useState(0);
+  const { start: startHourTick, stop: stopHourTick } = useInterval(
+    useCallback(() => {
+      setNowTick((current) => current + 1);
+    }, []),
+    60000
+  );
+
+  useEffect(() => {
+    startHourTick();
+    return () => {
+      stopHourTick();
+    };
+  }, [startHourTick, stopHourTick]);
+
+  const now = useMemo(() => newDayjs(), [nowTick]);
 
   // Use dayjs to get localized day names
   const localizedDays = useMemo(() => {
@@ -475,6 +516,11 @@ export const WeekView = () => {
     }
     return days;
   }, [i18next.resolvedLanguage, startDate]);
+
+  const todayInWeek = useMemo(
+    () => localizedDays.some((day) => day.date.isSame(now, 'day')),
+    [localizedDays, now]
+  );
 
   const scrollTarget = useMemo(() => {
     if (loading) {
@@ -556,8 +602,9 @@ export const WeekView = () => {
             <Fragment key={hour}>
               <div
                 data-hour={hour}
-                className="p-2 pe-4 text-center items-center justify-center flex text-[14px] text-newTableText scroll-mt-[62px]"
+                className="relative p-2 pe-4 text-center items-center justify-center flex text-[14px] text-newTableText scroll-mt-[62px] min-h-[70px]"
               >
+                {todayInWeek && hour === now.hour() && <CurrentTimeLine />}
                 {convertTimeFormatBasedOnLocality(hour)}
               </div>
               {localizedDays.map((day, indexDay) => (
@@ -828,17 +875,6 @@ export const CalendarColumn: FC<{
     return getDate.isSame(now, 'day') && getDate.hour() === now.hour();
   }, [getDate, num]);
 
-  const cellContentRef = useRef<HTMLDivElement>(null);
-  const [minuteOffsetPx, setMinuteOffsetPx] = useState(0);
-
-  const updateNowLine = useCallback(() => {
-    const el = cellContentRef.current;
-    if (!el) {
-      return;
-    }
-    setMinuteOffsetPx((newDayjs().minute() / 60) * el.clientHeight);
-  }, []);
-
   const { start, stop } = useInterval(
     useCallback(() => {
       if (isBeforeNow) {
@@ -873,21 +909,6 @@ export const CalendarColumn: FC<{
     stopNowTick();
   }, [display, isCurrentHourCell, startNowTick, stopNowTick]);
 
-  useEffect(() => {
-    if (display !== 'week' || !isCurrentHourCell) {
-      return;
-    }
-    updateNowLine();
-    const el = cellContentRef.current;
-    if (!el) {
-      return;
-    }
-    const observer = new ResizeObserver(updateNowLine);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [display, isCurrentHourCell, list.length, showAll, updateNowLine, num]);
   const [{ canDrop }, drop] = useDrop(() => ({
     accept: 'post',
     drop: async (item: any) => {
@@ -1108,18 +1129,12 @@ export const CalendarColumn: FC<{
         <div className={clsx('pt-[6px] text-[14px]')}>{getDate.date()}</div>
       )}
       <div
-        ref={cellContentRef}
         className={clsx(
           'relative flex flex-col flex-1 text-white rounded-[8px] min-h-[70px]',
           canDrop && 'border border-[#eb3825]'
         )}
       >
-        {display === 'week' && isCurrentHourCell && (
-          <div
-            className="absolute left-0 right-0 h-[4px] bg-white rounded-full z-[30] pointer-events-none -translate-y-1/2"
-            style={{ top: `${minuteOffsetPx}px` }}
-          />
-        )}
+        {display === 'week' && isCurrentHourCell && <CurrentTimeLine />}
         <div
           className={clsx(
             'flex-col text-[12px] pointer w-full flex scrollbar scrollbar-thumb-tableBorder scrollbar-track-secondary',

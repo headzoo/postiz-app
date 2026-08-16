@@ -73,7 +73,9 @@ export const useScrollToHour = (
           : null;
       const heightEl =
         cell instanceof HTMLElement ? cell : target;
-      top += minuteFraction * heightEl.clientHeight;
+      const blockHeight = heightEl.clientHeight;
+      top += minuteFraction * blockHeight;
+      top -= blockHeight * 0.5;
 
       container.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
       lastScrolledKey.current = scrollKey;
