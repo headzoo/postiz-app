@@ -15,7 +15,7 @@ export const Slider: FC<{
     <div
       className={clsx(
         'w-[57px] h-[34px] p-[4px] border-fifth border rounded-[100px]',
-        value === 'on' && fill && 'bg-customColor4'
+        value === 'on' && fill && 'bg-forth'
       )}
       onClick={change}
     >
