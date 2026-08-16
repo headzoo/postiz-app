@@ -3384,7 +3384,7 @@ export class IntegrationService {
       ) {
         const refreshed =
           await this._refreshIntegrationService.refresh(liveIntegration);
-        if (refreshed?.accessToken) {
+        if (refreshed && refreshed.accessToken) {
           liveIntegration = {
             ...liveIntegration,
             token: refreshed.accessToken,
