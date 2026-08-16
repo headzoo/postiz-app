@@ -147,11 +147,18 @@ const X_WEBHOOK_MAX_CRC_TOKEN_LENGTH = 1024;
 const X_WEBHOOK_API_BASE = 'https://api.x.com/2';
 const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
   {
-    // X like subscriptions are directionless; delivery direction is derived
-    // from the payload during normalization.
+    // X accepts directionless like subscriptions but does not deliver events
+    // for them; likes must be subscribed per direction.
     eventKey: 'like.create',
     eventType: 'like.create',
     direction: 'inbound',
+    filterDirection: 'inbound',
+  },
+  {
+    eventKey: 'like.create',
+    eventType: 'like.create',
+    direction: 'outbound',
+    filterDirection: 'outbound',
   },
   {
     eventKey: 'follow.follow',
@@ -1265,6 +1272,32 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return this.findActivitySubscriptionsForSpec(refreshed, spec, userId)[0];
   }
 
+  private async deleteConflictingDirectionlessSubscription(
+    spec: XActivitySubscriptionSpec,
+    userId: string,
+    accessToken: string
+  ) {
+    if (!spec.filterDirection) {
+      return false;
+    }
+    const refreshed = await this.xActivitySubscriptions(accessToken);
+    const conflicting = refreshed.filter(
+      (subscription) =>
+        subscription.event_type === spec.eventType &&
+        this.boundedId(subscription.filter?.user_id) === userId &&
+        !subscription.filter?.direction &&
+        !!this.boundedId(subscription.subscription_id)
+    );
+    for (const subscription of conflicting) {
+      await this.deleteXActivitySubscription(
+        subscription.subscription_id,
+        accessToken,
+        spec.eventType
+      );
+    }
+    return conflicting.length > 0;
+  }
+
   private async createOrRecoverActivitySubscription(
     spec: XActivitySubscriptionSpec,
     userId: string,
@@ -1289,10 +1322,26 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         userId,
         accessToken
       );
-      if (!recovered) {
-        throw error;
+      if (recovered) {
+        return recovered;
       }
-      return recovered;
+      // X treats a directionless subscription as a duplicate of directional
+      // ones. Remove the conflicting directionless subscription and retry.
+      const removed = await this.deleteConflictingDirectionlessSubscription(
+        spec,
+        userId,
+        accessToken
+      );
+      if (removed) {
+        return this.createXActivitySubscription(
+          spec,
+          userId,
+          webhookId,
+          tag,
+          accessToken
+        );
+      }
+      throw error;
     }
   }
 

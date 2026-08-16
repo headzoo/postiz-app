@@ -1005,61 +1005,69 @@ describe('XProvider interaction webhooks', () => {
     });
   });
 
-  it('reuses existing like.create subscriptions when create returns duplicate', async () => {
+  it('replaces a directionless like subscription with directional ones on duplicate', async () => {
     const provider = new XProvider();
-    let subscriptionList = [
+    let subscriptionList: any[] = [
       {
-        subscription_id: 'follow-inbound',
-        event_type: 'follow.follow',
+        subscription_id: 'like-directionless',
+        event_type: 'like.create',
         filter: { user_id: '42' },
         webhook_id: '123',
       },
     ];
-    const likeInbound = {
-      subscription_id: 'like-inbound',
-      event_type: 'like.create',
-      filter: { user_id: '42', direction: 'inbound' },
-      webhook_id: '123',
-    };
-    const likeOutbound = {
-      subscription_id: 'like-outbound',
-      event_type: 'like.create',
-      filter: { user_id: '42', direction: 'outbound' },
-      webhook_id: '123',
-    };
+    const deleted: string[] = [];
+    let created = 0;
 
-    jest.spyOn(global, 'fetch').mockImplementation(async (url, options) => {
-      const value = String(url);
-      const method = options?.method || 'GET';
-      if (value.endsWith('/2/webhooks')) return endpointResponse();
-      if (method === 'GET' && value.includes('/activity/subscriptions')) {
-        return new Response(
-          JSON.stringify({ data: subscriptionList }),
-          { status: 200 }
-        );
-      }
-      if (method === 'POST') {
-        const body = JSON.parse(String(options?.body || '{}'));
-        if (body.event_type === 'like.create') {
-          subscriptionList = [
-            subscriptionList[0],
-            likeInbound,
-            likeOutbound,
-          ];
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockImplementation(async (url, options) => {
+        const value = String(url);
+        const method = options?.method || 'GET';
+        if (value.endsWith('/2/webhooks')) return endpointResponse();
+        if (method === 'GET' && value.includes('/activity/subscriptions')) {
+          return new Response(JSON.stringify({ data: subscriptionList }), {
+            status: 200,
+          });
+        }
+        if (method === 'POST') {
+          const body = JSON.parse(String(options?.body || '{}'));
+          if (
+            body.event_type === 'like.create' &&
+            subscriptionList.some(
+              (subscription) =>
+                subscription.event_type === 'like.create' &&
+                !subscription.filter?.direction
+            )
+          ) {
+            return new Response(
+              JSON.stringify({ detail: 'Duplicate subscription' }),
+              { status: 400 }
+            );
+          }
+          const subscription = {
+            subscription_id: `new-${++created}`,
+            event_type: body.event_type,
+            filter: body.filter,
+            webhook_id: body.webhook_id,
+          };
+          subscriptionList = [...subscriptionList, subscription];
           return new Response(
-            JSON.stringify({ detail: 'Duplicate subscription' }),
-            { status: 400 }
+            JSON.stringify({ data: { subscription_id: subscription.subscription_id } }),
+            { status: 200 }
           );
         }
-        return new Response(
-          JSON.stringify({ data: { subscription_id: 'new-sub' } }),
-          { status: 200 }
-        );
-      }
-      return new Response(JSON.stringify({ data: { deleted: true } }), {
-        status: 200,
+        if (method === 'DELETE') {
+          const id = value.split('/').pop()!;
+          deleted.push(id);
+          subscriptionList = subscriptionList.filter(
+            (subscription) => subscription.subscription_id !== id
+          );
+          return new Response(JSON.stringify({ data: { deleted: true } }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ data: {} }), { status: 200 });
       });
-    });
 
     await expect(
       provider.channelInteractionWebhooks.reconcileSubscriptions(
@@ -1073,16 +1081,23 @@ describe('XProvider interaction webhooks', () => {
           eventKey: 'like.create',
           direction: 'inbound',
           state: 'active',
-          remoteIdentifier: 'like-inbound',
         }),
         expect.objectContaining({
           eventKey: 'like.create',
           direction: 'outbound',
           state: 'active',
-          remoteIdentifier: 'like-outbound',
         }),
       ]),
     });
+    expect(deleted).toContain('like-directionless');
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, options]) =>
+          String(url).endsWith('/activity/subscriptions') &&
+          (options as RequestInit).method === 'POST' &&
+          String((options as RequestInit).body).includes('"event_type":"like.create"')
+      )
+    ).toHaveLength(3);
   });
 
   it('matches subscriptions regardless of direction casing', async () => {
