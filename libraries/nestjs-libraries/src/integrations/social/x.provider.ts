@@ -119,6 +119,7 @@ type XActivitySubscription = {
   tag?: string;
   webhook_id?: string | number;
   webhook?: { id?: string | number; webhook_id?: string | number };
+  attached_webhook_id?: string | number;
 };
 
 type XWebhookApiErrorCategory =
@@ -1028,6 +1029,23 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     }
     try {
       const current = await this.xActivitySubscriptions(accessToken);
+      console.log(
+        '[X reconcile] found',
+        current.length,
+        'subscriptions:',
+        JSON.stringify(
+          current.map((s) => ({
+            id: s.subscription_id,
+            event: s.event_type,
+            user_id: s.filter?.user_id,
+            direction: s.filter?.direction,
+            webhook_id: s.webhook_id,
+          }))
+        )
+      );
+      console.log('[X reconcile] endpoint webhook id:', endpoint.remoteWebhookId);
+      console.log('[X reconcile] integration internalId:', integration.internalId);
+
       const reconciled: ChannelInteractionSubscriptionReconciliationResult['subscriptions'] =
         [];
 
@@ -1037,6 +1055,14 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             current,
             spec,
             integration.internalId
+          );
+          console.log(
+            '[X reconcile]',
+            spec.eventKey,
+            spec.direction,
+            'matching:',
+            matching.length,
+            matching.map((m) => m.subscription_id)
           );
 
           if (integration.disabled || integration.deletedAt) {
@@ -1082,6 +1108,19 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             throw new XWebhookApiError('invalid_request');
           }
           const attachedWebhookId = this.xSubscriptionWebhookId(active);
+          console.log(
+            '[X reconcile]',
+            spec.eventKey,
+            spec.direction,
+            'active:',
+            remoteIdentifier,
+            'attachedWebhookId:',
+            attachedWebhookId,
+            'endpoint:',
+            endpoint.remoteWebhookId,
+            'match:',
+            attachedWebhookId === endpoint.remoteWebhookId
+          );
           // A PUT carrying a tag resets delivery back to "Stream only", so we
           // never PATCH delivery in place. Whenever the attached webhook is
           // missing or points at a different endpoint, delete and recreate the
@@ -1330,7 +1369,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       this.boundedId(subscription?.webhook_id) ||
       this.boundedId(subscription?.webhook?.id) ||
       this.boundedId(subscription?.webhook?.webhook_id) ||
-      this.boundedId((subscription as { webhookId?: unknown } | undefined)?.webhookId)
+      this.boundedId((subscription as { webhookId?: unknown } | undefined)?.webhookId) ||
+      this.boundedId(subscription?.attached_webhook_id)
     );
   }
 
