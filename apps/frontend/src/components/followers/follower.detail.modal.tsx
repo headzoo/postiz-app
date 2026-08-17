@@ -20,7 +20,7 @@ import {
   FollowerMemberInteraction,
   FollowerMemberNote,
   RelationshipScoreDirection,
-  RelationshipTriage,
+  DismissibleTriage,
   useFollowerDetail,
   useFollowerGradeMutation,
   useFollowerListMutations,
@@ -321,7 +321,7 @@ const FollowerDetailContent: FC<{
   const { ignoreTriage } = useFollowerListMutations(integrationId);
 
   const handleDismissTriage = useCallback(
-    async (triage: RelationshipTriage) => {
+    async (triage: DismissibleTriage) => {
       await ignoreTriage(externalId, triage);
       await revalidateDetail();
     },
@@ -454,9 +454,17 @@ const FollowerDetailContent: FC<{
           />
         )}
         <div className="min-w-0 flex-1">
-          <h3 className="text-[15px] font-[600] text-newTextColor truncate">
-            {follower.name}
-          </h3>
+          <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
+            <h3 className="text-[15px] font-[600] text-newTextColor truncate">
+              {follower.name}
+            </h3>
+            {follower.isLead && (
+              <RelationshipTriageBadge
+                triage="lead"
+                onRemove={handleDismissTriage}
+              />
+            )}
+          </div>
           {handle &&
             (follower.profileUrl ? (
               <a

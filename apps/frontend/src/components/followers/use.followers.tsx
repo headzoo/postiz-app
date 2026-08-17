@@ -45,6 +45,10 @@ export type RelationshipTriage =
   | 'over_invested'
   | 'mutual';
 
+export type DismissibleTriage =
+  | RelationshipTriage
+  | 'lead';
+
 export type FollowerTriageFilter =
   | 'engaged_not_yet'
   | 'hot_lead'
@@ -124,6 +128,7 @@ export type Follower = {
   myGrade?: number | null;
   adjustedGrade?: number | null;
   listIds?: string[];
+  isLead?: boolean;
 };
 
 export type FollowerList = {
@@ -642,18 +647,22 @@ export const applyListMembershipToFollowerPage = (
 export const applyTriageIgnoreToFollowerPage = (
   page: FollowerPage | undefined,
   externalId: string,
-  options?: { removeFromPage?: boolean }
+  options?: { removeFromPage?: boolean; triage?: DismissibleTriage }
 ): FollowerPage | undefined => {
   if (!page) {
     return page;
   }
   const items = options?.removeFromPage
     ? page.items.filter((item) => item.id !== externalId)
-    : page.items.map((item) =>
-      item.id !== externalId
-        ? item
-        : { ...item, relationshipTriage: null }
-    );
+    : page.items.map((item) => {
+        if (item.id !== externalId) {
+          return item;
+        }
+        if (options?.triage === 'lead') {
+          return { ...item, isLead: false };
+        }
+        return { ...item, relationshipTriage: null };
+      });
   return {
     ...page,
     items,
@@ -751,7 +760,7 @@ export const useFollowerListMutations = (integrationId?: string) => {
   );
 
   const ignoreTriage = useCallback(
-    async (externalId: string, triage: RelationshipTriage) => {
+    async (externalId: string, triage: DismissibleTriage) => {
       if (!integrationId) {
         throw new Error('Channel is required');
       }
@@ -768,7 +777,7 @@ export const useFollowerListMutations = (integrationId?: string) => {
       await mutateCache(
         (key) => isFollowerListCacheKey(integrationId, key),
         (page: FollowerPage | undefined) =>
-          applyTriageIgnoreToFollowerPage(page, externalId),
+          applyTriageIgnoreToFollowerPage(page, externalId, { triage }),
         { revalidate: true }
       );
     },

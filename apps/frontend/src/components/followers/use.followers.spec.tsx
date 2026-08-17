@@ -215,5 +215,24 @@ describe('follower list cache updates', () => {
       items: [{ id: 'follower-2', name: 'Sam', relationshipTriage: 'mutual' }],
       hasMore: false,
     });
+    expect(
+      applyTriageIgnoreToFollowerPage(
+        {
+          items: [
+            { id: 'lead-1', name: 'Alex', isLead: true },
+            { id: 'lead-2', name: 'Sam', isLead: true },
+          ],
+          hasMore: false,
+        },
+        'lead-1',
+        { triage: 'lead' }
+      )
+    ).toEqual({
+      items: [
+        { id: 'lead-1', name: 'Alex', isLead: false },
+        { id: 'lead-2', name: 'Sam', isLead: true },
+      ],
+      hasMore: false,
+    });
   });
 });

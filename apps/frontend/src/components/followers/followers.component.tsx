@@ -1129,11 +1129,15 @@ export const FollowersComponent: FC = () => {
                   }}
                   onDismissTriage={async (triageValue) => {
                     await ignoreTriage(follower.id, triageValue);
-                    if (triage === triageValue) {
+                    const shouldRemoveFromPage =
+                      triage === triageValue ||
+                      (audience === 'lead' && triageValue === 'lead');
+                    if (shouldRemoveFromPage) {
                       await mutateFollowers(
                         (page) =>
                           applyTriageIgnoreToFollowerPage(page, follower.id, {
                             removeFromPage: true,
+                            triage: triageValue,
                           }),
                         { revalidate: false }
                       );

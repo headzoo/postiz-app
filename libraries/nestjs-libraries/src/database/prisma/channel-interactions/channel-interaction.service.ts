@@ -1036,7 +1036,7 @@ export class ChannelInteractionService {
   ) {
     this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
     if (
-      !['quiet', 'hot_lead', 'over_invested', 'mutual'].includes(triage)
+      !['quiet', 'hot_lead', 'over_invested', 'mutual', 'lead'].includes(triage)
     ) {
       throw new BadRequestException('Invalid triage value');
     }

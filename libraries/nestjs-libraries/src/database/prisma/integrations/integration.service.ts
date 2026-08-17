@@ -1063,7 +1063,10 @@ export class IntegrationService {
         : this.getUnsupportedTrackingMetadata(coverage);
 
     return {
-      follower: this.mapAudienceMemberProfile(details.member),
+      follower: {
+        ...this.mapAudienceMemberProfile(details.member),
+        ...this.followerLeadFields(details.member, ignoredTriages),
+      },
       notes: details.notes.map((note) => this.mapFollowerMemberNote(note)),
       interactions: details.events.map((event) =>
         this.mapFollowerMemberInteraction(event)
@@ -1207,6 +1210,22 @@ export class IntegrationService {
     return ['quiet', 'hot_lead', 'over_invested', 'mutual'].includes(
       String(value)
     );
+  }
+
+  private followerLeadFields(
+    member?: {
+      membershipState?: string | null;
+      inboundInteractionCount?: number | null;
+    },
+    ignoredTriages?: Set<string>
+  ) {
+    const membership = member?.membershipState;
+    const inbound = member?.inboundInteractionCount ?? 0;
+    const isLead =
+      (membership === 'UNKNOWN' || membership === 'NOT_FOLLOWER') &&
+      inbound > 0 &&
+      !ignoredTriages?.has('lead');
+    return isLead ? { isLead: true } : {};
   }
 
   private mapFollowerMemberNote(note: {
@@ -1575,6 +1594,7 @@ export class IntegrationService {
     });
     const items = ranked.items.map((row) => ({
       ...this.mapAudienceMemberProfile(row),
+      isLead: true,
       interactionCount: row.inboundInteractionCount,
       ...(row.lastInboundAt
         ? { lastInteractionAt: row.lastInboundAt.toISOString() }
@@ -2782,6 +2802,7 @@ export class IntegrationService {
           ),
         }
         : {}),
+      ...(follower.isLead === true ? { isLead: true } : {}),
     };
   }
 

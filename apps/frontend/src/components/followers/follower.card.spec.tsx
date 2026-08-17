@@ -326,4 +326,25 @@ describe('FollowerCard', () => {
 
     expect(onDismissTriage).not.toHaveBeenCalled();
   });
+
+  it('renders a dismissible Lead badge when the follower is a lead', async () => {
+    const onDismissTriage = jest.fn();
+    decisionOpen.mockResolvedValue(true);
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          isLead: true,
+          relationshipTriage: 'mutual',
+        }}
+        onDismissTriage={onDismissTriage}
+      />
+    );
+
+    expect(screen.getByText('Lead')).toBeTruthy();
+    expect(screen.getByText('Mutual')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Lead badge' }));
+    await Promise.resolve();
+    expect(onDismissTriage).toHaveBeenCalledWith('lead');
+  });
 });

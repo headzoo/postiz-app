@@ -5,12 +5,12 @@ import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useDecisionModal } from '@gitroom/frontend/components/layout/new-modal';
-import { Follower, FollowerList, RelationshipTriage } from '@gitroom/frontend/components/followers/use.followers';
+import { Follower, FollowerList, DismissibleTriage } from '@gitroom/frontend/components/followers/use.followers';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import { FollowerListDropdown } from '@gitroom/frontend/components/followers/follower.list.dropdown';
 
 const TRIAGE_LABELS: Record<
-  RelationshipTriage,
+  DismissibleTriage,
   { key: string; defaultLabel: string }
 > = {
   hot_lead: {
@@ -29,18 +29,23 @@ const TRIAGE_LABELS: Record<
     key: 'followers_triage_quiet',
     defaultLabel: 'Quiet',
   },
+  lead: {
+    key: 'followers_audience_lead',
+    defaultLabel: 'Lead',
+  },
 };
 
-const TRIAGE_STYLES: Record<RelationshipTriage, string> = {
+const TRIAGE_STYLES: Record<DismissibleTriage, string> = {
   hot_lead: 'border-amber-500/40 text-amber-500',
   mutual: 'border-green-500/40 text-green-500',
   over_invested: 'border-red-400/40 text-red-400',
   quiet: 'border-newTableBorder text-textItemBlur',
+  lead: 'border-sky-500/40 text-sky-500',
 };
 
 export const RelationshipTriageBadge: FC<{
-  triage: RelationshipTriage;
-  onRemove?: (triage: RelationshipTriage) => Promise<void> | void;
+  triage: DismissibleTriage;
+  onRemove?: (triage: DismissibleTriage) => Promise<void> | void;
 }> = ({ triage, onRemove }) => {
   const t = useT();
   const decision = useDecisionModal();
@@ -127,7 +132,7 @@ export const FollowerCard: FC<{
   follower: Follower;
   lists?: FollowerList[];
   onToggleList?: (list: FollowerList, assigned: boolean) => Promise<void> | void;
-  onDismissTriage?: (triage: RelationshipTriage) => Promise<void> | void;
+  onDismissTriage?: (triage: DismissibleTriage) => Promise<void> | void;
   onOpen?: () => void;
 }> = ({ follower, lists = [], onToggleList, onDismissTriage, onOpen }) => {
   const t = useT();
@@ -246,6 +251,12 @@ export const FollowerCard: FC<{
                 <h3 className="text-[15px] font-[600] text-newTextColor truncate">
                   {follower.name}
                 </h3>
+                {follower.isLead && (
+                  <RelationshipTriageBadge
+                    triage="lead"
+                    onRemove={onDismissTriage}
+                  />
+                )}
                 {follower.relationshipTriage && (
                   <RelationshipTriageBadge
                     triage={follower.relationshipTriage}

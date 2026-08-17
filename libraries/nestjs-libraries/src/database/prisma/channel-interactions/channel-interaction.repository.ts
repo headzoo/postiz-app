@@ -1721,6 +1721,7 @@ export class ChannelInteractionRepository {
             ],
           },
           inboundInteractionCount: { gt: 0 },
+          triageIgnores: { none: { triage: 'lead' } },
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
             this.leadInboundKeyset(query.cursor, query.direction)

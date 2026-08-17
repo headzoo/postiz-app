@@ -2141,6 +2141,7 @@ describe('IntegrationService followers', () => {
           name: 'Lead One',
           interactionCount: 2,
           lastInteractionAt: '2026-08-14T12:00:00.000Z',
+          isLead: true,
         }),
       ],
       hasMore: false,

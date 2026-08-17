@@ -294,6 +294,7 @@ export type Follower = {
   myGrade?: number | null;
   adjustedGrade?: number | null;
   listIds?: string[];
+  isLead?: boolean;
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';

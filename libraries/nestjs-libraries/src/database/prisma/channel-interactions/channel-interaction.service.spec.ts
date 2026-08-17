@@ -1056,6 +1056,23 @@ describe('ChannelInteractionService', () => {
       'hot_lead',
       'user-a'
     );
+
+    await expect(
+      service.ignoreFollowerTriage(
+        'org',
+        'integration',
+        'follower-a',
+        'lead',
+        'user-a'
+      )
+    ).resolves.toBeUndefined();
+    expect(repository.addAudienceTriageIgnore).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      'follower-a',
+      'lead',
+      'user-a'
+    );
   });
 
   it('rejects invalid triage ignore values and missing followers', async () => {

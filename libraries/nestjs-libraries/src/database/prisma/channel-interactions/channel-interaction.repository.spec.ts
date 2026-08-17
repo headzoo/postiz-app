@@ -1456,6 +1456,7 @@ describe('ChannelInteractionRepository', () => {
             ],
           },
           inboundInteractionCount: { gt: 0 },
+          triageIgnores: { none: { triage: 'lead' } },
         },
         orderBy: [
           { lastInboundAt: { sort: 'desc', nulls: 'last' } },
@@ -1491,6 +1492,7 @@ describe('ChannelInteractionRepository', () => {
             ],
           },
           inboundInteractionCount: { gt: 0 },
+          triageIgnores: { none: { triage: 'lead' } },
           AND: [
             {
               OR: [
