@@ -981,6 +981,8 @@ export class IntegrationService {
         accountCreatedAt: Date | null;
         noteCount: number;
         likesCount?: number;
+        membershipState?: string | null;
+        inboundInteractionCount?: number | null;
         relationshipGrade: number | null;
         relationshipEffortScore: number | null;
         relationshipReciprocationScore: number | null;
