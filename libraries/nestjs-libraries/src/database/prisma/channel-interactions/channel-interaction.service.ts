@@ -22,6 +22,7 @@ import {
   Follower,
   NormalizedChannelContentEvent,
   NormalizedChannelInteractionEvent,
+  PostLiker,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
@@ -582,6 +583,129 @@ export class ChannelInteractionService {
       }
     }
     return { created, duplicates, membershipOnly };
+  }
+
+  async syncInboundLikesFromPosts(
+    integration: Integration,
+    postIds: string[],
+    syncedAt = new Date()
+  ): Promise<{ created: number; duplicates: number; skipped: boolean }> {
+    if (!this._integrationManager) {
+      return { created: 0, duplicates: 0, skipped: true };
+    }
+
+    let provider: SocialProvider;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      return { created: 0, duplicates: 0, skipped: true };
+    }
+
+    if (!provider.postLikers) {
+      return { created: 0, duplicates: 0, skipped: true };
+    }
+
+    const uniquePostIds = [
+      ...new Set(
+        postIds.filter(
+          (id) => typeof id === 'string' && id.length > 0 && id !== 'missing'
+        )
+      ),
+    ].slice(0, MAX_DELIVERY_EVENTS);
+
+    if (!uniquePostIds.length) {
+      return { created: 0, duplicates: 0, skipped: false };
+    }
+
+    let created = 0;
+    let duplicates = 0;
+    const dirtyExternalIds = new Set<string>();
+
+    for (const postId of uniquePostIds) {
+      let likers: PostLiker[];
+      try {
+        likers = await provider.postLikers(
+          integration,
+          integration.token,
+          postId
+        );
+      } catch (error) {
+        console.log(
+          `Failed to load likers for ${integration.providerIdentifier} post ${postId}:`,
+          error
+        );
+        continue;
+      }
+
+      if (!Array.isArray(likers)) {
+        continue;
+      }
+
+      for (const liker of likers.slice(0, MAX_DELIVERY_EVENTS)) {
+        if (!liker?.id) {
+          continue;
+        }
+        const result = await this._repository.recordPolledInboundLike(
+          integration.organizationId,
+          integration.id,
+          postId,
+          {
+            externalId: String(liker.id).slice(0, MAX_ID_LENGTH),
+            ...(liker.name
+              ? { name: String(liker.name).slice(0, MAX_PROFILE_TEXT_LENGTH) }
+              : {}),
+            ...(liker.username
+              ? {
+                username: String(liker.username).slice(
+                  0,
+                  MAX_PROFILE_TEXT_LENGTH
+                ),
+              }
+              : {}),
+            ...(liker.picture
+              ? {
+                picture: String(liker.picture).slice(
+                  0,
+                  MAX_PROFILE_TEXT_LENGTH
+                ),
+              }
+              : {}),
+            ...(liker.profileUrl
+              ? {
+                profileUrl: String(liker.profileUrl).slice(
+                  0,
+                  MAX_PROFILE_TEXT_LENGTH
+                ),
+              }
+              : {}),
+          },
+          syncedAt
+        );
+        if (result.created) {
+          created++;
+          dirtyExternalIds.add(String(liker.id).slice(0, MAX_ID_LENGTH));
+        } else {
+          duplicates++;
+        }
+      }
+    }
+
+    if (dirtyExternalIds.size) {
+      try {
+        await this.refreshRelationshipGradeProjections(
+          integration.organizationId,
+          integration.id,
+          [...dirtyExternalIds],
+          syncedAt
+        );
+      } catch {
+        /** Temporal remains the fallback if live projection refresh fails */
+      }
+    }
+
+    return { created, duplicates, skipped: false };
   }
 
   private async refreshRelationshipGradeProjections(

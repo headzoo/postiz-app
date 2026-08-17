@@ -38,6 +38,7 @@ const interaction = (overrides: Record<string, any> = {}) => ({
 
 const createRepository = () => ({
   recordNormalizedEvent: jest.fn().mockResolvedValue({ created: true }),
+  recordPolledInboundLike: jest.fn().mockResolvedValue({ created: true }),
   applyMembershipUpdate: jest.fn().mockResolvedValue({}),
   beginFollowerSync: jest.fn().mockResolvedValue(undefined),
   applyFollowerSyncPage: jest.fn().mockResolvedValue(true),
@@ -134,6 +135,102 @@ describe('ChannelInteractionService', () => {
     expect(() => calculateRelationshipGrade(0.5, 0)).toThrow(RangeError);
     expect(() => scoreToStars(-1)).toThrow(RangeError);
     expect(() => scoreToStars(0.5)).toThrow(RangeError);
+  });
+
+  it('skips inbound like sync when the provider has no postLikers', async () => {
+    const repository = createRepository();
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({}),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any
+    );
+
+    await expect(
+      service.syncInboundLikesFromPosts(
+        {
+          id: 'integration',
+          organizationId: 'org',
+          providerIdentifier: 'x',
+          token: 'token',
+        } as any,
+        ['tweet-1']
+      )
+    ).resolves.toEqual({ created: 0, duplicates: 0, skipped: true });
+
+    expect(repository.recordPolledInboundLike).not.toHaveBeenCalled();
+  });
+
+  it('records polled inbound likes from postLikers', async () => {
+    const repository = createRepository();
+    repository.recordPolledInboundLike
+      .mockResolvedValueOnce({ created: true })
+      .mockResolvedValueOnce({ created: false });
+    const postLikers = jest.fn().mockResolvedValue([
+      {
+        id: 'person-1',
+        name: 'One',
+        username: 'one',
+        picture: 'https://example.com/1.jpg',
+        profileUrl: 'https://x.com/one',
+      },
+      { id: 'person-2', name: 'Two', username: 'two' },
+    ]);
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({ postLikers }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any
+    );
+    const syncedAt = new Date('2026-08-17T12:00:00.000Z');
+
+    await expect(
+      service.syncInboundLikesFromPosts(
+        {
+          id: 'integration',
+          organizationId: 'org',
+          providerIdentifier: 'x',
+          token: 'token',
+        } as any,
+        ['tweet-1', 'tweet-1', 'missing', ''],
+        syncedAt
+      )
+    ).resolves.toEqual({ created: 1, duplicates: 1, skipped: false });
+
+    expect(postLikers).toHaveBeenCalledTimes(1);
+    expect(postLikers).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'integration' }),
+      'token',
+      'tweet-1'
+    );
+    expect(repository.recordPolledInboundLike).toHaveBeenNthCalledWith(
+      1,
+      'org',
+      'integration',
+      'tweet-1',
+      {
+        externalId: 'person-1',
+        name: 'One',
+        username: 'one',
+        picture: 'https://example.com/1.jpg',
+        profileUrl: 'https://x.com/one',
+      },
+      syncedAt
+    );
+    expect(repository.recordPolledInboundLike).toHaveBeenNthCalledWith(
+      2,
+      'org',
+      'integration',
+      'tweet-1',
+      {
+        externalId: 'person-2',
+        name: 'Two',
+        username: 'two',
+      },
+      syncedAt
+    );
   });
 
   it('applies a personal grade as a half-star offset around a 3-star neutral', () => {

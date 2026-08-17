@@ -263,6 +263,22 @@ export class PostsService {
           ? 1
           : 3600
       );
+
+      const likesSeries = loadAnalytics.find(
+        (entry) => entry.label === 'Likes'
+      );
+      const likesTotal = likesSeries?.data?.[0]?.total;
+      if (likesTotal !== undefined && likesTotal !== null && likesTotal !== '') {
+        const likesCount = Math.max(0, Math.trunc(Number(likesTotal)));
+        if (Number.isFinite(likesCount)) {
+          await this._postRepository.updateLikesCountByPostId(
+            post.id,
+            orgId,
+            likesCount
+          );
+        }
+      }
+
       return loadAnalytics;
     } catch (e) {
       console.log(e);

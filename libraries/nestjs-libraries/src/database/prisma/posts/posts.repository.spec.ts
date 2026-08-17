@@ -57,6 +57,93 @@ describe('Posts repository scheduling regressions', () => {
     );
   });
 
+  it('filters calendar posts by title or content when search is provided', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const posts = repository({ findMany });
+
+    await posts.getPosts('org', {
+      startDate: '2026-08-01T00:00:00.000Z',
+      endDate: '2026-08-31T23:59:59.999Z',
+      search: '  hello world  ',
+    } as any);
+
+    const and = findMany.mock.calls[0][0].where.AND;
+    expect(and).toEqual(
+      expect.arrayContaining([
+        {
+          OR: [
+            {
+              title: {
+                contains: 'hello world',
+                mode: 'insensitive',
+              },
+            },
+            {
+              content: {
+                contains: 'hello world',
+                mode: 'insensitive',
+              },
+            },
+          ],
+        },
+      ])
+    );
+  });
+
+  it('filters list posts by title or content when search is provided', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const count = jest.fn().mockResolvedValue(0);
+    const posts = repository({ findMany, count });
+
+    await posts.getPostsList('org', {
+      state: 'all',
+      page: 0,
+      search: 'launch',
+    } as any);
+
+    const where = findMany.mock.calls[0][0].where;
+    expect(where.AND).toEqual(
+      expect.arrayContaining([
+        {
+          OR: [
+            {
+              title: {
+                contains: 'launch',
+                mode: 'insensitive',
+              },
+            },
+            {
+              content: {
+                contains: 'launch',
+                mode: 'insensitive',
+              },
+            },
+          ],
+        },
+      ])
+    );
+    // Search across all states should not apply the upcoming-only date filter.
+    expect(where.publishDate).toBeUndefined();
+    expect(findMany.mock.calls[0][0].orderBy).toEqual({
+      publishDate: 'desc',
+    });
+    expect(count).toHaveBeenCalledWith({ where });
+  });
+
+  it('omits title/content filter when search is blank', async () => {
+    const findMany = jest.fn().mockResolvedValue([]);
+    const posts = repository({ findMany });
+
+    await posts.getPosts('org', {
+      startDate: '2026-08-01T00:00:00.000Z',
+      endDate: '2026-08-31T23:59:59.999Z',
+      search: '   ',
+    } as any);
+
+    const and = findMany.mock.calls[0][0].where.AND;
+    expect(and).toHaveLength(2);
+  });
+
   it('scopes recurring posts to the visible window instead of expanding from origin', async () => {
     const findMany = jest.fn().mockResolvedValue([
       {

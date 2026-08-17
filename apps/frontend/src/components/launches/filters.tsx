@@ -3,9 +3,10 @@
 import { useCalendar, ListStateFilter } from '@gitroom/frontend/components/launches/calendar.context';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
-import { useCallback } from 'react';
+import { FormEvent, useCallback } from 'react';
 import { SelectCustomer } from '@gitroom/frontend/components/launches/select.customer';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { Button } from '@gitroom/react/form/button';
 import i18next from 'i18next';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
 
@@ -408,24 +409,51 @@ export const Filters = () => {
               </svg>
             </div>
           </div>
-          <div className="flex flex-row p-[4px] border border-newTableBorder rounded-[8px] text-[14px] font-[500]">
-            {listStateOptions.map((option) => (
-              <div
-                key={option.value}
-                onClick={setListStateFilter(option.value)}
-                className={clsx(
-                  'pt-[6px] pb-[5px] cursor-pointer min-w-[80px] px-[12px] text-center rounded-[6px]',
-                  calendar.listState === option.value &&
+          {!calendar.trimmedSearch && (
+            <div className="flex flex-row p-[4px] border border-newTableBorder rounded-[8px] text-[14px] font-[500]">
+              {listStateOptions.map((option) => (
+                <div
+                  key={option.value}
+                  onClick={setListStateFilter(option.value)}
+                  className={clsx(
+                    'pt-[6px] pb-[5px] cursor-pointer min-w-[80px] px-[12px] text-center rounded-[6px]',
+                    calendar.listState === option.value &&
                     'text-textItemFocused bg-boxFocused'
-                )}
-              >
-                {option.label}
-              </div>
-            ))}
-          </div>
+                  )}
+                >
+                  {option.label}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex-1" />
         </div>
       )}
+      <form
+        className="flex items-center gap-[8px]"
+        onSubmit={(event: FormEvent) => {
+          event.preventDefault();
+          calendar.submitSearch();
+        }}
+      >
+        <input
+          type="search"
+          value={calendar.search}
+          onChange={(e) => calendar.setSearch(e.target.value)}
+          placeholder={t(
+            'search_posts_placeholder',
+            'Search by title or content'
+          )}
+          aria-label={t(
+            'search_posts_placeholder',
+            'Search by title or content'
+          )}
+          className="w-full min-w-[180px] max-w-[240px] h-[42px] px-[14px] rounded-[8px] bg-newBgColorInner border border-newColColor text-[14px] outline-none focus:border-[#eb3825]"
+        />
+        <Button type="submit" secondary>
+          {t('search', 'Search')}
+        </Button>
+      </form>
       <SelectCustomer
         customer={calendar.customer as string}
         onChange={(customer: string) => setCustomer(customer)}

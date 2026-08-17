@@ -27,6 +27,8 @@ const POST_ITEM_KEYS: Record<string, string> = {
   actualDate: 'ad',
   creationMethod: 'cm',
   platformDeletedAt: 'pd',
+  likesCount: 'lc',
+  likesSyncedAt: 'ls',
 };
 
 const INTEGRATION_KEYS: Record<string, string> = {

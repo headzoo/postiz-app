@@ -61,6 +61,29 @@ export class PostsRepository {
     });
   }
 
+  private titleContentSearchFilter(search?: string) {
+    const trimmedSearch = search?.trim();
+    if (!trimmedSearch) {
+      return null;
+    }
+    return {
+      OR: [
+        {
+          title: {
+            contains: trimmedSearch,
+            mode: 'insensitive' as const,
+          },
+        },
+        {
+          content: {
+            contains: trimmedSearch,
+            mode: 'insensitive' as const,
+          },
+        },
+      ],
+    };
+  }
+
   getOldPosts(orgId: string, date: string) {
     return this._post.model.post.findMany({
       where: {
@@ -128,6 +151,7 @@ export class PostsRepository {
     // Use the provided start and end dates directly
     const startDate = dayjs.utc(query.startDate).toDate();
     const endDate = dayjs.utc(query.endDate).toDate();
+    const searchFilter = this.titleContentSearchFilter(query.search);
 
     const list = await this._post.model.post.findMany({
       where: {
@@ -157,6 +181,7 @@ export class PostsRepository {
               },
             ],
           },
+          ...(searchFilter ? [searchFilter] : []),
         ],
         integration: {
           deletedAt: null,
@@ -180,6 +205,8 @@ export class PostsRepository {
         publishDate: true,
         releaseURL: true,
         releaseId: true,
+        likesCount: true,
+        likesSyncedAt: true,
         state: true,
         intervalInDays: true,
         group: true,
@@ -259,8 +286,10 @@ export class PostsRepository {
               },
             };
 
+    const searchFilter = this.titleContentSearchFilter(query.search);
+
     const orderDirection: 'asc' | 'desc' =
-      stateFilter === 'published' ? 'desc' : 'asc';
+      stateFilter === 'published' || !!searchFilter ? 'desc' : 'asc';
 
     const where = {
       AND: [
@@ -271,11 +300,13 @@ export class PostsRepository {
             },
           ],
         },
+        ...(searchFilter ? [searchFilter] : []),
       ],
       ...stateAndDate,
       // Published posts were already posted (publishDate in the past), so fetch
       // all of them; everything else stays upcoming. Ordering handles the rest.
-      ...(stateFilter === 'published'
+      // Search across all states should include past published / drafts too.
+      ...(stateFilter === 'published' || searchFilter
         ? {}
         : { publishDate: { gte: dayjs.utc().toDate() } }),
       deletedAt: null as Date | null,
@@ -311,6 +342,8 @@ export class PostsRepository {
           publishDate: true,
           releaseURL: true,
           releaseId: true,
+          likesCount: true,
+          likesSyncedAt: true,
           state: true,
           intervalInDays: true,
           group: true,
@@ -523,6 +556,46 @@ export class PostsRepository {
       },
       data: {
         releaseId: String(releaseId),
+      },
+    });
+  }
+
+  updateLikesCount(
+    integrationId: string,
+    releaseId: string,
+    likesCount: number,
+    syncedAt: Date = new Date()
+  ) {
+    return this._post.model.post.updateMany({
+      where: {
+        integrationId,
+        releaseId,
+        deletedAt: null,
+        state: 'PUBLISHED',
+      },
+      data: {
+        likesCount,
+        likesSyncedAt: syncedAt,
+      },
+    });
+  }
+
+  updateLikesCountByPostId(
+    postId: string,
+    orgId: string,
+    likesCount: number,
+    syncedAt: Date = new Date()
+  ) {
+    return this._post.model.post.updateMany({
+      where: {
+        id: postId,
+        organizationId: orgId,
+        deletedAt: null,
+        state: 'PUBLISHED',
+      },
+      data: {
+        likesCount,
+        likesSyncedAt: syncedAt,
       },
     });
   }

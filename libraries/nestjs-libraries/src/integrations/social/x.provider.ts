@@ -3491,11 +3491,6 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     postId: string
   ): Promise<PostLiker[]> {
     const client = await this.getClient(accessToken);
-    const response = await client.v2.tweetLikedBy(postId, {
-      max_results: 100,
-      'user.fields': ['username', 'name', 'profile_image_url'],
-    });
-
     const isHttpUrl = (value?: string) => {
       try {
         return value && /^https?:$/.test(new URL(value).protocol)
@@ -3506,7 +3501,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       }
     };
 
-    return (response.data || []).map((user) => ({
+    const mapUser = (user: {
+      id: string;
+      name: string;
+      username?: string;
+      profile_image_url?: string;
+    }): PostLiker => ({
       id: user.id,
       name: user.name,
       ...(user.username ? { username: user.username } : {}),
@@ -3515,10 +3515,26 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         : {}),
       ...(user.username
         ? {
-            profileUrl: `https://x.com/${encodeURIComponent(user.username)}`,
-          }
+          profileUrl: `https://x.com/${encodeURIComponent(user.username)}`,
+        }
         : {}),
-    }));
+    });
+
+    const likers: PostLiker[] = [];
+    let paginationToken: string | undefined;
+    do {
+      const response = await client.v2.tweetLikedBy(postId, {
+        max_results: 100,
+        'user.fields': ['username', 'name', 'profile_image_url'],
+        ...(paginationToken ? { pagination_token: paginationToken } : {}),
+      });
+      for (const user of response.data || []) {
+        likers.push(mapUser(user));
+      }
+      paginationToken = response.meta?.next_token;
+    } while (paginationToken);
+
+    return likers;
   }
 
   override async mention(token: string, d: { query: string }) {

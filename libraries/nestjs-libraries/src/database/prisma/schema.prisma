@@ -471,6 +471,8 @@ model Post {
   parentPostId               String?
   releaseId                  String?
   releaseURL                 String?
+  likesCount                 Int                       @default(0)
+  likesSyncedAt              DateTime?
   settings                   String?
   image                      String?
   submittedForOrderId        String?

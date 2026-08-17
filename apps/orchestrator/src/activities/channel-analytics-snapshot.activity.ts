@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { Integration } from '@prisma/client';
 import { ChannelAnalyticsRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.repository';
 import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.service';
+import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
@@ -33,8 +34,9 @@ export class ChannelAnalyticsSnapshotActivity {
     private _channelAnalyticsService: ChannelAnalyticsService,
     private _integrationService: IntegrationService,
     private _integrationManager: IntegrationManager,
-    private _refreshIntegrationService: RefreshIntegrationService
-  ) {}
+    private _refreshIntegrationService: RefreshIntegrationService,
+    private _channelInteractionService: ChannelInteractionService
+  ) { }
 
   @ActivityMethod()
   async listDueCandidates(after?: string) {
@@ -94,6 +96,33 @@ export class ChannelAnalyticsSnapshotActivity {
       snapshotAt,
       page
     );
+
+    if (page.kind === 'post_lifetime' && provider.postLikers) {
+      const tweetIds = Array.from(
+        new Set<string>(
+          page.points.map((point) => point.externalPostId)
+        )
+      );
+      if (tweetIds.length) {
+        try {
+          const liveIntegration = await this.withRefreshedToken(
+            integration,
+            provider
+          );
+          await this._channelInteractionService.syncInboundLikesFromPosts(
+            liveIntegration,
+            tweetIds,
+            snapshotAt
+          );
+        } catch (error) {
+          console.log(
+            `Failed to sync inbound likes for integration ${request.candidate.id}:`,
+            error
+          );
+        }
+      }
+    }
+
     return {
       mode: page.kind,
       hasMore: !!page.nextCursor,
@@ -152,7 +181,7 @@ export class ChannelAnalyticsSnapshotActivity {
     snapshotAt: Date,
     cursor?: string,
     forceRefresh = false
-  ) {
+  ): Promise<ChannelAnalyticsCapturePage> {
     const liveIntegration = await this.withRefreshedToken(
       integration,
       provider,

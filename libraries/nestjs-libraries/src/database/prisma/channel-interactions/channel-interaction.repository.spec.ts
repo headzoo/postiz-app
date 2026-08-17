@@ -236,7 +236,6 @@ describe('ChannelInteractionRepository', () => {
       },
       data: {
         inboundInteractionCount: { increment: 1 },
-        likesCount: { increment: 1 },
       },
     });
     expect(tx.channelInteractionDailyAggregate.upsert).toHaveBeenCalledWith(
@@ -1087,7 +1086,7 @@ describe('ChannelInteractionRepository', () => {
     });
   });
 
-  it('increments likesCount for inbound likes', async () => {
+  it('increments inbound counts for inbound likes without likesCount', async () => {
     const { repository, tx } = createHarness();
 
     await repository.recordNormalizedEvent('org', 'integration', event());
@@ -1100,7 +1099,6 @@ describe('ChannelInteractionRepository', () => {
       },
       data: {
         inboundInteractionCount: { increment: 1 },
-        likesCount: { increment: 1 },
       },
     });
     expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
@@ -1115,6 +1113,63 @@ describe('ChannelInteractionRepository', () => {
       },
       data: { lastInboundAt: event().eventAt },
     });
+  });
+
+  it('increments likesCount for polled inbound likes', async () => {
+    const { repository, tx } = createHarness();
+
+    await repository.recordPolledInboundLike(
+      'org',
+      'integration',
+      'tweet-1',
+      {
+        externalId: 'person-1',
+        name: 'Person',
+        username: 'person',
+      },
+      new Date('2026-08-17T12:00:00.000Z')
+    );
+
+    expect(tx.channelInteractionEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          providerEventKey: 'post-like:tweet-1:person-1',
+          kind: ChannelInteractionKind.LIKE,
+          direction: ChannelInteractionDirection.INBOUND,
+          relatedObjectId: 'tweet-1',
+          counterpartyExternalId: 'person-1',
+        }),
+      ],
+      skipDuplicates: true,
+    });
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      data: {
+        inboundInteractionCount: { increment: 1 },
+        likesCount: { increment: 1 },
+      },
+    });
+  });
+
+  it('does not increment likesCount when a polled like is a duplicate', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelInteractionEvent.createMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      repository.recordPolledInboundLike(
+        'org',
+        'integration',
+        'tweet-1',
+        { externalId: 'person-1' },
+        new Date('2026-08-17T12:00:00.000Z')
+      )
+    ).resolves.toEqual({ created: false });
+
+    expect(tx.channelAudienceMember.updateMany).not.toHaveBeenCalled();
   });
 
   it('increments inbound counts for inbound replies without likesCount', async () => {
@@ -1153,7 +1208,7 @@ describe('ChannelInteractionRepository', () => {
     expect(tx.channelAudienceMember.updateMany).not.toHaveBeenCalled();
   });
 
-  it('does not increment likesCount when a duplicate like is skipped', async () => {
+  it('does not increment inbound counts when a duplicate like is skipped', async () => {
     const { repository, tx } = createHarness();
     tx.channelInteractionEvent.createMany.mockResolvedValue({ count: 0 });
 

@@ -15,6 +15,9 @@ const createHarness = () => {
       findUnique: jest.fn(),
       upsert: jest.fn().mockResolvedValue({}),
     },
+    post: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
   const integration = { findMany: jest.fn() };
   const repository = new ChannelAnalyticsRepository(
@@ -80,6 +83,43 @@ describe('ChannelAnalyticsRepository', () => {
         },
       })
     );
+  });
+
+  it('denormalizes like_count onto matching published posts', async () => {
+    const { repository, tx } = createHarness();
+    const snapshotAt = new Date('2026-08-17T12:00:00Z');
+    await repository.persistPostLifetimePage('org', 'integration', snapshotAt, [
+      {
+        externalPostId: 'tweet-1',
+        metricKey: 'like_count',
+        label: 'Likes',
+        valueMode: 'SUM' as any,
+        value: 12,
+      },
+      {
+        externalPostId: 'tweet-1',
+        metricKey: 'impression_count',
+        label: 'Impressions',
+        valueMode: 'SUM' as any,
+        value: 100,
+      },
+    ]);
+
+    expect(tx.channelAnalyticsPostMetricSnapshot.upsert).toHaveBeenCalledTimes(2);
+    expect(tx.post.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.post.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        releaseId: 'tweet-1',
+        deletedAt: null,
+        state: 'PUBLISHED',
+      },
+      data: {
+        likesCount: 12,
+        likesSyncedAt: snapshotAt,
+      },
+    });
   });
 
   it('uses the first post-lifetime snapshot only as a baseline', async () => {

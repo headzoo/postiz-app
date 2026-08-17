@@ -9,6 +9,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import dayjs from 'dayjs';
@@ -34,6 +35,39 @@ export type CalendarPost = Post & {
     tag: Tags;
   }[];
 };
+
+function matchesPostSearch(
+  post: { content?: string | null; title?: string | null },
+  term: string
+) {
+  if (!term) {
+    return true;
+  }
+  const lower = term.toLowerCase();
+  return (
+    (post.content || '').toLowerCase().includes(lower) ||
+    (post.title || '').toLowerCase().includes(lower)
+  );
+}
+
+function buildCalendarUrl(
+  filters: {
+    startDate: string;
+    endDate: string;
+    display: string;
+    customer: string | null;
+  },
+  search: string
+) {
+  const path = [
+    `startDate=${filters.startDate}`,
+    `endDate=${filters.endDate}`,
+    `display=${filters.display}`,
+    filters.customer ? `customer=${filters.customer}` : '',
+    search ? `search=${encodeURIComponent(search)}` : '',
+  ].filter((f) => f);
+  return `/calendar?${path.join('&')}`;
+}
 
 /** Cell key matching CalendarColumn filter semantics for the given display. */
 export function getCalendarCellKey(
@@ -120,6 +154,14 @@ export const CalendarContext = createContext({
   setListState: (state: ListStateFilter) => {
     /** empty **/
   },
+  search: '',
+  setSearch: (_search: string) => {
+    /** empty **/
+  },
+  submitSearch: () => {
+    /** empty **/
+  },
+  trimmedSearch: '',
 });
 
 export interface Integrations {
@@ -182,7 +224,7 @@ export const CalendarWeekProvider: FC<{
   const [trendings] = useState<string[]>([]);
   const searchParams = useSearchParams();
   const [displaySaved, setDisplaySaved] = useCookie('calendar-display', 'week');
-  const display = searchParams.get('display') || displaySaved;
+  const urlDisplay = searchParams.get('display') || displaySaved;
 
   // List view state
   const [listPage, setListPage] = useState(0);
@@ -196,18 +238,128 @@ export const CalendarWeekProvider: FC<{
   const initStartDate = searchParams.get('startDate');
   const initEndDate = searchParams.get('endDate');
   const initCustomer = searchParams.get('customer');
+  const initSearch = searchParams.get('search') || '';
+  const startingInSearch = !!initSearch.trim();
 
   const initialRange =
     initStartDate && initEndDate
       ? { startDate: initStartDate, endDate: initEndDate }
-      : getDateRange(display);
+      : getDateRange(urlDisplay);
 
   const [filters, setFilters] = useState({
     startDate: initialRange.startDate,
     endDate: initialRange.endDate,
     customer: initCustomer || null,
-    display,
+    display: startingInSearch ? 'list' : urlDisplay,
   });
+  const [search, setSearchRaw] = useState(initSearch);
+  const [appliedSearch, setAppliedSearch] = useState(
+    startingInSearch ? initSearch.trim() : ''
+  );
+  const trimmedSearch = appliedSearch;
+  const isSearchActive = !!trimmedSearch;
+
+  // Remember view mode before search so clearing can restore it.
+  const displayBeforeSearch = useRef<string | null>(
+    startingInSearch ? urlDisplay : null
+  );
+  const listStateBeforeSearch = useRef<ListStateFilter | null>(
+    startingInSearch ? 'all' : null
+  );
+  const isSearchMode = useRef(startingInSearch);
+  const filtersRef = useRef(filters);
+  const listStateRef = useRef(listState);
+  filtersRef.current = filters;
+  listStateRef.current = listState;
+
+  const exitSearchMode = useCallback(() => {
+    const currentFilters = filtersRef.current;
+    setAppliedSearch('');
+    setSearchRaw('');
+    setListPage(0);
+
+    if (!isSearchMode.current) {
+      window.history.replaceState(
+        null,
+        '',
+        buildCalendarUrl(currentFilters, '')
+      );
+      return;
+    }
+
+    isSearchMode.current = false;
+    const restoreDisplay = (displayBeforeSearch.current ||
+      'week') as 'week' | 'month' | 'day' | 'list';
+    const restoreListState = listStateBeforeSearch.current || 'all';
+    displayBeforeSearch.current = null;
+    listStateBeforeSearch.current = null;
+
+    setListStateRaw(restoreListState);
+
+    const range =
+      restoreDisplay === 'list'
+        ? {
+            startDate: currentFilters.startDate,
+            endDate: currentFilters.endDate,
+          }
+        : getDateRange(restoreDisplay, currentFilters.startDate);
+
+    const nextFilters = {
+      startDate: range.startDate,
+      endDate: range.endDate,
+      display: restoreDisplay,
+      customer: currentFilters.customer,
+    };
+    setDisplaySaved(restoreDisplay);
+    setFilters(nextFilters);
+    window.history.replaceState(null, '', buildCalendarUrl(nextFilters, ''));
+  }, [setDisplaySaved]);
+
+  const setSearch = useCallback(
+    (next: string) => {
+      setSearchRaw(next);
+      // Native type="search" clear (and emptying the field) exits search mode.
+      if (!next.trim() && isSearchMode.current) {
+        exitSearchMode();
+      }
+    },
+    [exitSearchMode]
+  );
+
+  const submitSearch = useCallback(() => {
+    const term = search.trim();
+    if (!term) {
+      if (isSearchMode.current || appliedSearch) {
+        exitSearchMode();
+      }
+      return;
+    }
+
+    const currentFilters = filtersRef.current;
+    const currentListState = listStateRef.current;
+
+    if (!isSearchMode.current) {
+      displayBeforeSearch.current = currentFilters.display;
+      listStateBeforeSearch.current = currentListState;
+      isSearchMode.current = true;
+    }
+
+    setAppliedSearch(term);
+    setListStateRaw('all');
+    setListPage(0);
+
+    const nextFilters = {
+      ...currentFilters,
+      display: 'list' as const,
+    };
+    setDisplaySaved('list');
+    setFilters(nextFilters);
+    window.history.replaceState(
+      null,
+      '',
+      buildCalendarUrl(nextFilters, term)
+    );
+  }, [search, appliedSearch, exitSearchMode, setDisplaySaved]);
 
   // Shared 42-day month grid — day/week/month all reuse this fetch window.
   const monthWindow = useMemo(
@@ -217,12 +369,16 @@ export const CalendarWeekProvider: FC<{
 
   // SWR key omits display so day/week/month share one cache entry.
   const calendarParams = useMemo(() => {
-    return new URLSearchParams({
+    const params = new URLSearchParams({
       startDate: monthWindow.startDate,
       endDate: monthWindow.endDate,
       customer: filters?.customer?.toString() || '',
-    }).toString();
-  }, [monthWindow, filters.customer]);
+    });
+    if (trimmedSearch) {
+      params.set('search', trimmedSearch);
+    }
+    return params.toString();
+  }, [monthWindow, filters.customer, trimmedSearch]);
 
   // List view uses a forward pipeline window; calendar views share monthWindow.
   const pipelineWindow = useMemo(() => {
@@ -241,11 +397,14 @@ export const CalendarWeekProvider: FC<{
       customer: filters?.customer?.toString() || '',
       startDate: monthWindow.startDate,
       endDate: monthWindow.endDate,
-    }).toString();
+    });
+    if (trimmedSearch) {
+      modifiedParams.set('search', trimmedSearch);
+    }
 
-    const data = await (await fetch(`/posts?${modifiedParams}`)).json();
+    const data = await (await fetch(`/posts?${modifiedParams.toString()}`)).json();
     return expandPosts(data);
-  }, [fetch, filters.customer, monthWindow]);
+  }, [fetch, filters.customer, monthWindow, trimmedSearch]);
 
   // Projected pipeline queue items overlaid onto calendar and list (not
   // persisted dates — computed server-side from each Pipeline's schedule).
@@ -257,15 +416,31 @@ export const CalendarWeekProvider: FC<{
       filters.customer
     );
 
-  // List view data fetcher
+  const filteredPipelinePosts = useMemo(
+    () =>
+      (pipelinePosts || []).filter((post) =>
+        matchesPostSearch(post, trimmedSearch)
+      ),
+    [pipelinePosts, trimmedSearch]
+  );
+
+  // List view data fetcher — search always queries across all states.
+  const effectiveListState: ListStateFilter = isSearchActive
+    ? 'all'
+    : listState;
+
   const listParams = useMemo(() => {
-    return new URLSearchParams({
+    const params = new URLSearchParams({
       page: listPage.toString(),
       limit: '100',
       customer: filters?.customer?.toString() || '',
-      state: listState,
-    }).toString();
-  }, [listPage, filters.customer, listState]);
+      state: effectiveListState,
+    });
+    if (trimmedSearch) {
+      params.set('search', trimmedSearch);
+    }
+    return params.toString();
+  }, [listPage, filters.customer, effectiveListState, trimmedSearch]);
 
   const loadListData = useCallback(async () => {
     const response = await fetch(`/posts/list?${listParams}`);
@@ -348,25 +523,23 @@ export const CalendarWeekProvider: FC<{
         setListPage(0);
       }
 
-      const path = [
-        `startDate=${newFilters.startDate}`,
-        `endDate=${newFilters.endDate}`,
-        `display=${newFilters.display}`,
-        newFilters.customer ? `customer=${newFilters.customer}` : ``,
-      ].filter((f) => f);
-      window.history.replaceState(null, '', `/calendar?${path.join('&')}`);
+      window.history.replaceState(
+        null,
+        '',
+        buildCalendarUrl(newFilters, trimmedSearch)
+      );
     },
-    [setDisplaySaved]
+    [setDisplaySaved, trimmedSearch]
   );
 
   const mergedPosts = useMemo(
-    () => [...(calendarData?.posts || []), ...(pipelinePosts || [])],
-    [calendarData?.posts, pipelinePosts]
+    () => [...(calendarData?.posts || []), ...filteredPipelinePosts],
+    [calendarData?.posts, filteredPipelinePosts]
   );
 
   useEffect(() => {
     setDateOverrides({});
-  }, [calendarData?.posts, pipelinePosts]);
+  }, [calendarData?.posts, filteredPipelinePosts]);
 
   const displayPosts = useMemo(() => {
     if (!Object.keys(dateOverrides).length) {
@@ -385,26 +558,35 @@ export const CalendarWeekProvider: FC<{
   // pipeline posts appear with the same upcoming dates as the calendar.
   const listPosts = useMemo(() => {
     const base = listData?.posts || [];
-    if (listState === 'published' || listPage !== 0) {
+    if (effectiveListState === 'published' || listPage !== 0) {
       return base;
     }
 
-    const pipelineOverlay = pipelinePosts || [];
-    if (!pipelineOverlay.length) {
+    if (!filteredPipelinePosts.length) {
       return base;
     }
 
     const seen = new Set(base.map((post: { id: string }) => post.id));
     const merged = [
       ...base,
-      ...pipelineOverlay.filter((post: { id: string }) => !seen.has(post.id)),
+      ...filteredPipelinePosts.filter((post: { id: string }) => !seen.has(post.id)),
     ];
 
     return merged.sort(
-      (a: { publishDate: string }, b: { publishDate: string }) =>
-        newDayjs(a.publishDate).valueOf() - newDayjs(b.publishDate).valueOf()
+      (a: { publishDate: string }, b: { publishDate: string }) => {
+        const diff =
+          newDayjs(a.publishDate).valueOf() - newDayjs(b.publishDate).valueOf();
+        // Search results are newest-first to mix published + upcoming.
+        return isSearchActive ? -diff : diff;
+      }
     );
-  }, [listData?.posts, pipelinePosts, listState, listPage]);
+  }, [
+    listData?.posts,
+    filteredPipelinePosts,
+    effectiveListState,
+    listPage,
+    isSearchActive,
+  ]);
   const listTotal = listData?.total || 0;
   const listTotalPages = Math.ceil(listTotal / 100);
 
@@ -476,6 +658,10 @@ export const CalendarWeekProvider: FC<{
         setListPage,
         listState,
         setListState,
+        search,
+        setSearch,
+        submitSearch,
+        trimmedSearch,
       }}
     >
       {children}

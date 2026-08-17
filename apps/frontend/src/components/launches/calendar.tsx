@@ -709,9 +709,11 @@ export const MonthView = () => {
 export const ListView = () => {
   const t = useT();
   const user = useUser();
-  const { integrations, loading, listPosts, listState } = useCalendar();
-  const emptyMessage =
-    listState === 'scheduled'
+  const { integrations, loading, listPosts, listState, trimmedSearch } =
+    useCalendar();
+  const emptyMessage = trimmedSearch
+    ? t('no_posts_match_search', 'No posts match your search')
+    : listState === 'scheduled'
       ? t('no_upcoming_posts', 'No upcoming posts scheduled')
       : listState === 'draft'
         ? t('no_draft_posts', 'No draft posts')
@@ -769,7 +771,7 @@ export const ListView = () => {
             <div className="text-center text-[14px] min-h-[21px] text-textColor font-[500] mt-[10px]">
               {newDayjs(dateKey).format(isUSCitizen() ? 'dddd, MMMM D, YYYY' : 'dddd, D MMMM YYYY')}
             </div>
-            <div className="flex flex-col gap-[10px] mb-[20px] px-[10px]">
+            <div className="flex flex-col gap-[10px] mb-[20px] px-[10px] mx-auto w-full max-w-[600px]">
               {datePosts.map((entry) => {
                 const post =
                   entry.kind === 'stack'
@@ -1560,6 +1562,23 @@ const CalendarItem: FC<{
   const showStatistics =
     !(post.integration.providerIdentifier === 'x' && disableXAnalytics) &&
     !!post.releaseId;
+  const likesCount = Number(post.likesCount) || 0;
+  const showLikes =
+    post.state === 'PUBLISHED' &&
+    !!post.releaseId &&
+    post.releaseId !== 'missing' &&
+    (!!post.likesSyncedAt || likesCount > 0);
+  const likesLabel = (() => {
+    const count = Math.abs(Math.round(likesCount));
+    if (count < 10000) {
+      return count.toLocaleString('en-US');
+    }
+    return new Intl.NumberFormat('en-US', {
+      notation: 'compact',
+      compactDisplay: 'short',
+      maximumFractionDigits: 1,
+    }).format(count);
+  })();
   const canOpenPublished = !!post.releaseURL;
   const preview = useCallback(() => {
     window.open(`/p/` + post.id + '?share=true', '_blank');
@@ -1672,6 +1691,16 @@ const CalendarItem: FC<{
             </div>
           )}
         </div>
+        {showLikes && (
+          <div
+            className="flex items-center gap-[4px] text-[12px] text-textColor/50"
+            data-tooltip-id="tooltip"
+            data-tooltip-content={t('post_likes_count', 'Likes')}
+          >
+            <CalendarLikesIcon />
+            <span>{likesLabel}</span>
+          </div>
+        )}
         <div
           className={clsx(
             'flex items-center gap-[8px] h-[15px] invisible opacity-0 pointer-events-none',
@@ -1871,6 +1900,23 @@ export const Statistics = () => {
     </svg>
   );
 };
+
+const CalendarLikesIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="12"
+    height="12"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+  </svg>
+);
 
 export const DeletePost = () => {
   const t = useT();

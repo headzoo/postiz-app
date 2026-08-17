@@ -30,6 +30,7 @@ describe('ChannelAnalyticsSnapshotActivity', () => {
     getSocialIntegration: jest.Mock;
   };
   let refresh: { refresh: jest.Mock };
+  let interactions: { syncInboundLikesFromPosts: jest.Mock };
 
   const createActivity = () =>
     new ChannelAnalyticsSnapshotActivity(
@@ -37,7 +38,8 @@ describe('ChannelAnalyticsSnapshotActivity', () => {
       analytics as any,
       integrations as any,
       manager as any,
-      refresh as any
+      refresh as any,
+      interactions as any
     );
 
   beforeEach(() => {
@@ -55,6 +57,13 @@ describe('ChannelAnalyticsSnapshotActivity', () => {
       getSocialIntegration: jest.fn(),
     };
     refresh = { refresh: jest.fn() };
+    interactions = {
+      syncInboundLikesFromPosts: jest.fn().mockResolvedValue({
+        created: 0,
+        duplicates: 0,
+        skipped: false,
+      }),
+    };
   });
 
   it('discovers only a bounded provider-capable candidate batch', async () => {
@@ -103,11 +112,57 @@ describe('ChannelAnalyticsSnapshotActivity', () => {
       expect.any(Date),
       expect.objectContaining({ kind: 'post_lifetime' })
     );
+    expect(interactions.syncInboundLikesFromPosts).not.toHaveBeenCalled();
     expect(result).toEqual({
       mode: 'post_lifetime',
       hasMore: true,
       nextCursor: 'next',
     });
+  });
+
+  it('syncs inbound likes from post_lifetime tweet ids when postLikers exists', async () => {
+    const capture = jest.fn().mockResolvedValue({
+      kind: 'post_lifetime',
+      points: [
+        {
+          externalPostId: 'tweet-1',
+          metricKey: 'like_count',
+          label: 'Likes',
+          valueMode: 'sum',
+          value: 2,
+        },
+        {
+          externalPostId: 'tweet-1',
+          metricKey: 'impression_count',
+          label: 'Impressions',
+          valueMode: 'sum',
+          value: 10,
+        },
+        {
+          externalPostId: 'tweet-2',
+          metricKey: 'like_count',
+          label: 'Likes',
+          valueMode: 'sum',
+          value: 1,
+        },
+      ],
+    });
+    const postLikers = jest.fn();
+    manager.getSocialIntegration.mockReturnValue({
+      analyticsSnapshot: { capture },
+      postLikers,
+    });
+
+    await createActivity().capturePersistPage({
+      candidate,
+      snapshotAt: '2026-08-15T12:00:00.000Z',
+    });
+
+    expect(interactions.syncInboundLikesFromPosts).toHaveBeenCalledWith(
+      expect.objectContaining({ id: candidate.id, token: 'token' }),
+      ['tweet-1', 'tweet-2'],
+      expect.any(Date)
+    );
   });
 
   it('uses a fixed UTC 180-day window for every capture page', async () => {

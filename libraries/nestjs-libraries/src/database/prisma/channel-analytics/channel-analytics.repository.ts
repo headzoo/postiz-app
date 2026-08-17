@@ -134,6 +134,22 @@ export class ChannelAnalyticsRepository {
             value: point.value,
           },
         });
+
+        if (point.metricKey === 'like_count') {
+          await tx.post.updateMany({
+            where: {
+              organizationId,
+              integrationId,
+              releaseId: point.externalPostId,
+              deletedAt: null,
+              state: 'PUBLISHED',
+            },
+            data: {
+              likesCount: Math.max(0, Math.trunc(Number(point.value))),
+              likesSyncedAt: snapshotAt,
+            },
+          });
+        }
       }
       return { persisted: points.length };
     });

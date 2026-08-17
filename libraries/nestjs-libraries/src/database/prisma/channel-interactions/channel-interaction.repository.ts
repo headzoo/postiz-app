@@ -314,9 +314,6 @@ export class ChannelInteractionRepository {
           },
           data: {
             inboundInteractionCount: { increment: 1 },
-            ...(event.kind === ChannelInteractionKind.LIKE
-              ? { likesCount: { increment: 1 } }
-              : {}),
           },
         });
         await tx.channelAudienceMember.updateMany({
@@ -332,6 +329,133 @@ export class ChannelInteractionRepository {
           data: { lastInboundAt: event.eventAt },
         });
       }
+
+      const day = new Date(Date.UTC(
+        event.eventAt.getUTCFullYear(),
+        event.eventAt.getUTCMonth(),
+        event.eventAt.getUTCDate()
+      ));
+      await tx.channelInteractionDailyAggregate.upsert({
+        where: {
+          integrationId_counterpartyExternalId_day: {
+            integrationId,
+            counterpartyExternalId: event.counterparty.externalId,
+            day,
+          },
+        },
+        create: {
+          organizationId,
+          integrationId,
+          counterpartyExternalId: event.counterparty.externalId,
+          day,
+          interactionCount: 1,
+          interactionScore: event.score,
+          lastInteractionAt: event.eventAt,
+        },
+        update: {
+          interactionCount: { increment: 1 },
+          interactionScore: { increment: event.score },
+        },
+      });
+      await tx.channelInteractionDailyAggregate.updateMany({
+        where: {
+          integrationId,
+          counterpartyExternalId: event.counterparty.externalId,
+          day,
+          OR: [
+            { lastInteractionAt: null },
+            { lastInteractionAt: { lt: event.eventAt } },
+          ],
+        },
+        data: { lastInteractionAt: event.eventAt },
+      });
+      return { created: true };
+    });
+  }
+
+  /**
+   * Record an inbound like discovered by polling a post's likers API.
+   * Deduped by providerEventKey (`post-like:{tweetId}:{likerId}`).
+   * Unlike webhook delivery, this is the source of truth for likesCount.
+   */
+  async recordPolledInboundLike(
+    organizationId: string,
+    integrationId: string,
+    relatedObjectId: string,
+    liker: AudienceProfile,
+    eventAt: Date
+  ): Promise<{ created: boolean }> {
+    return this.recordNormalizedEventWithLikesCount(
+      organizationId,
+      integrationId,
+      {
+        providerEventKey: `post-like:${relatedObjectId}:${liker.externalId}`,
+        kind: ChannelInteractionKind.LIKE,
+        direction: ChannelInteractionDirection.INBOUND,
+        eventAt,
+        counterparty: liker,
+        relatedObjectId,
+        normalizationVersion: 1,
+        score: getChannelInteractionScore('like', 'inbound'),
+      }
+    );
+  }
+
+  private async recordNormalizedEventWithLikesCount(
+    organizationId: string,
+    integrationId: string,
+    event: PersistedInteraction
+  ): Promise<{ created: boolean }> {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const inserted = await tx.channelInteractionEvent.createMany({
+        data: [{
+          organizationId,
+          integrationId,
+          providerEventKey: event.providerEventKey,
+          counterpartyExternalId: event.counterparty.externalId,
+          kind: event.kind,
+          direction: event.direction,
+          eventAt: event.eventAt,
+          relatedObjectId: event.relatedObjectId,
+          metadata: event.metadata,
+          normalizationVersion: event.normalizationVersion,
+        }],
+        skipDuplicates: true,
+      });
+      if (!inserted.count) {
+        return { created: false };
+      }
+      await this.upsertAudienceMember(
+        tx,
+        organizationId,
+        integrationId,
+        event.counterparty,
+        event.membershipUpdate
+      );
+      await tx.channelAudienceMember.updateMany({
+        where: {
+          organizationId,
+          integrationId,
+          externalId: event.counterparty.externalId,
+        },
+        data: {
+          inboundInteractionCount: { increment: 1 },
+          likesCount: { increment: 1 },
+        },
+      });
+      await tx.channelAudienceMember.updateMany({
+        where: {
+          organizationId,
+          integrationId,
+          externalId: event.counterparty.externalId,
+          OR: [
+            { lastInboundAt: null },
+            { lastInboundAt: { lt: event.eventAt } },
+          ],
+        },
+        data: { lastInboundAt: event.eventAt },
+      });
 
       const day = new Date(Date.UTC(
         event.eventAt.getUTCFullYear(),
