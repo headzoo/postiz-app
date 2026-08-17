@@ -1076,9 +1076,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           if (integration.disabled || integration.deletedAt) {
             for (const subscription of matching) {
               await this.deleteXActivitySubscription(
-                subscription.subscription_id,
-                accessToken,
-                spec.eventType
+                subscription.subscription_id
               );
             }
             reconciled.push({
@@ -1091,11 +1089,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
 
           let active = matching[0];
           for (const duplicate of matching.slice(1)) {
-            await this.deleteXActivitySubscription(
-              duplicate.subscription_id,
-              accessToken,
-              spec.eventType
-            );
+            await this.deleteXActivitySubscription(duplicate.subscription_id);
           }
 
           const tag = this.xActivitySubscriptionTag(integration, spec);
@@ -1134,11 +1128,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           // missing or points at a different endpoint, delete and recreate the
           // subscription with our webhook attached from the start.
           if (!createdThisPass && attachedWebhookId !== endpoint.remoteWebhookId) {
-            await this.deleteXActivitySubscription(
-              remoteIdentifier,
-              accessToken,
-              spec.eventType
-            );
+            await this.deleteXActivitySubscription(remoteIdentifier);
             active = await this.createOrRecoverActivitySubscription(
               spec,
               integration.internalId,
@@ -1289,11 +1279,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         !!this.boundedId(subscription.subscription_id)
     );
     for (const subscription of conflicting) {
-      await this.deleteXActivitySubscription(
-        subscription.subscription_id,
-        accessToken,
-        spec.eventType
-      );
+      await this.deleteXActivitySubscription(subscription.subscription_id);
     }
     return conflicting;
   }
@@ -1484,48 +1470,16 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     tag: string,
     accessToken: string
   ) {
-    const usesUserOAuth = this.xActivitySubscriptionUsesUserOAuth(spec.eventType);
-    if (!usesUserOAuth) {
-      return this.postXActivitySubscription(
-        spec,
-        userId,
-        webhookId,
-        tag,
-        accessToken,
-        'bearer'
-      );
-    }
-
-    try {
-      return await this.postXActivitySubscription(
-        spec,
-        userId,
-        webhookId,
-        tag,
-        accessToken,
-        'oauth1'
-      );
-    } catch (error) {
-      // Some event types reject the channel's OAuth1 context even though they
-      // are documented as private; app-only auth still registers them.
-      const category =
-        error instanceof XWebhookApiError ? error.category : undefined;
-      if (
-        category !== 'auth_mode_unsupported' &&
-        category !== 'authentication_failed' &&
-        category !== 'missing_scope'
-      ) {
-        throw error;
-      }
-      return this.postXActivitySubscription(
-        spec,
-        userId,
-        webhookId,
-        tag,
-        accessToken,
-        'bearer'
-      );
-    }
+    return this.postXActivitySubscription(
+      spec,
+      userId,
+      webhookId,
+      tag,
+      accessToken,
+      this.xActivitySubscriptionUsesUserOAuth(spec.eventType)
+        ? 'oauth1'
+        : 'bearer'
+    );
   }
 
   private xActivitySubscriptionTag(
@@ -1547,21 +1501,15 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return data as XActivitySubscription | undefined;
   }
 
-  private async deleteXActivitySubscription(
-    subscriptionId: string | undefined,
-    accessToken?: string,
-    eventType?: string
-  ) {
+  private async deleteXActivitySubscription(subscriptionId: string | undefined) {
     const id = this.boundedId(subscriptionId);
     if (!id) throw new XWebhookApiError('invalid_request');
-    const usesUserOAuth = eventType
-      ? this.xActivitySubscriptionUsesUserOAuth(eventType)
-      : false;
+    // X only allows app-only auth on subscription deletes, even for event
+    // types whose creation requires the channel's user context.
     await this.xWebhookApi(
       `${X_WEBHOOK_API_BASE}/activity/subscriptions/${encodeURIComponent(id)}`,
       { method: 'DELETE' },
-      usesUserOAuth ? 'oauth1' : 'bearer',
-      usesUserOAuth ? accessToken : undefined
+      'bearer'
     );
   }
 
