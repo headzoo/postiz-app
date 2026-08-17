@@ -23,6 +23,7 @@ import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 import SafeImage from '@gitroom/react/helpers/safe.image';
 import { ComposerOpenGraphPreview } from '@gitroom/frontend/components/new-launch/open-graph/open.graph.preview';
+import { ComposerPostLikers } from '@gitroom/frontend/components/new-launch/composer.post.likers';
 
 class Empty {
   @IsOptional()
@@ -279,6 +280,7 @@ export const withProvider = function <T extends object>(params: {
                     }
                   />
                   <ComposerOpenGraphPreview content={value[0]?.content} />
+                  <ComposerPostLikers />
                 </>
               ) : (
                 <>
@@ -295,6 +297,7 @@ export const withProvider = function <T extends object>(params: {
                     }
                   />
                   <ComposerOpenGraphPreview content={value[0]?.content} />
+                  <ComposerPostLikers />
                 </>
               ))}
             {(SettingsComponent || !!data?.internalPlugs?.length) &&

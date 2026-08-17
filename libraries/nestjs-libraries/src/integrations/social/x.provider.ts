@@ -23,6 +23,7 @@ import {
   NormalizedChannelInteractionEvent,
   PendingCheckResponse,
   PostDetails,
+  PostLiker,
   PostResponse,
   ProviderWebhookEndpointReconciliationResult,
   SocialProvider,
@@ -3482,6 +3483,42 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     }
 
     return [];
+  }
+
+  async postLikers(
+    _integration: Integration,
+    accessToken: string,
+    postId: string
+  ): Promise<PostLiker[]> {
+    const client = await this.getClient(accessToken);
+    const response = await client.v2.tweetLikedBy(postId, {
+      max_results: 100,
+      'user.fields': ['username', 'name', 'profile_image_url'],
+    });
+
+    const isHttpUrl = (value?: string) => {
+      try {
+        return value && /^https?:$/.test(new URL(value).protocol)
+          ? value
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+
+    return (response.data || []).map((user) => ({
+      id: user.id,
+      name: user.name,
+      ...(user.username ? { username: user.username } : {}),
+      ...(isHttpUrl(user.profile_image_url)
+        ? { picture: user.profile_image_url }
+        : {}),
+      ...(user.username
+        ? {
+            profileUrl: `https://x.com/${encodeURIComponent(user.username)}`,
+          }
+        : {}),
+    }));
   }
 
   override async mention(token: string, d: { query: string }) {

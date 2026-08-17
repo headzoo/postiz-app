@@ -60,6 +60,19 @@ export interface AnalyticsData {
   percentageChange?: number;
 }
 
+/**
+ * Provider-normalized liker for a published post. Omitted fields are unknown.
+ * URLs must be absolute HTTP(S) URLs. Providers must never include credentials
+ * or raw provider payloads.
+ */
+export type PostLiker = {
+  id: string;
+  name: string;
+  username?: string;
+  picture?: string;
+  profileUrl?: string;
+};
+
 export type ChannelAnalyticsValueMode = 'sum' | 'average' | 'latest';
 
 export type ChannelAnalyticsDisplayUnit =
@@ -653,6 +666,11 @@ export interface SocialProvider
     accessToken: string,
     query: FollowerQuery
   ): Promise<FollowerPage>;
+  postLikers?(
+    integration: Integration,
+    accessToken: string,
+    postId: string
+  ): Promise<PostLiker[]>;
   channelInteractionWebhooks?: ChannelInteractionWebhooksCapability;
   analyticsSnapshot?: ChannelAnalyticsSnapshotCapability;
 }

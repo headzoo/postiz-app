@@ -47,6 +47,14 @@ export class PostsController {
     return this._postsService.getStatistics(org.id, id);
   }
 
+  @Get('/:id/likers')
+  async getLikers(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ) {
+    return this._postsService.getPostLikers(org.id, id);
+  }
+
   @Get('/:id/missing')
   async getMissingContent(
     @GetOrgFromRequest() org: Organization,

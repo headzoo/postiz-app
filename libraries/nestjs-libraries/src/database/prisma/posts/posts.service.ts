@@ -43,7 +43,7 @@ import {
   organizationId,
   postId as postIdSearchParam,
 } from '@gitroom/nestjs-libraries/temporal/temporal.search.attribute';
-import { AnalyticsData } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { AnalyticsData, PostLiker } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import { RefreshToken } from '@gitroom/nestjs-libraries/integrations/social.abstract';
@@ -272,6 +272,87 @@ export class PostsService {
     }
 
     return [];
+  }
+
+  async getPostLikers(
+    orgId: string,
+    postId: string,
+    forceRefresh = false
+  ): Promise<
+    | { supported: false }
+    | { supported: true; users: PostLiker[]; error?: string }
+  > {
+    const post = await this._postRepository.getPostById(postId, orgId);
+    if (
+      !post ||
+      post.state !== 'PUBLISHED' ||
+      !post.releaseId ||
+      post.releaseId === 'missing'
+    ) {
+      return { supported: false };
+    }
+
+    const integrationProvider = this._integrationManager.getSocialIntegration(
+      post.integration.providerIdentifier
+    );
+
+    if (!integrationProvider.postLikers) {
+      return { supported: false };
+    }
+
+    const getIntegration = post.integration!;
+
+    if (
+      dayjs(getIntegration?.tokenExpiration).isBefore(dayjs()) ||
+      forceRefresh
+    ) {
+      const data = await this._refreshIntegrationService.refresh(
+        getIntegration
+      );
+      if (!data) {
+        return {
+          supported: true,
+          users: [],
+          error: 'Channel token expired and could not be refreshed',
+        };
+      }
+
+      const { accessToken } = data;
+
+      if (accessToken) {
+        getIntegration.token = accessToken;
+
+        if (integrationProvider.refreshWait) {
+          await timer(10000);
+        }
+      } else {
+        await this._integrationService.disconnectChannel(orgId, getIntegration);
+        return {
+          supported: true,
+          users: [],
+          error: 'Channel token expired and could not be refreshed',
+        };
+      }
+    }
+
+    try {
+      const users = await integrationProvider.postLikers(
+        getIntegration,
+        getIntegration.token,
+        post.releaseId
+      );
+      return { supported: true, users };
+    } catch (e) {
+      console.log(e);
+      if (e instanceof RefreshToken) {
+        return this.getPostLikers(orgId, postId, true);
+      }
+      const message =
+        e instanceof Error && e.message
+          ? e.message
+          : 'Failed to load likers from the provider';
+      return { supported: true, users: [], error: message };
+    }
   }
 
   async getStatistics(orgId: string, id: string) {
