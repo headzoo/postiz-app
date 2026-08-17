@@ -166,7 +166,7 @@ export type FollowerRelationshipSnapshot = {
   adjustedGrade: number | null;
   effortStars: number;
   reciprocationStars: number;
-  triage: RelationshipTriage;
+  triage: RelationshipTriage | null;
   formulaVersion: number;
 };
 
@@ -639,6 +639,27 @@ export const applyListMembershipToFollowerPage = (
   };
 };
 
+export const applyTriageIgnoreToFollowerPage = (
+  page: FollowerPage | undefined,
+  externalId: string,
+  options?: { removeFromPage?: boolean }
+): FollowerPage | undefined => {
+  if (!page) {
+    return page;
+  }
+  const items = options?.removeFromPage
+    ? page.items.filter((item) => item.id !== externalId)
+    : page.items.map((item) =>
+      item.id !== externalId
+        ? item
+        : { ...item, relationshipTriage: null }
+    );
+  return {
+    ...page,
+    items,
+  };
+};
+
 export const useFollowerListMutations = (integrationId?: string) => {
   const fetch = useFetch();
   const { mutate: mutateCache } = useSWRConfig();
@@ -729,6 +750,31 @@ export const useFollowerListMutations = (integrationId?: string) => {
     [fetch, integrationId, mutateCache]
   );
 
-  return { createList, addMember, removeMember, revalidateLists };
+  const ignoreTriage = useCallback(
+    async (externalId: string, triage: RelationshipTriage) => {
+      if (!integrationId) {
+        throw new Error('Channel is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/member/triage-ignore`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ externalId, triage }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to remove triage badge');
+      }
+      await mutateCache(
+        (key) => isFollowerListCacheKey(integrationId, key),
+        (page: FollowerPage | undefined) =>
+          applyTriageIgnoreToFollowerPage(page, externalId),
+        { revalidate: true }
+      );
+    },
+    [fetch, integrationId, mutateCache]
+  );
+
+  return { createList, addMember, removeMember, ignoreTriage, revalidateLists };
 };
 

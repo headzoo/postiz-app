@@ -813,6 +813,33 @@ export class IntegrationService {
     }
   }
 
+  async ignoreFollowerMemberTriage(
+    org: Organization,
+    user: User,
+    integrationId: string,
+    externalId: string,
+    triage: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.ignoreFollowerTriage(
+        org.id,
+        integrationId,
+        externalId,
+        triage,
+        user.id
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+      }
+      if (error instanceof BadRequestException) {
+        throw new HttpException(error.message, HttpStatus.BAD_REQUEST);
+      }
+      throw error;
+    }
+  }
+
   private mapFollowerList(list: {
     id: string;
     name: string;
@@ -961,6 +988,7 @@ export class IntegrationService {
         relationshipTriage: string | null;
         relationshipFormulaVersion: number | null;
         relationshipSnapshotAt: Date | null;
+        triageIgnores?: Array<{ triage: string }>;
       };
       snapshots: Array<{
         snapshotAt: Date;
@@ -1008,12 +1036,19 @@ export class IntegrationService {
     provider: SocialProvider
   ): FollowerMemberDetail {
     const myGrade = details.myGrade ?? null;
+    const ignoredTriages = new Set(
+      (details.member.triageIgnores ?? []).map((ignore) => ignore.triage)
+    );
     const history = details.snapshots.map((snapshot) =>
       this.mapFollowerRelationshipSnapshot(snapshot, myGrade)
     );
-    const current =
+    const projected =
       this.mapFollowerRelationshipFromProjection(details.member, myGrade) ??
       (history.length ? history[history.length - 1] : null);
+    const current =
+      projected && ignoredTriages.has(projected.triage)
+        ? { ...projected, triage: null }
+        : projected;
     const coverage =
       provider.channelInteractionWebhooks?.getInteractionCoverage() ?? [];
     const tracking =
@@ -1072,6 +1107,8 @@ export class IntegrationService {
     personalGrades?: Array<{ grade: number }>;
     listMemberships?: Array<{ listId: string }>;
     listIds?: string[];
+    triageIgnores?: Array<{ triage: string }>;
+    ignoredTriages?: string[];
   }): Follower {
     return this.sanitizeFollower({
       id: member.externalId,
@@ -1130,6 +1167,8 @@ export class IntegrationService {
     relationshipTriage?: string | null;
     relationshipFormulaVersion?: number | null;
     relationshipSnapshotAt?: Date | null;
+    triageIgnores?: Array<{ triage: string }>;
+    ignoredTriages?: string[];
   }) {
     const effortScore = member?.relationshipEffortScore ?? null;
     const reciprocationScore = member?.relationshipReciprocationScore ?? null;
@@ -1141,6 +1180,13 @@ export class IntegrationService {
     if (!hasProjection) {
       return {};
     }
+    const computedTriage = this.isRelationshipTriage(member?.relationshipTriage)
+      ? member!.relationshipTriage
+      : getRelationshipTriage(effortScore!, reciprocationScore!);
+    const ignored = new Set([
+      ...(member?.ignoredTriages ?? []),
+      ...(member?.triageIgnores?.map((ignore) => ignore.triage) ?? []),
+    ]);
     return {
       effortScore,
       reciprocationScore,
@@ -1148,10 +1194,9 @@ export class IntegrationService {
         reciprocationScore! - effortScore!,
       effortStars: scoreToStars(effortScore!),
       reciprocationStars: scoreToStars(reciprocationScore!),
-      relationshipTriage:
-        this.isRelationshipTriage(member?.relationshipTriage)
-          ? member!.relationshipTriage
-          : getRelationshipTriage(effortScore!, reciprocationScore!),
+      relationshipTriage: ignored.has(computedTriage!)
+        ? null
+        : computedTriage,
       relationshipFormulaVersion: member?.relationshipFormulaVersion ?? null,
       relationshipSnapshotAt:
         member?.relationshipSnapshotAt?.toISOString() ?? null,

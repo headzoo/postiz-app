@@ -60,6 +60,7 @@ const createRepository = () => ({
     grade: 4.5,
     relationshipGrade: 4,
   }),
+  addAudienceTriageIgnore: jest.fn().mockResolvedValue({ ok: true }),
 });
 
 describe('ChannelInteractionService', () => {
@@ -1033,6 +1034,54 @@ describe('ChannelInteractionService', () => {
     await expect(
       service.upsertFollowerGrade('org', 'integration', 'follower-a', 'user-a', 2.25)
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('ignores a follower triage badge for an existing member', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.ignoreFollowerTriage(
+        'org',
+        'integration',
+        'follower-a',
+        'hot_lead',
+        'user-a'
+      )
+    ).resolves.toBeUndefined();
+    expect(repository.addAudienceTriageIgnore).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      'follower-a',
+      'hot_lead',
+      'user-a'
+    );
+  });
+
+  it('rejects invalid triage ignore values and missing followers', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.ignoreFollowerTriage(
+        'org',
+        'integration',
+        'follower-a',
+        'engaged_not_yet',
+        'user-a'
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    repository.addAudienceTriageIgnore.mockResolvedValue({ missing: 'member' });
+    await expect(
+      service.ignoreFollowerTriage(
+        'org',
+        'integration',
+        'missing',
+        'hot_lead',
+        'user-a'
+      )
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('refreshes one score direction and keeps the other projected score', async () => {

@@ -1,9 +1,10 @@
 'use client';
 
-import { FC, KeyboardEvent, MouseEvent } from 'react';
+import { FC, KeyboardEvent, MouseEvent, useCallback } from 'react';
 import clsx from 'clsx';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { useDecisionModal } from '@gitroom/frontend/components/layout/new-modal';
 import { Follower, FollowerList, RelationshipTriage } from '@gitroom/frontend/components/followers/use.followers';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import { FollowerListDropdown } from '@gitroom/frontend/components/followers/follower.list.dropdown';
@@ -39,19 +40,62 @@ const TRIAGE_STYLES: Record<RelationshipTriage, string> = {
 
 export const RelationshipTriageBadge: FC<{
   triage: RelationshipTriage;
-}> = ({ triage }) => {
+  onRemove?: (triage: RelationshipTriage) => Promise<void> | void;
+}> = ({ triage, onRemove }) => {
   const t = useT();
+  const decision = useDecisionModal();
   const label = TRIAGE_LABELS[triage];
+  const displayLabel = t(label.key, label.defaultLabel);
+
+  const handleClick = useCallback(
+    async (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      event.preventDefault();
+      if (!onRemove) {
+        return;
+      }
+      const approved = await decision.open({
+        title: t('followers_triage_remove_title', 'Remove {{label}} badge?', {
+          label: displayLabel,
+        }),
+        description: t(
+          'followers_triage_remove_description',
+          'This follower will be removed from the {{label}} list.',
+          { label: displayLabel }
+        ),
+        approveLabel: t('yes', 'Yes'),
+        cancelLabel: t('cancel', 'Cancel'),
+      });
+      if (!approved) {
+        return;
+      }
+      await onRemove(triage);
+    },
+    [decision, displayLabel, onRemove, t, triage]
+  );
+
+  const className = clsx(
+    'inline-flex w-fit shrink-0 items-center rounded-full border px-[8px] py-[2px] text-[11px] font-[600]',
+    TRIAGE_STYLES[triage],
+    onRemove && 'cursor-pointer hover:opacity-80'
+  );
+
+  if (!onRemove) {
+    return <span className={className}>{displayLabel}</span>;
+  }
 
   return (
-    <span
-      className={clsx(
-        'inline-flex w-fit shrink-0 items-center rounded-full border px-[8px] py-[2px] text-[11px] font-[600]',
-        TRIAGE_STYLES[triage]
-      )}
+    <button
+      type="button"
+      className={className}
+      onClick={handleClick}
+      onKeyDown={(event) => event.stopPropagation()}
+      aria-label={t('followers_triage_remove_aria', 'Remove {{label}} badge', {
+        label: displayLabel,
+      })}
     >
-      {t(label.key, label.defaultLabel)}
-    </span>
+      {displayLabel}
+    </button>
   );
 };
 
@@ -83,8 +127,9 @@ export const FollowerCard: FC<{
   follower: Follower;
   lists?: FollowerList[];
   onToggleList?: (list: FollowerList, assigned: boolean) => Promise<void> | void;
+  onDismissTriage?: (triage: RelationshipTriage) => Promise<void> | void;
   onOpen?: () => void;
-}> = ({ follower, lists = [], onToggleList, onOpen }) => {
+}> = ({ follower, lists = [], onToggleList, onDismissTriage, onOpen }) => {
   const t = useT();
   const followedAt = follower.followedAt
     ? formatDate(follower.followedAt)
@@ -202,7 +247,10 @@ export const FollowerCard: FC<{
                   {follower.name}
                 </h3>
                 {follower.relationshipTriage && (
-                  <RelationshipTriageBadge triage={follower.relationshipTriage} />
+                  <RelationshipTriageBadge
+                    triage={follower.relationshipTriage}
+                    onRemove={onDismissTriage}
+                  />
                 )}
                 {(follower.listIds ?? []).map((listId) => {
                   const list = lists.find((item) => item.id === listId);

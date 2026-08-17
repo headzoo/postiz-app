@@ -20,8 +20,10 @@ import {
   FollowerMemberInteraction,
   FollowerMemberNote,
   RelationshipScoreDirection,
+  RelationshipTriage,
   useFollowerDetail,
   useFollowerGradeMutation,
+  useFollowerListMutations,
   useFollowerNoteMutations,
   useFollowerRelationshipScoreMutation,
 } from '@gitroom/frontend/components/followers/use.followers';
@@ -137,11 +139,11 @@ const InteractionRow: FC<{
   const headline = sentence
     ? t(sentence.key, sentence.defaultLabel)
     : t(
-        `followers_interaction_${interaction.kind}_${direction}`,
-        interaction.direction === 'inbound'
-          ? `They ${interaction.kind} you`
-          : `You ${interaction.kind} them`
-      );
+      `followers_interaction_${interaction.kind}_${direction}`,
+      interaction.direction === 'inbound'
+        ? `They ${interaction.kind} you`
+        : `You ${interaction.kind} them`
+    );
   const timestamp = formatDate(interaction.timestamp);
 
   return (
@@ -315,6 +317,15 @@ const FollowerDetailContent: FC<{
     integrationId,
     externalId,
     revalidateDetail
+  );
+  const { ignoreTriage } = useFollowerListMutations(integrationId);
+
+  const handleDismissTriage = useCallback(
+    async (triage: RelationshipTriage) => {
+      await ignoreTriage(externalId, triage);
+      await revalidateDetail();
+    },
+    [externalId, ignoreTriage, revalidateDetail]
   );
 
   const sortedNotes = useMemo(
@@ -590,7 +601,10 @@ const FollowerDetailContent: FC<{
                 })}
               </p>
               {current.triage && (
-                <RelationshipTriageBadge triage={current.triage} />
+                <RelationshipTriageBadge
+                  triage={current.triage}
+                  onRemove={handleDismissTriage}
+                />
               )}
             </div>
             <p>

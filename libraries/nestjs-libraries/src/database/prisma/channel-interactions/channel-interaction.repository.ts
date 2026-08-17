@@ -134,6 +134,7 @@ export type FollowerAudienceCounts = {
   relationshipFormulaVersion: number | null;
   relationshipSnapshotAt: Date | null;
   listIds: string[];
+  ignoredTriages: string[];
 };
 
 export type AudienceFollowerCursor = {
@@ -1271,6 +1272,9 @@ export class ChannelInteractionRepository {
             where: { list: { deletedAt: null } },
             select: { listId: true },
           },
+          triageIgnores: {
+            select: { triage: true },
+          },
           notes: {
             orderBy: { createdAt: 'desc' },
             include: {
@@ -1549,6 +1553,44 @@ export class ChannelInteractionRepository {
       },
     });
     return { ok: true as const };
+  }
+
+  async addAudienceTriageIgnore(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    triage: string,
+    createdByUserId?: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const member = await tx.channelAudienceMember.findFirst({
+        where: { organizationId, integrationId, externalId },
+        select: { externalId: true },
+      });
+      if (!member) {
+        return { missing: 'member' as const };
+      }
+      await tx.channelAudienceMemberTriageIgnore.upsert({
+        where: {
+          organizationId_integrationId_counterpartyExternalId_triage: {
+            organizationId,
+            integrationId,
+            counterpartyExternalId: externalId,
+            triage,
+          },
+        },
+        create: {
+          organizationId,
+          integrationId,
+          counterpartyExternalId: externalId,
+          triage,
+          ...(createdByUserId ? { createdByUserId } : {}),
+        },
+        update: {},
+      });
+      return { ok: true as const };
+    });
   }
 
   async upsertAudienceMemberGrade(
@@ -1953,6 +1995,7 @@ export class ChannelInteractionRepository {
           relationshipFormulaVersion: row.relationshipFormulaVersion,
           relationshipSnapshotAt: row.relationshipSnapshotAt,
           listIds: (row.listMemberships ?? []).map((membership) => membership.listId),
+          ignoredTriages: (row.triageIgnores ?? []).map((ignore) => ignore.triage),
         },
       ])
     );
@@ -2033,7 +2076,10 @@ export class ChannelInteractionRepository {
         relationshipEffortScore: 0,
       };
     }
-    return { relationshipTriage: triage };
+    return {
+      relationshipTriage: triage,
+      triageIgnores: { none: { triage } },
+    };
   }
 
   private listMembershipFilter(
@@ -2145,6 +2191,9 @@ export class ChannelInteractionRepository {
       listMemberships: {
         where: { list: { deletedAt: null } },
         select: { listId: true },
+      },
+      triageIgnores: {
+        select: { triage: true },
       },
     } as const;
   }

@@ -2274,6 +2274,61 @@ describe('IntegrationService followers', () => {
     });
   });
 
+  it('hides ignored triage badges on projected follower pages', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [],
+        channelInteractionWebhooks: {
+          getInteractionCoverage: (): any[] => [],
+        },
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getFollowersByProjectedField.mockResolvedValue({
+      items: [{
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: null,
+        picture: null,
+        profileUrl: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+        noteCount: 0,
+        likesCount: 0,
+        relationshipGrade: 4,
+        relationshipEffortScore: 4,
+        relationshipReciprocationScore: 12,
+        relationshipNetGap: 8,
+        relationshipTriage: 'hot_lead',
+        relationshipFormulaVersion: 2,
+        relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
+        personalGrades: [],
+        triageIgnores: [{ triage: 'hot_lead' }],
+      }],
+      hasMore: false,
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'their_effort',
+        direction: 'desc',
+      })
+    ).resolves.toMatchObject({
+      items: [{
+        id: 'follower-a',
+        effortScore: 4,
+        reciprocationScore: 12,
+        relationshipTriage: null,
+      }],
+    });
+  });
+
   it('rejects replaying an audience cursor under another triage filter', async () => {
     const cursor = `follower-audience:v1:${Buffer.from(JSON.stringify({
       version: 1,

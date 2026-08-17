@@ -422,7 +422,7 @@ export type FollowerRelationshipSnapshot = {
   adjustedGrade: number | null;
   effortStars: number;
   reciprocationStars: number;
-  triage: RelationshipTriage;
+  triage: RelationshipTriage | null;
   formulaVersion: number;
 };
 

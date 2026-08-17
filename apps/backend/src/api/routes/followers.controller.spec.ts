@@ -5,6 +5,7 @@ jest.mock(
 
 import { FollowersController } from './followers.controller';
 import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
+import { IgnoreFollowerTriageDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-triage-ignore.dto';
 import { RefreshFollowerRelationshipScoreDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-relationship-score.dto';
 import { validate } from 'class-validator';
 
@@ -20,6 +21,7 @@ describe('FollowersController', () => {
     deleteFollowerMemberNote: jest.fn(),
     updateFollowerMemberGrade: jest.fn(),
     refreshFollowerMemberRelationshipScore: jest.fn(),
+    ignoreFollowerMemberTriage: jest.fn(),
     createFollowerList: jest.fn(),
     listFollowerLists: jest.fn(),
   };
@@ -228,6 +230,42 @@ describe('FollowersController', () => {
       'channel-a',
       'follower-a',
       'their'
+    );
+  });
+
+  it('delegates triage ignore creation with organization, user, and body', async () => {
+    service.ignoreFollowerMemberTriage.mockResolvedValue(undefined);
+
+    await expect(
+      controller.ignoreFollowerMemberTriage(org, user, 'channel-a', {
+        externalId: 'follower-a',
+        triage: 'hot_lead',
+      })
+    ).resolves.toBeUndefined();
+    expect(service.ignoreFollowerMemberTriage).toHaveBeenCalledWith(
+      org,
+      user,
+      'channel-a',
+      'follower-a',
+      'hot_lead'
+    );
+  });
+
+  it('accepts only the follower triage ignore allowlist', async () => {
+    const valid = Object.assign(new IgnoreFollowerTriageDto(), {
+      externalId: 'follower-a',
+      triage: 'hot_lead',
+    });
+    const invalid = Object.assign(new IgnoreFollowerTriageDto(), {
+      externalId: 'follower-a',
+      triage: 'engaged_not_yet',
+    });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(invalid)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'triage' }),
+      ])
     );
   });
 

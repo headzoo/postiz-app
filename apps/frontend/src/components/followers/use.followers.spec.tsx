@@ -5,6 +5,7 @@
 import {
   applyListMembershipToFollowerPage,
   applyRelationshipSnapshotToFollowerPage,
+  applyTriageIgnoreToFollowerPage,
   buildFollowersUrl,
   isFollowerListCacheKey,
 } from './use.followers';
@@ -182,6 +183,36 @@ describe('follower list cache updates', () => {
         { id: 'follower-1', name: 'Alex', listIds: [] },
         { id: 'follower-2', name: 'Sam' },
       ],
+      hasMore: false,
+    });
+  });
+
+  it('clears or removes a follower after ignoring a triage badge', () => {
+    const page = {
+      items: [
+        {
+          id: 'follower-1',
+          name: 'Alex',
+          relationshipTriage: 'hot_lead' as const,
+        },
+        { id: 'follower-2', name: 'Sam', relationshipTriage: 'mutual' as const },
+      ],
+      hasMore: false,
+    };
+
+    expect(applyTriageIgnoreToFollowerPage(page, 'follower-1')).toEqual({
+      items: [
+        { id: 'follower-1', name: 'Alex', relationshipTriage: null },
+        { id: 'follower-2', name: 'Sam', relationshipTriage: 'mutual' },
+      ],
+      hasMore: false,
+    });
+    expect(
+      applyTriageIgnoreToFollowerPage(page, 'follower-1', {
+        removeFromPage: true,
+      })
+    ).toEqual({
+      items: [{ id: 'follower-2', name: 'Sam', relationshipTriage: 'mutual' }],
       hasMore: false,
     });
   });

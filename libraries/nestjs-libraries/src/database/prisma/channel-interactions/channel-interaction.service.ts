@@ -1027,6 +1027,31 @@ export class ChannelInteractionService {
     }
   }
 
+  async ignoreFollowerTriage(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    triage: string,
+    createdByUserId?: string
+  ) {
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    if (
+      !['quiet', 'hot_lead', 'over_invested', 'mutual'].includes(triage)
+    ) {
+      throw new BadRequestException('Invalid triage value');
+    }
+    const result = await this._repository.addAudienceTriageIgnore(
+      organizationId,
+      integrationId,
+      externalId,
+      triage,
+      createdByUserId
+    );
+    if (result.missing === 'member') {
+      throw new NotFoundException('Follower was not found');
+    }
+  }
+
   private normalizeFollowerListName(name: string) {
     const normalized = name.trim().replace(/\s+/g, ' ');
     this.validateBoundedString(normalized, 'name', 64);

@@ -23,6 +23,7 @@ import {
   FollowerListMemberDto,
   UpdateFollowerListDto,
 } from '@gitroom/nestjs-libraries/dtos/integrations/follower-list.dto';
+import { IgnoreFollowerTriageDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-triage-ignore.dto';
 import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
 import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
@@ -63,6 +64,22 @@ export class FollowersController {
       integrationId,
       body.externalId,
       body.direction
+    );
+  }
+
+  @Post('/:integrationId/member/triage-ignore')
+  ignoreFollowerMemberTriage(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
+    @Param('integrationId') integrationId: string,
+    @Body() body: IgnoreFollowerTriageDto
+  ) {
+    return this._integrationService.ignoreFollowerMemberTriage(
+      org,
+      user,
+      integrationId,
+      body.externalId,
+      body.triage
     );
   }
 

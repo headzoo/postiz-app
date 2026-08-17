@@ -35,6 +35,7 @@ import {
   FollowerSortDirection,
   FollowerTriageFilter,
   Follower,
+  applyTriageIgnoreToFollowerPage,
   useFollowerChannels,
   useFollowerListMutations,
   useFollowerLists,
@@ -572,7 +573,7 @@ export const FollowersComponent: FC = () => {
   });
 
   const { data: followerLists = [] } = useFollowerLists(selectedIntegrationId);
-  const { createList, addMember, removeMember } = useFollowerListMutations(
+  const { createList, addMember, removeMember, ignoreTriage } = useFollowerListMutations(
     selectedIntegrationId
   );
 
@@ -1125,6 +1126,18 @@ export const FollowersComponent: FC = () => {
                       return;
                     }
                     await addMember(list.id, follower.id);
+                  }}
+                  onDismissTriage={async (triageValue) => {
+                    await ignoreTriage(follower.id, triageValue);
+                    if (triage === triageValue) {
+                      await mutateFollowers(
+                        (page) =>
+                          applyTriageIgnoreToFollowerPage(page, follower.id, {
+                            removeFromPage: true,
+                          }),
+                        { revalidate: false }
+                      );
+                    }
                   }}
                   onOpen={() => openFollowerDetail(follower)}
                 />

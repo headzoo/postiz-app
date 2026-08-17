@@ -57,6 +57,7 @@ model Organization {
   channelAudienceNotes                ChannelAudienceNote[]
   channelAudienceLists                ChannelAudienceList[]
   channelAudienceListMembers          ChannelAudienceListMember[]
+  channelAudienceMemberTriageIgnores  ChannelAudienceMemberTriageIgnore[]
   channelAudienceMemberGrades         ChannelAudienceMemberGrade[]
   channelRelationshipGradeSnapshots   ChannelRelationshipGradeSnapshot[]
   channelAnalyticsDailyPoints         ChannelAnalyticsDailyPoint[]
@@ -98,46 +99,47 @@ model TagsPosts {
 }
 
 model User {
-  id                          String                       @id @default(uuid())
-  email                       String
-  password                    String?
-  providerName                Provider
-  name                        String?
-  lastName                    String?
-  isSuperAdmin                Boolean                      @default(false)
-  bio                         String?
-  audience                    Int                          @default(0)
-  pictureId                   String?
-  providerId                  String?
-  timezone                    Int
-  createdAt                   DateTime                     @default(now())
-  updatedAt                   DateTime                     @updatedAt
-  lastReadNotifications       DateTime                     @default(now())
-  inviteId                    String?
-  activated                   Boolean                      @default(true)
-  account                     String?
-  connectedAccount            Boolean                      @default(false)
-  lastOnline                  DateTime                     @default(now())
-  ip                          String?
-  agent                       String?
-  comments                    Comments[]
-  items                       ItemUser[]
-  groupBuyer                  MessagesGroup[]              @relation("groupBuyer")
-  groupSeller                 MessagesGroup[]              @relation("groupSeller")
-  orderBuyer                  Orders[]                     @relation("orderBuyer")
-  orderSeller                 Orders[]                     @relation("orderSeller")
-  payoutProblems              PayoutProblems[]
-  agencies                    SocialMediaAgency?
-  picture                     Media?                       @relation(fields: [pictureId], references: [id])
-  organizations               UserOrganization[]
-  sendSuccessEmails           Boolean                      @default(true)
-  sendFailureEmails           Boolean                      @default(true)
-  sendStreakEmails            Boolean                      @default(true)
-  oauthAuthorizations         OAuthAuthorization[]
-  integrationNoticeReads      IntegrationNoticeRead[]
-  channelAudienceNotes        ChannelAudienceNote[]
-  channelAudienceLists        ChannelAudienceList[]
-  channelAudienceMemberGrades ChannelAudienceMemberGrade[]
+  id                                 String                              @id @default(uuid())
+  email                              String
+  password                           String?
+  providerName                       Provider
+  name                               String?
+  lastName                           String?
+  isSuperAdmin                       Boolean                             @default(false)
+  bio                                String?
+  audience                           Int                                 @default(0)
+  pictureId                          String?
+  providerId                         String?
+  timezone                           Int
+  createdAt                          DateTime                            @default(now())
+  updatedAt                          DateTime                            @updatedAt
+  lastReadNotifications              DateTime                            @default(now())
+  inviteId                           String?
+  activated                          Boolean                             @default(true)
+  account                            String?
+  connectedAccount                   Boolean                             @default(false)
+  lastOnline                         DateTime                            @default(now())
+  ip                                 String?
+  agent                              String?
+  comments                           Comments[]
+  items                              ItemUser[]
+  groupBuyer                         MessagesGroup[]                     @relation("groupBuyer")
+  groupSeller                        MessagesGroup[]                     @relation("groupSeller")
+  orderBuyer                         Orders[]                            @relation("orderBuyer")
+  orderSeller                        Orders[]                            @relation("orderSeller")
+  payoutProblems                     PayoutProblems[]
+  agencies                           SocialMediaAgency?
+  picture                            Media?                              @relation(fields: [pictureId], references: [id])
+  organizations                      UserOrganization[]
+  sendSuccessEmails                  Boolean                             @default(true)
+  sendFailureEmails                  Boolean                             @default(true)
+  sendStreakEmails                   Boolean                             @default(true)
+  oauthAuthorizations                OAuthAuthorization[]
+  integrationNoticeReads             IntegrationNoticeRead[]
+  channelAudienceNotes               ChannelAudienceNote[]
+  channelAudienceLists               ChannelAudienceList[]
+  channelAudienceMemberGrades        ChannelAudienceMemberGrade[]
+  channelAudienceMemberTriageIgnores ChannelAudienceMemberTriageIgnore[]
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -382,6 +384,7 @@ model Integration {
   channelAudienceNotes                ChannelAudienceNote[]
   channelAudienceLists                ChannelAudienceList[]
   channelAudienceListMembers          ChannelAudienceListMember[]
+  channelAudienceMemberTriageIgnores  ChannelAudienceMemberTriageIgnore[]
   channelAudienceMemberGrades         ChannelAudienceMemberGrade[]
   channelRelationshipGradeSnapshots   ChannelRelationshipGradeSnapshot[]
   channelAnalyticsDailyPoints         ChannelAnalyticsDailyPoint[]
@@ -1209,7 +1212,7 @@ model Announcement {
 }
 
 model ChannelAudienceMember {
-  id                             String                             @id @default(cuid())
+  id                             String                              @id @default(cuid())
   organizationId                 String
   integrationId                  String
   externalId                     String
@@ -1220,14 +1223,14 @@ model ChannelAudienceMember {
   bio                            String?
   followersCount                 Int?
   followingCount                 Int?
-  membershipState                ChannelAudienceMembership          @default(UNKNOWN)
+  membershipState                ChannelAudienceMembership           @default(UNKNOWN)
   followedAt                     DateTime?
   accountCreatedAt               DateTime?
   followerSyncGeneration         String?
   membershipEvidenceGeneration   String?
-  noteCount                      Int                                @default(0)
-  likesCount                     Int                                @default(0)
-  inboundInteractionCount        Int                                @default(0)
+  noteCount                      Int                                 @default(0)
+  likesCount                     Int                                 @default(0)
+  inboundInteractionCount        Int                                 @default(0)
   lastInboundAt                  DateTime?
   relationshipGrade              Float?
   relationshipEffortScore        Int?
@@ -1236,15 +1239,16 @@ model ChannelAudienceMember {
   relationshipTriage             String?
   relationshipFormulaVersion     Int?
   relationshipSnapshotAt         DateTime?
-  createdAt                      DateTime                           @default(now())
-  updatedAt                      DateTime                           @updatedAt
-  organization                   Organization                       @relation(fields: [organizationId], references: [id])
-  integration                    Integration                        @relation(fields: [integrationId], references: [id])
-  interactionSummaries           ChannelInteractionWindowSummary[]  @relation("AudienceMemberInteractionSummaries")
-  notes                          ChannelAudienceNote[]              @relation("AudienceMemberNotes")
-  listMemberships                ChannelAudienceListMember[]        @relation("AudienceMemberListMemberships")
-  personalGrades                 ChannelAudienceMemberGrade[]       @relation("AudienceMemberPersonalGrades")
-  gradeSnapshots                 ChannelRelationshipGradeSnapshot[] @relation("AudienceMemberGradeSnapshots")
+  createdAt                      DateTime                            @default(now())
+  updatedAt                      DateTime                            @updatedAt
+  organization                   Organization                        @relation(fields: [organizationId], references: [id])
+  integration                    Integration                         @relation(fields: [integrationId], references: [id])
+  interactionSummaries           ChannelInteractionWindowSummary[]   @relation("AudienceMemberInteractionSummaries")
+  notes                          ChannelAudienceNote[]               @relation("AudienceMemberNotes")
+  listMemberships                ChannelAudienceListMember[]         @relation("AudienceMemberListMemberships")
+  personalGrades                 ChannelAudienceMemberGrade[]        @relation("AudienceMemberPersonalGrades")
+  gradeSnapshots                 ChannelRelationshipGradeSnapshot[]  @relation("AudienceMemberGradeSnapshots")
+  triageIgnores                  ChannelAudienceMemberTriageIgnore[] @relation("AudienceMemberTriageIgnores")
 
   @@unique([integrationId, externalId])
   @@index([organizationId, integrationId, membershipState])
@@ -1581,6 +1585,25 @@ model ChannelAudienceListMember {
   @@id([listId, counterpartyExternalId])
   @@index([organizationId, integrationId, listId])
   @@index([integrationId, counterpartyExternalId])
+  @@index([organizationId])
+}
+
+model ChannelAudienceMemberTriageIgnore {
+  organizationId         String
+  integrationId          String
+  counterpartyExternalId String
+  triage                 String
+  createdAt              DateTime              @default(now())
+  createdByUserId        String?
+  organization           Organization          @relation(fields: [organizationId], references: [id])
+  integration            Integration           @relation(fields: [integrationId], references: [id])
+  createdBy              User?                 @relation(fields: [createdByUserId], references: [id])
+  audienceMember         ChannelAudienceMember @relation("AudienceMemberTriageIgnores", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
+
+  @@id([organizationId, integrationId, counterpartyExternalId, triage])
+  @@index([organizationId, integrationId, triage])
+  @@index([integrationId, counterpartyExternalId])
+  @@index([createdByUserId])
   @@index([organizationId])
 }
 

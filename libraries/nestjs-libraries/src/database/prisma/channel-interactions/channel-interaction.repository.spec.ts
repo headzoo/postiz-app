@@ -78,6 +78,9 @@ const createHarness = () => {
       upsert: jest.fn(),
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    channelAudienceMemberTriageIgnore: {
+      upsert: jest.fn(),
+    },
     channelAudienceMemberGrade: {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn(),
@@ -1674,6 +1677,7 @@ describe('ChannelInteractionRepository', () => {
             relationshipFormulaVersion: 2,
             relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
             listIds: [],
+            ignoredTriages: [],
           },
         ],
       ])
@@ -1819,12 +1823,68 @@ describe('ChannelInteractionRepository', () => {
       expect(audienceMemberFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            AND: [{ relationshipTriage: triage }],
+            AND: [{
+              relationshipTriage: triage,
+              triageIgnores: { none: { triage } },
+            }],
           }),
         })
       );
     }
   );
+
+  it('upserts an audience triage ignore for an existing member', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      externalId: 'person-1',
+    });
+    tx.channelAudienceMemberTriageIgnore.upsert.mockResolvedValue({});
+
+    await expect(
+      repository.addAudienceTriageIgnore(
+        'org',
+        'integration',
+        'person-1',
+        'hot_lead',
+        'user-a'
+      )
+    ).resolves.toEqual({ ok: true });
+
+    expect(tx.channelAudienceMemberTriageIgnore.upsert).toHaveBeenCalledWith({
+      where: {
+        organizationId_integrationId_counterpartyExternalId_triage: {
+          organizationId: 'org',
+          integrationId: 'integration',
+          counterpartyExternalId: 'person-1',
+          triage: 'hot_lead',
+        },
+      },
+      create: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        counterpartyExternalId: 'person-1',
+        triage: 'hot_lead',
+        createdByUserId: 'user-a',
+      },
+      update: {},
+    });
+  });
+
+  it('returns missing member when ignoring triage for an unknown follower', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue(null);
+
+    await expect(
+      repository.addAudienceTriageIgnore(
+        'org',
+        'integration',
+        'missing',
+        'hot_lead',
+        'user-a'
+      )
+    ).resolves.toEqual({ missing: 'member' });
+    expect(tx.channelAudienceMemberTriageIgnore.upsert).not.toHaveBeenCalled();
+  });
 
   it('defines engaged-not-yet as positive reciprocation and zero effort', async () => {
     const { repository, audienceMemberFindMany } = createHarness();

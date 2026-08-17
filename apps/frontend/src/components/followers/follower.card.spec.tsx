@@ -29,6 +29,12 @@ jest.mock('@mantine/hooks', () => ({
   useClickOutside: () => undefined,
 }));
 
+const decisionOpen = jest.fn();
+
+jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
+  useDecisionModal: () => ({ open: decisionOpen }),
+}));
+
 const baseFollower: Follower = {
   id: 'follower-1',
   name: 'Alex Example',
@@ -39,6 +45,11 @@ const baseFollower: Follower = {
 };
 
 describe('FollowerCard', () => {
+  beforeEach(() => {
+    decisionOpen.mockReset();
+    decisionOpen.mockResolvedValue(false);
+  });
+
   it('opens the detail modal on card click', () => {
     const onOpen = jest.fn();
     render(<FollowerCard follower={baseFollower} onOpen={onOpen} />);
@@ -267,5 +278,52 @@ describe('FollowerCard', () => {
       { id: 'list-1', name: 'VIP', createdAt: '', updatedAt: '' },
       false
     );
+  });
+
+  it('confirms before dismissing a triage badge and does not open the card', async () => {
+    const onOpen = jest.fn();
+    const onDismissTriage = jest.fn();
+    decisionOpen.mockResolvedValue(true);
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          relationshipTriage: 'hot_lead',
+        }}
+        onDismissTriage={onDismissTriage}
+        onOpen={onOpen}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Hot badge' }));
+
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(decisionOpen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Remove Hot badge?',
+        approveLabel: 'Yes',
+      })
+    );
+    await Promise.resolve();
+    expect(onDismissTriage).toHaveBeenCalledWith('hot_lead');
+  });
+
+  it('does not dismiss a triage badge when confirmation is cancelled', async () => {
+    const onDismissTriage = jest.fn();
+    decisionOpen.mockResolvedValue(false);
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          relationshipTriage: 'hot_lead',
+        }}
+        onDismissTriage={onDismissTriage}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Hot badge' }));
+    await Promise.resolve();
+
+    expect(onDismissTriage).not.toHaveBeenCalled();
   });
 });
