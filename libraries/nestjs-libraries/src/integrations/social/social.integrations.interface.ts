@@ -538,6 +538,24 @@ export type ProviderWebhookEndpointReconciliationResult = {
   reason?: string;
 };
 
+export type ChannelInteractionAuthorizationGrant = {
+  accessToken: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  scopes?: string[];
+};
+
+export interface ChannelInteractionAuthorizationCapability {
+  generateAuthUrl(): Promise<GenerateAuthUrlResponse>;
+  authenticate(params: {
+    code: string;
+    codeVerifier: string;
+  }): Promise<ChannelInteractionAuthorizationGrant>;
+  refreshToken(
+    refreshToken: string
+  ): Promise<ChannelInteractionAuthorizationGrant>;
+}
+
 export interface ChannelInteractionWebhooksCapability {
   verifyChallenge(
     request: ChannelWebhookChallengeRequest
@@ -550,9 +568,13 @@ export interface ChannelInteractionWebhooksCapability {
   ): DesiredChannelInteractionSubscription[];
   getInteractionCoverage(): ChannelInteractionKindCoverage[];
   reconcileEndpoint?(): Promise<ProviderWebhookEndpointReconciliationResult>;
+  // Some providers require a separate user grant before private events can be
+  // subscribed to; the resulting token is supplied to reconcileSubscriptions.
+  authorization?: ChannelInteractionAuthorizationCapability;
   reconcileSubscriptions(
     integration: Integration,
-    accessToken: string
+    accessToken: string,
+    authorizationToken?: string
   ): Promise<ChannelInteractionSubscriptionReconciliationResult>;
 }
 

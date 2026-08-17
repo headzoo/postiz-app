@@ -659,7 +659,8 @@ describe('XProvider interaction webhooks', () => {
     await expect(
       provider.channelInteractionWebhooks.reconcileSubscriptions(
         { internalId: '42', disabled: false, deletedAt: null } as any,
-        'access:secret'
+        'access:secret',
+        'tracking-oauth2'
       )
     ).resolves.toMatchObject({ state: 'active' });
     expect(fetchMock).toHaveBeenCalledWith(
@@ -692,7 +693,8 @@ describe('XProvider interaction webhooks', () => {
     await expect(
       provider.channelInteractionWebhooks.reconcileSubscriptions(
         { internalId: '42', disabled: true, deletedAt: null } as any,
-        'access:secret'
+        'access:secret',
+        'tracking-oauth2'
       )
     ).resolves.toMatchObject({ state: 'unconfigured' });
     expect(
@@ -733,7 +735,8 @@ describe('XProvider interaction webhooks', () => {
     await expect(
       provider.channelInteractionWebhooks.reconcileSubscriptions(
         { internalId: '42', disabled: false, deletedAt: null } as any,
-        'access:secret'
+        'access:secret',
+        'tracking-oauth2'
       )
     ).resolves.toMatchObject({
       state: 'partial',
@@ -804,7 +807,8 @@ describe('XProvider interaction webhooks', () => {
     await expect(
       provider.channelInteractionWebhooks.reconcileSubscriptions(
         { internalId: '42', disabled: false, deletedAt: null } as any,
-        'access:secret'
+        'access:secret',
+        'tracking-oauth2'
       )
     ).resolves.toMatchObject({ state: 'active' });
 
@@ -872,7 +876,8 @@ describe('XProvider interaction webhooks', () => {
     await expect(
       provider.channelInteractionWebhooks.reconcileSubscriptions(
         { internalId: '42', disabled: false, deletedAt: null } as any,
-        'access:secret'
+        'access:secret',
+        'tracking-oauth2'
       )
     ).resolves.toMatchObject({
       state: 'active',
@@ -885,6 +890,95 @@ describe('XProvider interaction webhooks', () => {
         }),
       ]),
     });
+
+    fetchMock.mockRestore();
+  });
+
+  it('creates like subscriptions with the tracking OAuth2 grant', async () => {
+    const provider = new XProvider();
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockImplementation(async (url, options) => {
+        const value = String(url);
+        const method = options?.method || 'GET';
+        if (value.endsWith('/2/webhooks')) return endpointResponse();
+        if (method === 'GET') {
+          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        }
+        const body = JSON.parse(String(options?.body || '{}'));
+        return new Response(
+          JSON.stringify({ data: { subscription_id: `sub-${body.event_type}` } }),
+          { status: 200 }
+        );
+      });
+
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret',
+        'tracking-oauth2'
+      )
+    ).resolves.toMatchObject({ state: 'active' });
+
+    const created = fetchMock.mock.calls.find(
+      ([url, options]) =>
+        String(url).endsWith('/activity/subscriptions') &&
+        options?.method === 'POST' &&
+        String(options.body).includes('"event_type":"like.create"')
+    );
+    expect(created?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer tracking-oauth2',
+        }),
+      })
+    );
+
+    fetchMock.mockRestore();
+  });
+
+  it('reports likes as unauthorized until tracking is authorized', async () => {
+    const provider = new XProvider();
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockImplementation(async (url, options) => {
+        const value = String(url);
+        const method = options?.method || 'GET';
+        if (value.endsWith('/2/webhooks')) return endpointResponse();
+        if (method === 'GET') {
+          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        }
+        const body = JSON.parse(String(options?.body || '{}'));
+        return new Response(
+          JSON.stringify({ data: { subscription_id: `sub-${body.event_type}` } }),
+          { status: 200 }
+        );
+      });
+
+    await expect(
+      provider.channelInteractionWebhooks.reconcileSubscriptions(
+        { internalId: '42', disabled: false, deletedAt: null } as any,
+        'access:secret'
+      )
+    ).resolves.toMatchObject({
+      state: 'partial',
+      subscriptions: expect.arrayContaining([
+        expect.objectContaining({
+          eventKey: 'like.create',
+          state: 'error',
+          failureCategory: 'authorization',
+          reason: expect.stringContaining('authorize tracking'),
+        }),
+      ]),
+    });
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, options]) =>
+          String(url).endsWith('/activity/subscriptions') &&
+          options?.method === 'POST' &&
+          String(options.body).includes('"event_type":"like.create"')
+      )
+    ).toBe(false);
 
     fetchMock.mockRestore();
   });
@@ -1067,7 +1161,8 @@ describe('XProvider interaction webhooks', () => {
     await expect(
       provider.channelInteractionWebhooks.reconcileSubscriptions(
         { internalId: '42', disabled: false, deletedAt: null } as any,
-        'access:secret'
+        'access:secret',
+        'tracking-oauth2'
       )
     ).resolves.toMatchObject({
       state: 'active',

@@ -13,6 +13,7 @@ import {
   ChannelInteractionWindow as PrismaInteractionWindow,
 } from '@prisma/client';
 import {
+  ChannelInteractionAuthorizationGrant,
   ChannelInteractionDirection,
   ChannelInteractionKind,
   ChannelInteractionWindow,
@@ -26,6 +27,7 @@ import {
 import { IntegrationManager } from '@gitroom/nestjs-libraries/integrations/integration.manager';
 import { Integration } from '@prisma/client';
 import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
+import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import {
   eventEndpoints,
   integrationIdentity,
@@ -60,6 +62,10 @@ const MAX_PROFILE_TEXT_LENGTH = 4096;
 const MAX_METADATA_VALUE_LENGTH = 2048;
 const MAX_AUDIENCE_NOTE_LENGTH = 4096;
 const MAX_POST_CONTENT_LENGTH = 100000;
+// Renew tracking grants a little early so a reconciliation pass never starts
+// with a token that expires mid-flight.
+const AUTHORIZATION_REFRESH_SKEW_MS = 60 * 1000;
+const AUTHORIZATION_REFRESH_LOCK_SECONDS = 60;
 
 const KIND_MAP: Record<ChannelInteractionKind, PrismaInteractionKind> = {
   like: PrismaInteractionKind.LIKE,
@@ -385,6 +391,127 @@ export class ChannelInteractionService {
       desiredSubscriptions
     );
     return true;
+  }
+
+  getInteractionAuthorizationCapability(providerIdentifier: string) {
+    return this.getWebhookCapabilityOrUndefined(providerIdentifier)
+      ?.authorization;
+  }
+
+  async startInteractionAuthorization(integration: Integration) {
+    return this.requireAuthorizationCapability(integration).generateAuthUrl();
+  }
+
+  async completeInteractionAuthorization(
+    integration: Integration,
+    params: { code: string; codeVerifier: string }
+  ) {
+    const grant = await this.requireAuthorizationCapability(
+      integration
+    ).authenticate(params);
+    await this.saveInteractionAuthorization(integration, grant);
+    return true;
+  }
+
+  async getInteractionAuthorizationToken(integration: Integration) {
+    const capability = this.getInteractionAuthorizationCapability(
+      integration.providerIdentifier
+    );
+    if (!capability) {
+      return undefined;
+    }
+    const stored = await this._repository.getInteractionAuthorization(
+      integration.organizationId,
+      integration.id
+    );
+    if (!stored) {
+      return undefined;
+    }
+    if (this.isUsableAuthorization(stored)) {
+      return stored.token;
+    }
+    if (!stored.refreshToken) {
+      return undefined;
+    }
+
+    // Refresh tokens are single-use, so the reconciliation passes running in
+    // the orchestrator and the backend must not renew the same grant at once.
+    const lockKey = `channel-interaction-authorization:${integration.id}`;
+    const reserved = await ioRedis.set(
+      lockKey,
+      '1',
+      'EX',
+      AUTHORIZATION_REFRESH_LOCK_SECONDS,
+      'NX'
+    );
+    if (!reserved) {
+      const renewed = await this._repository.getInteractionAuthorization(
+        integration.organizationId,
+        integration.id
+      );
+      return renewed && this.isUsableAuthorization(renewed)
+        ? renewed.token
+        : undefined;
+    }
+    try {
+      const grant = await capability.refreshToken(stored.refreshToken);
+      await this.saveInteractionAuthorization(integration, grant);
+      return grant.accessToken;
+    } catch {
+      // The grant has to be renewed by the user; reconciliation reports it.
+      await ioRedis.del(lockKey);
+      return undefined;
+    }
+  }
+
+  private isUsableAuthorization(authorization: { tokenExpiration: Date | null }) {
+    return (
+      !authorization.tokenExpiration ||
+      authorization.tokenExpiration.getTime() - AUTHORIZATION_REFRESH_SKEW_MS >
+      Date.now()
+    );
+  }
+
+  async hasInteractionAuthorization(integration: Integration) {
+    if (
+      !this.getInteractionAuthorizationCapability(integration.providerIdentifier)
+    ) {
+      return false;
+    }
+    return !!(await this._repository.getInteractionAuthorization(
+      integration.organizationId,
+      integration.id
+    ));
+  }
+
+  private requireAuthorizationCapability(integration: Integration) {
+    const capability = this.getInteractionAuthorizationCapability(
+      integration.providerIdentifier
+    );
+    if (!capability) {
+      throw new BadRequestException(
+        'This channel does not require a tracking authorization'
+      );
+    }
+    return capability;
+  }
+
+  private saveInteractionAuthorization(
+    integration: Integration,
+    grant: ChannelInteractionAuthorizationGrant
+  ) {
+    return this._repository.saveInteractionAuthorization(
+      integration.organizationId,
+      integration.id,
+      {
+        token: grant.accessToken,
+        refreshToken: grant.refreshToken,
+        tokenExpiration: grant.expiresIn
+          ? new Date(Date.now() + grant.expiresIn * 1000)
+          : undefined,
+        scopes: grant.scopes?.join(' '),
+      }
+    );
   }
 
   async requestSubscriptionRemoval(integration: Integration) {

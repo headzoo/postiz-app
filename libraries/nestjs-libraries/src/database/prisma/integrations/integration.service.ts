@@ -397,6 +397,16 @@ export class IntegrationService {
       profileUrl = this.sanitizeHttpUrl(provider?.profileUrl?.(integration));
     } catch { }
 
+    const trackingAuthorization = provider?.channelInteractionWebhooks
+      ?.authorization
+      ? {
+        connected:
+          await this._channelInteractionService.hasInteractionAuthorization(
+            integration
+          ),
+      }
+      : undefined;
+
     return {
       id: integration.id,
       name: integration.name,
@@ -410,9 +420,50 @@ export class IntegrationService {
       inBetweenSteps: integration.inBetweenSteps,
       ...(integration.deletedAt ? { deleted: true } : {}),
       ...(profileUrl ? { profileUrl } : {}),
+      ...(trackingAuthorization ? { trackingAuthorization } : {}),
       tracking,
       subscriptions: this.mapChannelSubscriptions(tracked.subscriptions),
     };
+  }
+
+  async startChannelTrackingAuthorization(
+    org: Organization,
+    integrationId: string
+  ) {
+    return this._channelInteractionService.startInteractionAuthorization(
+      await this.getChannelForTrackingAuthorization(org, integrationId)
+    );
+  }
+
+  async completeChannelTrackingAuthorization(
+    org: Organization,
+    integrationId: string,
+    params: { code: string; codeVerifier: string }
+  ) {
+    const integration = await this.getChannelForTrackingAuthorization(
+      org,
+      integrationId
+    );
+    await this._channelInteractionService.completeInteractionAuthorization(
+      integration,
+      params
+    );
+    await this.requestInteractionReconciliation(integration);
+    return { success: true };
+  }
+
+  private async getChannelForTrackingAuthorization(
+    org: Organization,
+    integrationId: string
+  ) {
+    const integration = await this._integrationRepository.getIntegrationById(
+      org.id,
+      integrationId
+    );
+    if (!integration || integration.deletedAt) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+    return integration;
   }
 
   private mapChannelSubscriptions(
@@ -3398,7 +3449,10 @@ export class IntegrationService {
       const result =
         await provider.channelInteractionWebhooks.reconcileSubscriptions(
           liveIntegration,
-          liveIntegration.token
+          liveIntegration.token,
+          await this._channelInteractionService.getInteractionAuthorizationToken(
+            liveIntegration
+          )
         );
       await this._channelInteractionRepository.applySubscriptionReconciliation(
         integration.organizationId,

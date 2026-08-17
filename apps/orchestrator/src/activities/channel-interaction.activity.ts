@@ -33,7 +33,7 @@ export class ChannelInteractionActivity {
     private _integrationManager: IntegrationManager,
     private _refreshIntegrationService: RefreshIntegrationService,
     private _notificationService: NotificationService
-  ) {}
+  ) { }
 
   @ActivityMethod()
   listCandidates(after?: string) {
@@ -64,7 +64,10 @@ export class ChannelInteractionActivity {
     }
     const result = await capability.reconcileSubscriptions(
       liveIntegration,
-      liveIntegration.token
+      liveIntegration.token,
+      await this._channelInteractionService.getInteractionAuthorizationToken(
+        liveIntegration
+      )
     );
     const newlyFailed = await this._repository.applySubscriptionReconciliation(
       candidate.organizationId,

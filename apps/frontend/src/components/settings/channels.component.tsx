@@ -150,7 +150,17 @@ const ChannelDetailPanel: FC<{
   loading: boolean;
   onRefreshOauth: () => void;
   refreshing: boolean;
-}> = ({ integration, details, loading, onRefreshOauth, refreshing }) => {
+  onAuthorizeTracking: () => void;
+  authorizing: boolean;
+}> = ({
+  integration,
+  details,
+  loading,
+  onRefreshOauth,
+  refreshing,
+  onAuthorizeTracking,
+  authorizing,
+}) => {
   const t = useT();
   const tracking = details?.tracking;
   const stateLabel = tracking
@@ -169,16 +179,41 @@ const ChannelDetailPanel: FC<{
             {integration.display || integration.identifier}
           </div>
         </div>
-        <Button
-          type="button"
-          secondary
-          loading={refreshing}
-          disabled={refreshing}
-          onClick={onRefreshOauth}
-        >
-          {t('refresh_oauth', 'Refresh OAuth')}
-        </Button>
+        <div className="flex gap-[8px] shrink-0">
+          {details?.trackingAuthorization && (
+            <Button
+              type="button"
+              secondary
+              loading={authorizing}
+              disabled={authorizing}
+              onClick={onAuthorizeTracking}
+            >
+              {details.trackingAuthorization.connected
+                ? t('reauthorize_tracking', 'Reauthorize tracking')
+                : t('authorize_tracking', 'Authorize tracking')}
+            </Button>
+          )}
+          <Button
+            type="button"
+            secondary
+            loading={refreshing}
+            disabled={refreshing}
+            onClick={onRefreshOauth}
+          >
+            {t('refresh_oauth', 'Refresh OAuth')}
+          </Button>
+        </div>
       </div>
+
+      {details?.trackingAuthorization &&
+        !details.trackingAuthorization.connected && (
+          <div className="rounded-[10px] border border-amber-500/30 bg-amber-500/10 px-[14px] py-[12px] text-[13px] text-amber-100">
+            {t(
+              'tracking_authorization_needed',
+              'Some interaction events need an extra permission grant before they can be tracked. Use Authorize tracking to give it.'
+            )}
+          </div>
+        )}
 
       <div className="flex flex-col gap-[10px] border border-newBorder rounded-[8px] p-[16px]">
         <DetailRow label={t('provider', 'Provider')}>
@@ -372,6 +407,7 @@ export const ChannelsSettings: FC = () => {
   const { data: integrations, isLoading } = useIntegrationList();
   const [selectedId, setSelectedId] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
   const selected = useMemo(
     () => integrations?.find((item) => item.id === selectedId),
     [integrations, selectedId]
@@ -404,6 +440,31 @@ export const ChannelsSettings: FC = () => {
     } catch {
       setRefreshing(false);
       toast.show(t('oauth_refresh_failed', 'Could not start OAuth refresh.'));
+    }
+  }, [fetch, selected, t, toast]);
+
+  const authorizeTracking = useCallback(async () => {
+    if (!selected) {
+      return;
+    }
+    setAuthorizing(true);
+    try {
+      const response = await fetch(
+        `/integrations/${selected.id}/tracking-authorization`
+      );
+      const body = await response.json();
+      if (!response.ok || !body?.url) {
+        throw new Error('missing url');
+      }
+      window.location.href = body.url;
+    } catch {
+      setAuthorizing(false);
+      toast.show(
+        t(
+          'tracking_authorization_failed',
+          'Could not start the tracking authorization.'
+        )
+      );
     }
   }, [fetch, selected, t, toast]);
 
@@ -447,6 +508,8 @@ export const ChannelsSettings: FC = () => {
               loading={!!details.isLoading}
               onRefreshOauth={refreshOauth}
               refreshing={refreshing}
+              onAuthorizeTracking={authorizeTracking}
+              authorizing={authorizing}
             />
           ) : (
             t('select_a_channel', 'Select a channel')

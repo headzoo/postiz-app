@@ -139,7 +139,8 @@ describe('ChannelsSettings', () => {
     render(<ChannelsSettings />);
 
     expect(screen.getByText('Partial')).toBeTruthy();
-    expect(screen.getByText('like.create · inbound')).toBeTruthy();
+    // The failing subscription is listed both in the alert and in the table.
+    expect(screen.getAllByText('like.create · inbound').length).toBe(2);
     expect(screen.getByText('follow.follow · inbound')).toBeTruthy();
     expect(
       screen.getAllByText(
@@ -154,6 +155,42 @@ describe('ChannelsSettings', () => {
         '/integrations/social/x?refresh=1911740070'
       );
       expect(window.location.href).toBe('https://x.com/oauth');
+    });
+  });
+
+  it('starts the tracking authorization for channels that need one', async () => {
+    const details = (useChannelDetails as jest.Mock).mock.results;
+    (useChannelDetails as jest.Mock).mockReturnValue({
+      data: {
+        ...(details[0]?.value?.data || {}),
+        id: 'channel-a',
+        identifier: 'x',
+        trackingAuthorization: { connected: false },
+        tracking: { state: 'partial', coverage: [] },
+        subscriptions: [],
+      },
+      isLoading: false,
+    });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: 'https://x.com/i/oauth2/authorize' }),
+    });
+
+    render(<ChannelsSettings />);
+
+    expect(
+      screen.getByText(
+        'Some interaction events need an extra permission grant before they can be tracked. Use Authorize tracking to give it.'
+      )
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Authorize tracking' }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/integrations/channel-a/tracking-authorization'
+      );
+      expect(window.location.href).toBe('https://x.com/i/oauth2/authorize');
     });
   });
 });

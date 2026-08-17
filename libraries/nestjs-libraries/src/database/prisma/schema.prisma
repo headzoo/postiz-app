@@ -52,6 +52,7 @@ model Organization {
   channelInteractionWindowSummaries   ChannelInteractionWindowSummary[]
   channelInteractionRollupStates      ChannelInteractionRollupState[]
   channelInteractionSubscriptions     ChannelInteractionSubscription[]
+  channelInteractionAuthorizations    ChannelInteractionAuthorization[]
   channelFollowerSyncStates           ChannelFollowerSyncState[]
   channelAudienceNotes                ChannelAudienceNote[]
   channelAudienceLists                ChannelAudienceList[]
@@ -376,6 +377,7 @@ model Integration {
   channelInteractionWindowSummaries   ChannelInteractionWindowSummary[]
   channelInteractionRollupStates      ChannelInteractionRollupState[]
   channelInteractionSubscriptions     ChannelInteractionSubscription[]
+  channelInteractionAuthorization     ChannelInteractionAuthorization?
   channelFollowerSyncState            ChannelFollowerSyncState?
   channelAudienceNotes                ChannelAudienceNote[]
   channelAudienceLists                ChannelAudienceList[]
@@ -1374,6 +1376,22 @@ model ChannelInteractionSubscription {
 
   @@unique([integrationId, eventKey, direction])
   @@index([integrationId, state])
+  @@index([organizationId])
+}
+
+model ChannelInteractionAuthorization {
+  id              String       @id @default(cuid())
+  organizationId  String
+  integrationId   String       @unique
+  token           String
+  refreshToken    String?
+  tokenExpiration DateTime?
+  scopes          String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  integration     Integration  @relation(fields: [integrationId], references: [id])
+
   @@index([organizationId])
 }
 

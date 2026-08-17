@@ -107,6 +107,8 @@ type XActivitySubscriptionSpec = DesiredChannelInteractionSubscription & {
   | 'post.reply.create'
   | 'post.quote.create';
   filterDirection?: ChannelInteractionDirection;
+  // Event types X only accepts with an OAuth2 user token carrying these scopes.
+  scopes?: string[];
 };
 
 type XActivitySubscription = {
@@ -145,6 +147,17 @@ const X_WEBHOOK_NORMALIZATION_VERSION = 2;
 const X_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 const X_WEBHOOK_MAX_CRC_TOKEN_LENGTH = 1024;
 const X_WEBHOOK_API_BASE = 'https://api.x.com/2';
+const X_OAUTH2_AUTHORIZE_URL = 'https://x.com/i/oauth2/authorize';
+const X_OAUTH2_TOKEN_URL = 'https://api.x.com/2/oauth2/token';
+// Activity subscriptions for private events are only accepted with an OAuth2
+// user token; OAuth1 has no way to express these scopes.
+const X_ACTIVITY_AUTHORIZATION_SCOPES = [
+  'tweet.read',
+  'users.read',
+  'like.read',
+  'follows.read',
+  'offline.access',
+];
 const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
   {
     // X permits a single like.create subscription per user: direction is not
@@ -153,6 +166,7 @@ const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
     eventKey: 'like.create',
     eventType: 'like.create',
     direction: 'inbound',
+    scopes: ['like.read'],
   },
   {
     eventKey: 'follow.follow',
@@ -247,8 +261,23 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       this.getDesiredInteractionSubscriptions(integration),
     getInteractionCoverage: () => this.getInteractionCoverage(),
     reconcileEndpoint: () => this.reconcileInteractionWebhookEndpoint(),
-    reconcileSubscriptions: (integration: Integration, accessToken: string) =>
-      this.reconcileInteractionSubscriptions(integration, accessToken),
+    authorization: {
+      generateAuthUrl: () => this.generateActivityAuthorizationUrl(),
+      authenticate: (params: { code: string; codeVerifier: string }) =>
+        this.authenticateActivityAuthorization(params),
+      refreshToken: (refreshToken: string) =>
+        this.refreshActivityAuthorization(refreshToken),
+    },
+    reconcileSubscriptions: (
+      integration: Integration,
+      accessToken: string,
+      authorizationToken?: string
+    ) =>
+      this.reconcileInteractionSubscriptions(
+        integration,
+        accessToken,
+        authorizationToken
+      ),
   };
 
   maxLength(additionalSettings?: any, settings?: any) {
@@ -402,7 +431,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       // inbound; otherwise we liked someone else's post.
       const direction =
         envelope.filter.direction === 'inbound' ||
-        envelope.filter.direction === 'outbound'
+          envelope.filter.direction === 'outbound'
           ? envelope.filter.direction
           : likedAuthorId && likedAuthorId === connectedAccountId
             ? 'inbound'
@@ -1008,7 +1037,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
 
   private async reconcileInteractionSubscriptions(
     integration: Integration,
-    accessToken: string
+    accessToken: string,
+    authorizationToken?: string
   ): Promise<ChannelInteractionSubscriptionReconciliationResult> {
     const desired = this.getDesiredInteractionSubscriptions(integration);
     const coverage = this.getInteractionCoverage();
@@ -1031,23 +1061,6 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     }
     try {
       const current = await this.xActivitySubscriptions(accessToken);
-      console.log(
-        '[X reconcile] found',
-        current.length,
-        'subscriptions:',
-        JSON.stringify(
-          current.map((s) => ({
-            id: s.subscription_id,
-            event: s.event_type,
-            user_id: s.filter?.user_id,
-            direction: s.filter?.direction,
-            webhook_id: s.webhook_id,
-          }))
-        )
-      );
-      console.log('[X reconcile] endpoint webhook id:', endpoint.remoteWebhookId);
-      console.log('[X reconcile] integration internalId:', integration.internalId);
-
       const reconciled: ChannelInteractionSubscriptionReconciliationResult['subscriptions'] =
         [];
 
@@ -1057,14 +1070,6 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             current,
             spec,
             integration.internalId
-          );
-          console.log(
-            '[X reconcile]',
-            spec.eventKey,
-            spec.direction,
-            'matching:',
-            matching.length,
-            matching.map((m) => m.subscription_id)
           );
 
           if (integration.disabled || integration.deletedAt) {
@@ -1087,14 +1092,20 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           }
 
           const tag = this.xActivitySubscriptionTag(integration, spec);
+          const authorizationMissing =
+            !!spec.scopes?.length && !authorizationToken;
           let createdThisPass = false;
           if (!this.boundedId(active?.subscription_id)) {
+            if (authorizationMissing) {
+              throw this.xAuthorizationRequiredError(spec);
+            }
             active = await this.createOrRecoverActivitySubscription(
               spec,
               integration.internalId,
               endpoint.remoteWebhookId,
               tag,
-              accessToken
+              accessToken,
+              authorizationToken
             );
             createdThisPass = true;
           }
@@ -1104,31 +1115,24 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             throw new XWebhookApiError('invalid_request');
           }
           const attachedWebhookId = this.xSubscriptionWebhookId(active);
-          console.log(
-            '[X reconcile]',
-            spec.eventKey,
-            spec.direction,
-            'active:',
-            remoteIdentifier,
-            'attachedWebhookId:',
-            attachedWebhookId,
-            'endpoint:',
-            endpoint.remoteWebhookId,
-            'match:',
-            attachedWebhookId === endpoint.remoteWebhookId
-          );
           // A PUT carrying a tag resets delivery back to "Stream only", so we
           // never PATCH delivery in place. Whenever the attached webhook is
           // missing or points at a different endpoint, delete and recreate the
           // subscription with our webhook attached from the start.
           if (!createdThisPass && attachedWebhookId !== endpoint.remoteWebhookId) {
+            if (authorizationMissing) {
+              // Without the grant the subscription cannot be recreated, so
+              // deleting it now would lose it entirely.
+              throw this.xAuthorizationRequiredError(spec);
+            }
             await this.deleteXActivitySubscription(remoteIdentifier);
             active = await this.createOrRecoverActivitySubscription(
               spec,
               integration.internalId,
               endpoint.remoteWebhookId,
               tag,
-              accessToken
+              accessToken,
+              authorizationToken
             );
           }
           const liveIdentifier =
@@ -1216,13 +1220,23 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return 'error';
   }
 
+  private xNormalizedDirection(
+    direction?: string | number
+  ): ChannelInteractionDirection | undefined {
+    const normalized = direction ? String(direction).toLowerCase() : undefined;
+    return normalized === 'inbound' || normalized === 'outbound'
+      ? normalized
+      : undefined;
+  }
+
   private xActivitySubscriptionDirectionMatches(
     subscription: XActivitySubscription,
     filterDirection?: string
   ) {
-    const direction = subscription.filter?.direction;
-    const normalized = direction ? String(direction).toLowerCase() : undefined;
-    return normalized === (filterDirection?.toLowerCase() || undefined);
+    return (
+      this.xNormalizedDirection(subscription.filter?.direction) ===
+      this.xNormalizedDirection(filterDirection)
+    );
   }
 
   private findActivitySubscriptionsForSpec(
@@ -1281,7 +1295,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     userId: string,
     webhookId: string,
     tag: string,
-    accessToken: string
+    accessToken: string,
+    authorizationToken?: string
   ) {
     try {
       return await this.createXActivitySubscription(
@@ -1289,7 +1304,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         userId,
         webhookId,
         tag,
-        accessToken
+        accessToken,
+        authorizationToken
       );
     } catch (error) {
       if (!this.isDuplicateSubscriptionError(error)) {
@@ -1320,7 +1336,8 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           userId,
           webhookId,
           tag,
-          accessToken
+          accessToken,
+          authorizationToken
         );
       } catch (retryError) {
         for (const subscription of removed) {
@@ -1328,14 +1345,15 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             await this.createXActivitySubscription(
               {
                 ...spec,
-                filterDirection: subscription.filter?.direction
-                  ? String(subscription.filter.direction).toLowerCase()
-                  : undefined,
+                filterDirection: this.xNormalizedDirection(
+                  subscription.filter?.direction
+                ),
               },
               userId,
               webhookId,
               subscription.tag || tag,
-              accessToken
+              accessToken,
+              authorizationToken
             );
           } catch {
             // The previous subscription could not be restored; the
@@ -1432,7 +1450,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     webhookId: string,
     tag: string,
     accessToken: string,
-    authentication: 'bearer' | 'oauth1'
+    authentication: 'bearer' | 'oauth1' | 'oauth2'
   ) {
     const created = await this.xWebhookApi<{
       data?:
@@ -1455,7 +1473,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         }),
       },
       authentication,
-      authentication === 'oauth1' ? accessToken : undefined
+      authentication === 'bearer' ? undefined : accessToken
     );
     return this.xActivitySubscriptionFromResponse(created);
   }
@@ -1465,8 +1483,24 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     userId: string,
     webhookId: string,
     tag: string,
-    accessToken: string
+    accessToken: string,
+    authorizationToken?: string
   ) {
+    // Event types that declare scopes are only accepted with the OAuth2 grant
+    // the user gave for tracking; OAuth1 cannot carry those scopes.
+    if (spec.scopes?.length) {
+      if (!authorizationToken) {
+        throw this.xAuthorizationRequiredError(spec);
+      }
+      return this.postXActivitySubscription(
+        spec,
+        userId,
+        webhookId,
+        tag,
+        authorizationToken,
+        'oauth2'
+      );
+    }
     return this.postXActivitySubscription(
       spec,
       userId,
@@ -1476,6 +1510,13 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       this.xActivitySubscriptionUsesUserOAuth(spec.eventType)
         ? 'oauth1'
         : 'bearer'
+    );
+  }
+
+  private xAuthorizationRequiredError(spec: XActivitySubscriptionSpec) {
+    return new XWebhookApiError(
+      'missing_scope',
+      `authorization required for ${(spec.scopes || []).join(', ')}`
     );
   }
 
@@ -1510,16 +1551,132 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     );
   }
 
+  private xActivityAuthorizationRedirectUri() {
+    return `${process.env.X_URL || process.env.FRONTEND_URL
+      }/integrations/tracking/x`;
+  }
+
+  private async generateActivityAuthorizationUrl() {
+    const clientId = process.env.X_OAUTH2_CLIENT_ID;
+    if (!clientId) {
+      throw new XWebhookApiError(
+        'authentication_failed',
+        'X_OAUTH2_CLIENT_ID is not configured'
+      );
+    }
+    const codeVerifier = randomBytes(64).toString('base64url');
+    const url = new URL(X_OAUTH2_AUTHORIZE_URL);
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set(
+      'redirect_uri',
+      this.xActivityAuthorizationRedirectUri()
+    );
+    url.searchParams.set('scope', X_ACTIVITY_AUTHORIZATION_SCOPES.join(' '));
+    const state = randomBytes(16).toString('hex');
+    url.searchParams.set('state', state);
+    url.searchParams.set(
+      'code_challenge',
+      createHash('sha256').update(codeVerifier).digest('base64url')
+    );
+    url.searchParams.set('code_challenge_method', 'S256');
+    return { url: url.toString(), codeVerifier, state };
+  }
+
+  private async authenticateActivityAuthorization(params: {
+    code: string;
+    codeVerifier: string;
+  }) {
+    return this.xOauth2Token(
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: params.code,
+        redirect_uri: this.xActivityAuthorizationRedirectUri(),
+        code_verifier: params.codeVerifier,
+      })
+    );
+  }
+
+  private async refreshActivityAuthorization(refreshToken: string) {
+    return this.xOauth2Token(
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: refreshToken,
+      })
+    );
+  }
+
+  private async xOauth2Token(body: URLSearchParams) {
+    const clientId = process.env.X_OAUTH2_CLIENT_ID;
+    const clientSecret = process.env.X_OAUTH2_CLIENT_SECRET;
+    if (!clientId) {
+      throw new XWebhookApiError(
+        'authentication_failed',
+        'X_OAUTH2_CLIENT_ID is not configured'
+      );
+    }
+    body.set('client_id', clientId);
+    const response = await fetch(X_OAUTH2_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        // Confidential clients have to authenticate with basic auth, public
+        // ones only send the client id in the body.
+        ...(clientSecret
+          ? {
+            Authorization: `Basic ${Buffer.from(
+              `${clientId}:${clientSecret}`
+            ).toString('base64')}`,
+          }
+          : {}),
+      },
+      body: body.toString(),
+    });
+    if (!response.ok) {
+      const problem = await response.text().catch(() => '');
+      // Token endpoint failures are always credential problems; the Activity
+      // API classifier would read their "oauth" wording as an unusable auth
+      // mode and produce a misleading reason.
+      throw new XWebhookApiError(
+        response.status === 429 || response.status >= 500
+          ? 'transient_failure'
+          : 'authentication_failed',
+        this.sanitizeXWebhookProblem(problem),
+        response.status
+      );
+    }
+    const data = await this.parseXWebhookJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      scope?: string;
+    }>(response);
+    if (!data.access_token) {
+      throw new XWebhookApiError('authentication_failed');
+    }
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token,
+      expiresIn: data.expires_in,
+      scopes: data.scope ? data.scope.split(' ').filter(Boolean) : undefined,
+    };
+  }
+
   private async xWebhookApi<T = any>(
     url: string,
     options: RequestInit,
-    authentication: 'bearer' | 'oauth1',
+    authentication: 'bearer' | 'oauth1' | 'oauth2',
     accessToken?: string
   ): Promise<T> {
     const method = options.method || 'GET';
     let authorization: string;
     if (authentication === 'bearer') {
       authorization = `Bearer ${process.env.X_WEBHOOK_BEARER_TOKEN || ''}`;
+    } else if (authentication === 'oauth2') {
+      if (!accessToken) {
+        throw new XWebhookApiError('authentication_failed');
+      }
+      authorization = `Bearer ${accessToken}`;
     } else {
       const [token, secret] = (accessToken || '').split(':');
       if (!token || !secret) {
@@ -1546,17 +1703,6 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     } catch {
       // The status code is sufficient for classification.
     }
-    console.log(
-      '[X webhook api] failed',
-      method,
-      new URL(url).pathname,
-      'auth:',
-      authentication,
-      'status:',
-      response.status,
-      'body:',
-      this.sanitizeXWebhookProblem(rawProblem)
-    );
     throw new XWebhookApiError(
       this.classifyXWebhookApiError(response.status, problem),
       this.sanitizeXWebhookProblem(rawProblem),
@@ -1653,14 +1799,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   ) {
     const normalizedDetail = detail?.toLowerCase() || '';
     if (category === 'missing_scope') {
+      if (normalizedDetail.startsWith('authorization required')) {
+        return 'X needs extra permission before this event can be tracked. Open channel settings and authorize tracking.';
+      }
       if (normalizedDetail.includes('oauth user access token')) {
-        return 'Follow and like tracking require your connected X account authorization. Use Refresh OAuth in channel settings to reconnect @headzoo.';
+        return 'Follow and like tracking require your connected X account authorization. Reconnect the channel from its settings.';
       }
       if (normalizedDetail.includes('follows.read')) {
         return 'X requires the follows.read permission for follow tracking. Reconnect the channel and grant all requested permissions.';
       }
       if (normalizedDetail.includes('like.read')) {
-        return 'X requires the like.read permission for like tracking. Reconnect the channel and grant all requested permissions.';
+        return 'X requires the like.read permission for like tracking. Open channel settings and authorize tracking, granting all requested permissions.';
       }
       if (normalizedDetail.includes('tweet.read')) {
         return 'X requires the tweet.read permission for post tracking. Reconnect the channel and grant all requested permissions.';

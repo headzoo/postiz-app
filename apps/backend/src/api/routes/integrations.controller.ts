@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpException,
+  HttpStatus,
   Param,
   Post,
   Put,
@@ -34,6 +36,7 @@ import { uniqBy } from 'lodash';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
 import { ReorderCustomerDto } from '@gitroom/nestjs-libraries/dtos/integrations/customer-reorder.dto';
 import { RenameCustomerDto } from '@gitroom/nestjs-libraries/dtos/integrations/customer-rename.dto';
+import { ChannelTrackingAuthorizationDto } from '@gitroom/nestjs-libraries/dtos/integrations/channel.tracking.authorization.dto';
 
 export const publicProfileUrl = (value: string | undefined) => {
   if (!value) {
@@ -130,6 +133,67 @@ export class IntegrationsController {
     @Param('id') id: string
   ) {
     return this._integrationService.getChannelDetails(org, id);
+  }
+
+  // Authorizing tracking grants extra permissions on a channel that already
+  // exists, so it is not gated behind the channel creation entitlement.
+  @Get('/:id/tracking-authorization')
+  async getTrackingAuthorizationUrl(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ) {
+    try {
+      const { url, codeVerifier, state } =
+        await this._integrationService.startChannelTrackingAuthorization(
+          org,
+          id
+        );
+
+      await ioRedis.set(
+        `tracking:${state}`,
+        JSON.stringify({
+          codeVerifier,
+          integrationId: id,
+          organizationId: org.id,
+        }),
+        'EX',
+        3600
+      );
+
+      return { url };
+    } catch (err) {
+      return { err: true };
+    }
+  }
+
+  @Post('/tracking-authorization')
+  async saveTrackingAuthorization(
+    @GetOrgFromRequest() org: Organization,
+    @Body() body: ChannelTrackingAuthorizationDto
+  ) {
+    const stored = await ioRedis.get(`tracking:${body.state}`);
+    if (!stored) {
+      throw new HttpException(
+        'Authorization request expired, please try again',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+    const { codeVerifier, integrationId, organizationId } = JSON.parse(stored);
+    if (organizationId !== org.id) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+
+    const result =
+      await this._integrationService.completeChannelTrackingAuthorization(
+        org,
+        integrationId,
+        { code: body.code, codeVerifier }
+      );
+
+    // The code is single-use, so the request is only retriable while the
+    // exchange has not succeeded.
+    await ioRedis.del(`tracking:${body.state}`);
+    return result;
   }
 
   @Get('/list')

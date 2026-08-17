@@ -33,6 +33,7 @@ export type ChannelDetails = {
   inBetweenSteps: boolean;
   deleted?: boolean;
   profileUrl?: string;
+  trackingAuthorization?: { connected: boolean };
   tracking: FollowerPageTracking;
   subscriptions: ChannelSubscriptionDetail[];
 };

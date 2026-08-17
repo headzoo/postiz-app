@@ -229,9 +229,48 @@ export class ChannelInteractionRepository {
       | 'channelRelationshipGradeSnapshot'
     >,
     private _integration: PrismaRepository<'integration'>,
-    private _subscription: PrismaRepository<'channelInteractionSubscription'>,
+    private _subscription: PrismaRepository<
+      'channelInteractionSubscription' | 'channelInteractionAuthorization'
+    >,
     private _transaction: PrismaTransaction
   ) { }
+
+  getInteractionAuthorization(organizationId: string, integrationId: string) {
+    return this._subscription.model.channelInteractionAuthorization.findFirst({
+      where: { organizationId, integrationId },
+    });
+  }
+
+  saveInteractionAuthorization(
+    organizationId: string,
+    integrationId: string,
+    grant: {
+      token: string;
+      refreshToken?: string;
+      tokenExpiration?: Date;
+      scopes?: string;
+    }
+  ) {
+    return this._subscription.model.channelInteractionAuthorization.upsert({
+      where: { integrationId },
+      create: {
+        organizationId,
+        integrationId,
+        token: grant.token,
+        refreshToken: grant.refreshToken ?? null,
+        tokenExpiration: grant.tokenExpiration ?? null,
+        scopes: grant.scopes ?? null,
+      },
+      update: {
+        token: grant.token,
+        // A response without a rotated refresh token keeps the stored one;
+        // clearing it would force the user to authorize again.
+        ...(grant.refreshToken ? { refreshToken: grant.refreshToken } : {}),
+        tokenExpiration: grant.tokenExpiration ?? null,
+        scopes: grant.scopes ?? null,
+      },
+    });
+  }
 
   async recordNormalizedEvent(
     organizationId: string,

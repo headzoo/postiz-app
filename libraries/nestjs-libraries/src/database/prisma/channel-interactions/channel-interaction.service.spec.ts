@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import {
   applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
@@ -12,6 +13,13 @@ jest.mock(
   '@gitroom/nestjs-libraries/integrations/integration.manager',
   () => ({ IntegrationManager: class IntegrationManager { } })
 );
+
+jest.mock('@gitroom/nestjs-libraries/redis/redis.service', () => ({
+  ioRedis: {
+    set: jest.fn().mockResolvedValue('OK'),
+    del: jest.fn().mockResolvedValue(1),
+  },
+}));
 
 const interaction = (overrides: Record<string, any> = {}) => ({
   providerEventKey: 'provider-event-1',
@@ -40,6 +48,8 @@ const createRepository = () => ({
   getActiveIntegrationsForProvider: jest.fn().mockResolvedValue([]),
   requestSubscriptionReconciliation: jest.fn().mockResolvedValue(undefined),
   markSubscriptionsForRemoval: jest.fn().mockResolvedValue({ count: 0 }),
+  getInteractionAuthorization: jest.fn().mockResolvedValue(null),
+  saveInteractionAuthorization: jest.fn().mockResolvedValue({}),
   getDueRelationshipGradeBatch: jest.fn().mockResolvedValue({ members: [] }),
   createRelationshipGradeSnapshots: jest.fn().mockResolvedValue({ count: 0 }),
   hasDueRelationshipGradeMembers: jest.fn().mockResolvedValue(false),
@@ -1097,5 +1107,146 @@ describe('ChannelInteractionService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(repository.getRelationshipScoresForMembers).not.toHaveBeenCalled();
     expect(repository.updateCurrentRelationshipProjections).not.toHaveBeenCalled();
+  });
+
+  it('stores a tracking grant and reuses it until it expires', async () => {
+    const repository = createRepository();
+    const authorization = {
+      scopes: ['like.read'],
+      generateAuthUrl: jest.fn(),
+      authenticate: jest.fn().mockResolvedValue({
+        accessToken: 'granted',
+        refreshToken: 'renew',
+        expiresIn: 7200,
+        scopes: ['like.read', 'offline.access'],
+      }),
+      refreshToken: jest.fn(),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: { authorization },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any
+    );
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+    } as any;
+
+    await service.completeInteractionAuthorization(integration, {
+      code: 'code',
+      codeVerifier: 'verifier',
+    });
+
+    expect(repository.saveInteractionAuthorization).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      {
+        token: 'granted',
+        refreshToken: 'renew',
+        tokenExpiration: new Date('2026-08-12T14:05:00.000Z'),
+        scopes: 'like.read offline.access',
+      }
+    );
+
+    repository.getInteractionAuthorization.mockResolvedValue({
+      token: 'granted',
+      refreshToken: 'renew',
+      tokenExpiration: new Date('2026-08-12T14:05:00.000Z'),
+    });
+    await expect(
+      service.getInteractionAuthorizationToken(integration)
+    ).resolves.toBe('granted');
+    expect(authorization.refreshToken).not.toHaveBeenCalled();
+  });
+
+  it('renews an expired tracking grant and reports missing ones', async () => {
+    const repository = createRepository();
+    const authorization = {
+      scopes: ['like.read'],
+      generateAuthUrl: jest.fn(),
+      authenticate: jest.fn(),
+      refreshToken: jest.fn().mockResolvedValue({
+        accessToken: 'renewed',
+        refreshToken: 'renew-2',
+        expiresIn: 7200,
+      }),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: { authorization },
+      }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any
+    );
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+    } as any;
+
+    await expect(
+      service.getInteractionAuthorizationToken(integration)
+    ).resolves.toBeUndefined();
+
+    repository.getInteractionAuthorization.mockResolvedValue({
+      token: 'expired',
+      refreshToken: 'renew',
+      tokenExpiration: new Date('2026-08-12T12:00:00.000Z'),
+    });
+    await expect(
+      service.getInteractionAuthorizationToken(integration)
+    ).resolves.toBe('renewed');
+    expect(authorization.refreshToken).toHaveBeenCalledWith('renew');
+
+    authorization.refreshToken.mockRejectedValue(new Error('revoked'));
+    await expect(
+      service.getInteractionAuthorizationToken(integration)
+    ).resolves.toBeUndefined();
+  });
+
+  it('does not renew a grant another reconciliation pass is already renewing', async () => {
+    const repository = createRepository();
+    repository.getInteractionAuthorization
+      .mockResolvedValueOnce({
+        token: 'expired',
+        refreshToken: 'renew',
+        tokenExpiration: new Date('2026-08-12T12:00:00.000Z'),
+      })
+      .mockResolvedValueOnce({
+        token: 'renewed-elsewhere',
+        refreshToken: 'renew-2',
+        tokenExpiration: new Date('2026-08-12T14:05:00.000Z'),
+      });
+    const authorization = {
+      generateAuthUrl: jest.fn(),
+      authenticate: jest.fn(),
+      refreshToken: jest.fn(),
+    };
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({
+        channelInteractionWebhooks: { authorization },
+      }),
+    };
+    (ioRedis.set as jest.Mock).mockResolvedValueOnce(null);
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any
+    );
+
+    await expect(
+      service.getInteractionAuthorizationToken({
+        id: 'integration',
+        organizationId: 'org',
+        providerIdentifier: 'x',
+      } as any)
+    ).resolves.toBe('renewed-elsewhere');
+    expect(authorization.refreshToken).not.toHaveBeenCalled();
   });
 });

@@ -55,6 +55,11 @@ services:
       # Optional X Account Activity webhooks. Tracking remains disabled when
       # either the HTTPS callback or app-only bearer token is absent.
       X_WEBHOOK_BEARER_TOKEN: ''
+      # Like tracking additionally needs an OAuth2 grant with the like.read
+      # scope; allow <X_URL or FRONTEND_URL>/integrations/tracking/x as an X app
+      # callback URL.
+      X_OAUTH2_CLIENT_ID: ''
+      X_OAUTH2_CLIENT_SECRET: ''
       X_WEBHOOK_CALLBACK_URL: 'https://postiz.backtunnel.io/api/channel-webhooks/x'
       # Alternatively set a shared base; Postiz appends /channel-webhooks/x.
       CHANNEL_WEBHOOK_CALLBACK_BASE_URL: ''
