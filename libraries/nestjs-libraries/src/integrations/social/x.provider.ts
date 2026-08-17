@@ -147,18 +147,12 @@ const X_WEBHOOK_MAX_CRC_TOKEN_LENGTH = 1024;
 const X_WEBHOOK_API_BASE = 'https://api.x.com/2';
 const X_ACTIVITY_SUBSCRIPTIONS: XActivitySubscriptionSpec[] = [
   {
-    // X accepts directionless like subscriptions but does not deliver events
-    // for them; likes must be subscribed per direction.
+    // X permits a single like.create subscription per user: direction is not
+    // part of its uniqueness check. Subscribing without a direction filter is
+    // the only way to receive both inbound and outbound likes.
     eventKey: 'like.create',
     eventType: 'like.create',
     direction: 'inbound',
-    filterDirection: 'inbound',
-  },
-  {
-    eventKey: 'like.create',
-    eventType: 'like.create',
-    direction: 'outbound',
-    filterDirection: 'outbound',
   },
   {
     eventKey: 'follow.follow',
@@ -1226,14 +1220,9 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     subscription: XActivitySubscription,
     filterDirection?: string
   ) {
-    if (!filterDirection) {
-      return true;
-    }
     const direction = subscription.filter?.direction;
-    if (!direction) {
-      return false;
-    }
-    return String(direction).toLowerCase() === filterDirection.toLowerCase();
+    const normalized = direction ? String(direction).toLowerCase() : undefined;
+    return normalized === (filterDirection?.toLowerCase() || undefined);
   }
 
   private findActivitySubscriptionsForSpec(
@@ -1262,20 +1251,23 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return this.findActivitySubscriptionsForSpec(refreshed, spec, userId)[0];
   }
 
-  private async deleteConflictingDirectionlessSubscription(
+  private async deleteConflictingActivitySubscriptions(
     spec: XActivitySubscriptionSpec,
     userId: string,
     accessToken: string
   ) {
-    if (!spec.filterDirection) {
-      return [];
-    }
     const refreshed = await this.xActivitySubscriptions(accessToken);
+    // X enforces uniqueness per event type and user, ignoring the direction
+    // filter, so a subscription with the wrong direction blocks the desired
+    // one and has to be replaced.
     const conflicting = refreshed.filter(
       (subscription) =>
         subscription.event_type === spec.eventType &&
         this.boundedId(subscription.filter?.user_id) === userId &&
-        !subscription.filter?.direction &&
+        !this.xActivitySubscriptionDirectionMatches(
+          subscription,
+          spec.filterDirection
+        ) &&
         !!this.boundedId(subscription.subscription_id)
     );
     for (const subscription of conflicting) {
@@ -1311,10 +1303,10 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       if (recovered) {
         return recovered;
       }
-      // X treats a directionless subscription as a duplicate of directional
-      // ones. Remove the conflicting directionless subscription and retry,
-      // restoring it if the directional subscription cannot be created.
-      const removed = await this.deleteConflictingDirectionlessSubscription(
+      // X enforces one subscription per event type and user, so a subscription
+      // with a different direction filter must be replaced. Restore it if the
+      // desired subscription cannot be created.
+      const removed = await this.deleteConflictingActivitySubscriptions(
         spec,
         userId,
         accessToken
@@ -1334,14 +1326,19 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         for (const subscription of removed) {
           try {
             await this.createXActivitySubscription(
-              { ...spec, filterDirection: undefined },
+              {
+                ...spec,
+                filterDirection: subscription.filter?.direction
+                  ? String(subscription.filter.direction).toLowerCase()
+                  : undefined,
+              },
               userId,
               webhookId,
               subscription.tag || tag,
               accessToken
             );
           } catch {
-            // The directionless subscription could not be restored; the
+            // The previous subscription could not be restored; the
             // reconciliation result reports the original failure.
           }
         }
