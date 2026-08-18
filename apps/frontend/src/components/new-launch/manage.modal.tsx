@@ -27,7 +27,7 @@ import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { capitalize } from 'lodash';
 import { SelectCustomer } from '@gitroom/frontend/components/launches/select.customer';
-import { CopilotPopup } from '@copilotkit/react-ui';
+import { CopilotAssistantPopup } from '@gitroom/frontend/components/layout/copilot.assistant.popup';
 import { DummyCodeComponent } from '@gitroom/frontend/components/new-launch/dummy.code.component';
 import { CreationMethodBadge } from '@gitroom/frontend/components/launches/creation.method.badge';
 import {
@@ -952,9 +952,9 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                     {!selectedPipeline!.active
                       ? t('pipeline_paused', 'Paused')
                       : formatPipelineSlot(
-                          selectedPipeline!.projectedEnqueueFor,
-                          selectedPipeline!.timezone
-                        )}
+                        selectedPipeline!.projectedEnqueueFor,
+                        selectedPipeline!.timezone
+                      )}
                   </div>
                 </div>
               )}
@@ -1059,9 +1059,7 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
           </div>
         </div>
       </div>
-      <CopilotPopup
-        hitEscapeToClose={false}
-        clickOutsideToClose={true}
+      <CopilotAssistantPopup
         instructions={`
 You are an assistant that help the user to schedule their social media posts,
 Here are the things you can do:
@@ -1073,13 +1071,6 @@ Here are the things you can do:
 Post content can be added using the addPostContentFor{num} function.
 After using the addPostFor{num} it will create a new addPostContentFor{num+ 1} function.
 `}
-        labels={{
-          title: t('your_assistant', 'Your Assistant'),
-          initial: t(
-            'assistant_initial_message',
-            'Hi! I can help you to refine your social media posts.'
-          ),
-        }}
       />
     </div>
   );
