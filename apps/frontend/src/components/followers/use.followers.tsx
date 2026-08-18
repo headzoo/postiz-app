@@ -47,7 +47,8 @@ export type RelationshipTriage =
 
 export type DismissibleTriage =
   | RelationshipTriage
-  | 'lead';
+  | 'lead'
+  | 'engaged_not_yet';
 
 export type FollowerTriageFilter =
   | 'engaged_not_yet'
@@ -129,6 +130,7 @@ export type Follower = {
   adjustedGrade?: number | null;
   listIds?: string[];
   isLead?: boolean;
+  engagedNotYet?: boolean;
 };
 
 export type FollowerList = {
@@ -660,6 +662,9 @@ export const applyTriageIgnoreToFollowerPage = (
         }
         if (options?.triage === 'lead') {
           return { ...item, isLead: false };
+        }
+        if (options?.triage === 'engaged_not_yet') {
+          return { ...item, engagedNotYet: false };
         }
         return { ...item, relationshipTriage: null };
       });

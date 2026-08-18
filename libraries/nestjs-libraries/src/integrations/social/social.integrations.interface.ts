@@ -308,6 +308,7 @@ export type Follower = {
   adjustedGrade?: number | null;
   listIds?: string[];
   isLead?: boolean;
+  engagedNotYet?: boolean;
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';

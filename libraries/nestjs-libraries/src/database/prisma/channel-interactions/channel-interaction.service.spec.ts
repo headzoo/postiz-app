@@ -1172,7 +1172,7 @@ describe('ChannelInteractionService', () => {
     );
   });
 
-  it('rejects invalid triage ignore values and missing followers', async () => {
+  it('accepts engaged-not-yet triage ignores and rejects invalid values', async () => {
     const repository = createRepository();
     const service = new ChannelInteractionService(repository as any);
 
@@ -1182,6 +1182,23 @@ describe('ChannelInteractionService', () => {
         'integration',
         'follower-a',
         'engaged_not_yet',
+        'user-a'
+      )
+    ).resolves.toBeUndefined();
+    expect(repository.addAudienceTriageIgnore).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      'follower-a',
+      'engaged_not_yet',
+      'user-a'
+    );
+
+    await expect(
+      service.ignoreFollowerTriage(
+        'org',
+        'integration',
+        'follower-a',
+        'invalid',
         'user-a'
       )
     ).rejects.toBeInstanceOf(BadRequestException);

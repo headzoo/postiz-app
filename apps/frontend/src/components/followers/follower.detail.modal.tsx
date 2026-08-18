@@ -470,6 +470,12 @@ const FollowerDetailContent: FC<{
                 onRemove={handleDismissTriage}
               />
             )}
+            {follower.engagedNotYet && (
+              <RelationshipTriageBadge
+                triage="engaged_not_yet"
+                onRemove={handleDismissTriage}
+              />
+            )}
           </div>
           {handle &&
             (follower.profileUrl ? (

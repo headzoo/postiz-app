@@ -100,6 +100,18 @@ export function getRelationshipTriage(
   return 'mutual';
 }
 
+export function isEngagedNotYet(
+  effortScore: number,
+  reciprocationScore: number
+) {
+  return (
+    Number.isSafeInteger(effortScore) &&
+    Number.isSafeInteger(reciprocationScore) &&
+    reciprocationScore > 0 &&
+    effortScore === 0
+  );
+}
+
 export function calculateRelationshipGrade(
   effortScore: number,
   reciprocationScore: number

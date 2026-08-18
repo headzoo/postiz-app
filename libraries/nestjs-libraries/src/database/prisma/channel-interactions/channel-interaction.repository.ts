@@ -20,6 +20,7 @@ import {
 import {
   getChannelInteractionScore,
   getRelationshipTriage,
+  isEngagedNotYet,
   RELATIONSHIP_CADENCE_MS,
   RELATIONSHIP_FORMULA_VERSION,
   RELATIONSHIP_WINDOW_MS,
@@ -2200,6 +2201,7 @@ export class ChannelInteractionRepository {
       return {
         relationshipReciprocationScore: { gt: 0 },
         relationshipEffortScore: 0,
+        triageIgnores: { none: { triage: 'engaged_not_yet' } },
       };
     }
     return {

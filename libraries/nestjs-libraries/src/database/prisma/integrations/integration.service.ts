@@ -45,6 +45,7 @@ import {
   applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
   getRelationshipTriage,
+  isEngagedNotYet,
   RELATIONSHIP_CADENCE_DAYS,
   RELATIONSHIP_FORMULA_VERSION,
   RELATIONSHIP_WINDOW_DAYS,
@@ -1195,6 +1196,9 @@ export class IntegrationService {
       ...(member?.ignoredTriages ?? []),
       ...(member?.triageIgnores?.map((ignore) => ignore.triage) ?? []),
     ]);
+    const engagedNotYet =
+      isEngagedNotYet(effortScore!, reciprocationScore!) &&
+      !ignored.has('engaged_not_yet');
     return {
       effortScore,
       reciprocationScore,
@@ -1205,6 +1209,7 @@ export class IntegrationService {
       relationshipTriage: ignored.has(computedTriage!)
         ? null
         : computedTriage,
+      ...(engagedNotYet ? { engagedNotYet: true } : {}),
       relationshipFormulaVersion: member?.relationshipFormulaVersion ?? null,
       relationshipSnapshotAt:
         member?.relationshipSnapshotAt?.toISOString() ?? null,
@@ -2808,6 +2813,7 @@ export class IntegrationService {
         }
         : {}),
       ...(follower.isLead === true ? { isLead: true } : {}),
+      ...(follower.engagedNotYet === true ? { engagedNotYet: true } : {}),
     };
   }
 

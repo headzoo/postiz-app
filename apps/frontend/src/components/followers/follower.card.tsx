@@ -17,6 +17,10 @@ const TRIAGE_LABELS: Record<
     key: 'followers_triage_hot_lead',
     defaultLabel: 'Hot',
   },
+  engaged_not_yet: {
+    key: 'followers_triage_filter_engaged_not_yet',
+    defaultLabel: 'Engaged',
+  },
   mutual: {
     key: 'followers_triage_mutual',
     defaultLabel: 'Mutual',
@@ -37,6 +41,7 @@ const TRIAGE_LABELS: Record<
 
 const TRIAGE_STYLES: Record<DismissibleTriage, string> = {
   hot_lead: 'border-amber-500/40 text-amber-500',
+  engaged_not_yet: 'border-violet-500/40 text-violet-500',
   mutual: 'border-green-500/40 text-green-500',
   over_invested: 'border-red-400/40 text-red-400',
   quiet: 'border-newTableBorder text-textItemBlur',
@@ -254,6 +259,12 @@ export const FollowerCard: FC<{
                 {follower.isLead && (
                   <RelationshipTriageBadge
                     triage="lead"
+                    onRemove={onDismissTriage}
+                  />
+                )}
+                {follower.engagedNotYet && (
+                  <RelationshipTriageBadge
+                    triage="engaged_not_yet"
                     onRemove={onDismissTriage}
                   />
                 )}

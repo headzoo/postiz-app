@@ -260,13 +260,18 @@ describe('FollowersController', () => {
       externalId: 'follower-a',
       triage: 'lead',
     });
-    const invalid = Object.assign(new IgnoreFollowerTriageDto(), {
+    const validEngaged = Object.assign(new IgnoreFollowerTriageDto(), {
       externalId: 'follower-a',
       triage: 'engaged_not_yet',
+    });
+    const invalid = Object.assign(new IgnoreFollowerTriageDto(), {
+      externalId: 'follower-a',
+      triage: 'invalid',
     });
 
     await expect(validate(valid)).resolves.toHaveLength(0);
     await expect(validate(validLead)).resolves.toHaveLength(0);
+    await expect(validate(validEngaged)).resolves.toHaveLength(0);
     await expect(validate(invalid)).resolves.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ property: 'triage' }),

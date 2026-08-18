@@ -145,6 +145,20 @@ describe('FollowerCard', () => {
     expect(screen.getByText('likes')).toBeTruthy();
   });
 
+  it('renders engaged badge on the card', () => {
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          engagedNotYet: true,
+        }}
+        onOpen={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('Engaged')).toBeTruthy();
+  });
+
   it('renders directional effort rows and triage badge on the card', () => {
     const { container } = render(
       <FollowerCard

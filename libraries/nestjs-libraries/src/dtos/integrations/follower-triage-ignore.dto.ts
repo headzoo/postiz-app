@@ -7,6 +7,19 @@ export class IgnoreFollowerTriageDto {
   externalId!: string;
 
   @IsString()
-  @IsIn(['hot_lead', 'mutual', 'over_invested', 'quiet', 'lead'])
-  triage!: 'hot_lead' | 'mutual' | 'over_invested' | 'quiet' | 'lead';
+  @IsIn([
+    'hot_lead',
+    'mutual',
+    'over_invested',
+    'quiet',
+    'lead',
+    'engaged_not_yet',
+  ])
+  triage!:
+    | 'hot_lead'
+    | 'mutual'
+    | 'over_invested'
+    | 'quiet'
+    | 'lead'
+    | 'engaged_not_yet';
 }

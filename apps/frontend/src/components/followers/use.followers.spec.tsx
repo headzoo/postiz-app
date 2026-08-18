@@ -234,5 +234,32 @@ describe('follower list cache updates', () => {
       ],
       hasMore: false,
     });
+    expect(
+      applyTriageIgnoreToFollowerPage(
+        {
+          items: [
+            {
+              id: 'follower-1',
+              name: 'Alex',
+              engagedNotYet: true,
+            },
+            {
+              id: 'follower-2',
+              name: 'Sam',
+              engagedNotYet: true,
+            },
+          ],
+          hasMore: false,
+        },
+        'follower-1',
+        { triage: 'engaged_not_yet' }
+      )
+    ).toEqual({
+      items: [
+        { id: 'follower-1', name: 'Alex', engagedNotYet: false },
+        { id: 'follower-2', name: 'Sam', engagedNotYet: true },
+      ],
+      hasMore: false,
+    });
   });
 });

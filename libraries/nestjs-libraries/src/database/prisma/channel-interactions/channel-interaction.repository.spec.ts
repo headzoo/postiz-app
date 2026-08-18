@@ -1963,6 +1963,7 @@ describe('ChannelInteractionRepository', () => {
           AND: [{
             relationshipReciprocationScore: { gt: 0 },
             relationshipEffortScore: 0,
+            triageIgnores: { none: { triage: 'engaged_not_yet' } },
           }],
         }),
       })
