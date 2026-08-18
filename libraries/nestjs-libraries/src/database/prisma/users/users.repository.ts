@@ -14,7 +14,7 @@ export class UsersRepository {
   constructor(
     private _user: PrismaRepository<'user'>,
     private _transaction: PrismaTransaction
-  ) {}
+  ) { }
 
   async switchUserCredentials(currentUserId: string, targetUserId: string) {
     const current = await this._user.model.user.findUnique({
@@ -104,6 +104,38 @@ export class UsersRepository {
     return this._user.model.user.findFirst({
       where: {
         id,
+      },
+    });
+  }
+
+  listUsers() {
+    return this._user.model.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        isSuperAdmin: true,
+        activated: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+  }
+
+  setSuperAdmin(userId: string, isSuperAdmin: boolean) {
+    return this._user.model.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        isSuperAdmin,
+      },
+      select: {
+        id: true,
+        email: true,
+        isSuperAdmin: true,
       },
     });
   }
@@ -220,13 +252,13 @@ export class UsersRepository {
         bio: body.bio,
         picture: body.picture
           ? {
-              connect: {
-                id: body.picture.id,
-              },
-            }
-          : {
-              disconnect: true,
+            connect: {
+              id: body.picture.id,
             },
+          }
+          : {
+            disconnect: true,
+          },
       },
     });
   }

@@ -5,6 +5,8 @@ import {
   FollowerPage,
   FollowerQuery,
   FollowerSort,
+  MemberPostsPage,
+  MemberPostsQuery,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -309,6 +311,67 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
         ...(profile.description ? { bio: profile.description } : {}),
         ...(profile.createdAt ? { accountCreatedAt: profile.createdAt } : {}),
       })),
+      ...(data.cursor ? { nextCursor: data.cursor } : {}),
+      hasMore: !!data.cursor,
+    };
+  }
+
+  async memberPosts(
+    integration: Integration,
+    _accessToken: string,
+    externalId: string,
+    query: MemberPostsQuery
+  ): Promise<MemberPostsPage> {
+    const agent = await this.getAgent(integration);
+    const limit = Math.min(Math.max(query.limit, 1), 100);
+    const { data } = await agent.app.bsky.feed.getAuthorFeed({
+      actor: externalId,
+      limit,
+      ...(query.cursor ? { cursor: query.cursor } : {}),
+    });
+
+    const items = data.feed.flatMap((item) => {
+      const post = item.post;
+      if (!post?.uri) {
+        return [];
+      }
+      const record = post.record as { text?: string } | undefined;
+      const rkey = post.uri.split('/').pop();
+      const handle = post.author?.handle;
+      const url =
+        handle && rkey
+          ? `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${encodeURIComponent(rkey)}`
+          : `https://bsky.app/profile/${encodeURIComponent(externalId)}`;
+
+      const embed = post.embed as
+        | {
+          images?: Array<{ fullsize?: string; thumb?: string }>;
+          video?: { playlist?: string };
+        }
+        | undefined;
+      const media = [
+        ...(embed?.images?.flatMap((image) => {
+          const imageUrl = image.fullsize || image.thumb;
+          return imageUrl ? [{ url: imageUrl, type: 'image' as const }] : [];
+        }) ?? []),
+        ...(embed?.video?.playlist
+          ? [{ url: embed.video.playlist, type: 'video' as const }]
+          : []),
+      ];
+
+      return [
+        {
+          externalId: rkey || post.cid,
+          url,
+          content: record?.text ?? '',
+          publishedAt: post.indexedAt ?? new Date().toISOString(),
+          ...(media.length ? { media } : {}),
+        },
+      ];
+    });
+
+    return {
+      items,
       ...(data.cursor ? { nextCursor: data.cursor } : {}),
       hasMore: !!data.cursor,
     };

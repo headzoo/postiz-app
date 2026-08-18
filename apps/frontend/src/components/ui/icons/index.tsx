@@ -858,6 +858,31 @@ export const VerticalDividerIcon: FC<IconProps> = ({ className, ...props }) => (
   </svg>
 );
 
+// Timeline / feed list icon (horizontal lines)
+export const TimelineIcon: FC<IconProps> = ({
+  size = 16,
+  className,
+  ...props
+}) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    className={className}
+    {...props}
+  >
+    <path
+      d="M2.5 4H13.5M2.5 8H10.5M2.5 12H7.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 export const NoMediaIcon: FC = () => {
   const [mode, setMode] = useCookie('mode', 'dark');
 

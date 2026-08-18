@@ -407,6 +407,33 @@ export type FollowerPage = {
   tracking?: FollowerPageTracking;
 };
 
+export type MemberPostMedia = {
+  url: string;
+  type?: 'image' | 'video';
+};
+
+/**
+ * Provider-normalized post from a channel audience member's public timeline.
+ */
+export type MemberPost = {
+  externalId: string;
+  url: string;
+  content: string;
+  publishedAt: string;
+  media?: MemberPostMedia[];
+};
+
+export type MemberPostsQuery = {
+  limit: number;
+  cursor?: string;
+};
+
+export type MemberPostsPage = {
+  items: MemberPost[];
+  nextCursor?: string;
+  hasMore: boolean;
+};
+
 export type FollowerMemberNoteAuthor = {
   id: string;
   name: string;
@@ -668,6 +695,12 @@ export interface SocialProvider
     accessToken: string,
     query: FollowerQuery
   ): Promise<FollowerPage>;
+  memberPosts?(
+    integration: Integration,
+    accessToken: string,
+    externalId: string,
+    query: MemberPostsQuery
+  ): Promise<MemberPostsPage>;
   postLikers?(
     integration: Integration,
     accessToken: string,

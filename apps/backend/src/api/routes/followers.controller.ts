@@ -12,6 +12,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Organization, User } from '@prisma/client';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import { FollowerMemberQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-member.query.dto';
+import { FollowerMemberTimelineQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-member-timeline.query.dto';
 import { UpdateFollowerGradeDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-grade.dto';
 import { RefreshFollowerRelationshipScoreDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-relationship-score.dto';
 import {
@@ -52,6 +53,22 @@ export class FollowersController {
       integrationId,
       query.externalId,
       query.username
+    );
+  }
+
+  @Get('/:integrationId/member/timeline')
+  getFollowerMemberTimeline(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Query() query: FollowerMemberTimelineQueryDto
+  ) {
+    return this._integrationService.getFollowerMemberTimeline(
+      org,
+      integrationId,
+      query.externalId,
+      query.username,
+      query.limit,
+      query.cursor
     );
   }
 

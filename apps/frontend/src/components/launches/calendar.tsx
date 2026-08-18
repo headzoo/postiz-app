@@ -453,28 +453,21 @@ export const DayView = () => {
     </div>
   );
 };
-const CurrentTimeLine = () => {
-  const [now, setNow] = useState(() => newDayjs());
-  const { start, stop } = useInterval(
-    useCallback(() => {
-      setNow(newDayjs());
-    }, []),
-    60000
-  );
-
-  useEffect(() => {
-    start();
-    return () => {
-      stop();
-    };
-  }, [start, stop]);
-
+const WeekCurrentTimeLine: FC<{ now: dayjs.Dayjs }> = ({ now }) => {
   return (
     <div
-      title={now.format(isUSCitizen() ? 'MMMM D, YYYY' : 'D MMMM YYYY')}
-      className="absolute left-1/2 -translate-x-1/2 h-[4px] bg-textColor opacity-80 rounded-full z-[30] pointer-events-auto -translate-y-1/2"
-      style={{ top: `${(now.minute() / 60) * 100}%`, width: 'calc(100% - 4px)' }}
-    />
+      className="absolute inset-0 z-[40] pointer-events-none"
+      style={{
+        gridColumn: '1 / -1',
+        gridRow: now.hour() + 2,
+      }}
+    >
+      <div
+        title={now.format(isUSCitizen() ? 'MMMM D, YYYY' : 'D MMMM YYYY')}
+        className="absolute inset-x-0 h-[4px] bg-textColor opacity-80 rounded-full pointer-events-auto -translate-y-1/2"
+        style={{ top: `${(now.minute() / 60) * 100}%` }}
+      />
+    </div>
   );
 };
 
@@ -518,7 +511,10 @@ export const WeekView = () => {
   }, [i18next.resolvedLanguage, startDate]);
 
   const todayInWeek = useMemo(
-    () => localizedDays.some((day) => day.date.isSame(now, 'day')),
+    () =>
+      localizedDays.some(
+        (day) => day.date.isSame(now, 'day') || day.day === now.format('L')
+      ),
     [localizedDays, now]
   );
 
@@ -604,7 +600,6 @@ export const WeekView = () => {
                 data-hour={hour}
                 className="relative p-2 pe-4 text-center items-center justify-center flex text-[14px] text-newTableText scroll-mt-[62px] min-h-[70px]"
               >
-                {todayInWeek && hour === now.hour() && <CurrentTimeLine />}
                 {convertTimeFormatBasedOnLocality(hour)}
               </div>
               {localizedDays.map((day, indexDay) => (
@@ -624,6 +619,7 @@ export const WeekView = () => {
               ))}
             </Fragment>
           ))}
+          {todayInWeek && <WeekCurrentTimeLine now={now} />}
         </div>
       </div>
     </div>
@@ -872,11 +868,6 @@ export const CalendarColumn: FC<{
       .isBefore(newDayjs().startOf('hour').utc());
   }, [getDate, num]);
 
-  const isCurrentHourCell = useMemo(() => {
-    const now = newDayjs();
-    return getDate.isSame(now, 'day') && getDate.hour() === now.hour();
-  }, [getDate, num]);
-
   const { start, stop } = useInterval(
     useCallback(() => {
       if (isBeforeNow) {
@@ -887,29 +878,12 @@ export const CalendarColumn: FC<{
     random(120000, 150000)
   );
 
-  const { start: startNowTick, stop: stopNowTick } = useInterval(
-    useCallback(() => {
-      setNum((current) => current + 1);
-    }, []),
-    60000
-  );
-
   useEffect(() => {
     start();
     return () => {
       stop();
     };
   }, []);
-
-  useEffect(() => {
-    if (display === 'week' && isCurrentHourCell) {
-      startNowTick();
-      return () => {
-        stopNowTick();
-      };
-    }
-    stopNowTick();
-  }, [display, isCurrentHourCell, startNowTick, stopNowTick]);
 
   const [{ canDrop }, drop] = useDrop(() => ({
     accept: 'post',
@@ -1136,7 +1110,6 @@ export const CalendarColumn: FC<{
           canDrop && 'border border-[#eb3825]'
         )}
       >
-        {display === 'week' && isCurrentHourCell && <CurrentTimeLine />}
         <div
           className={clsx(
             'flex-col text-[12px] pointer w-full flex scrollbar scrollbar-thumb-tableBorder scrollbar-track-secondary',

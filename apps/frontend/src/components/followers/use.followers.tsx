@@ -206,6 +206,25 @@ export type FollowerPage = {
   tracking?: FollowerPageTracking;
 };
 
+export type MemberPostMedia = {
+  url: string;
+  type?: 'image' | 'video';
+};
+
+export type MemberPost = {
+  externalId: string;
+  url: string;
+  content: string;
+  publishedAt: string;
+  media?: MemberPostMedia[];
+};
+
+export type MemberPostsPage = {
+  items: MemberPost[];
+  nextCursor?: string;
+  hasMore: boolean;
+};
+
 export const FOLLOWER_INTERACTION_WINDOWS: {
   value: ChannelInteractionWindow;
   labelKey: string;
@@ -312,6 +331,53 @@ export const buildFollowerDetailHref = (
   )}`;
 };
 
+export const buildFollowerTimelineHref = (
+  integrationId: string,
+  username: string,
+  externalId?: string
+) => {
+  const normalized = normalizeFollowerSearch(username);
+  if (!normalized) {
+    return '/followers';
+  }
+  const path = `/followers/${encodeURIComponent(integrationId)}/@${encodeURIComponent(
+    normalized
+  )}/timeline`;
+  if (!externalId) {
+    return path;
+  }
+  const params = new URLSearchParams({ externalId });
+  return `${path}?${params.toString()}`;
+};
+
+export const buildFollowerMemberTimelineUrl = ({
+  integrationId,
+  externalId,
+  username,
+  cursor,
+  limit,
+}: {
+  integrationId: string;
+  externalId?: string;
+  username?: string;
+  cursor?: string;
+  limit?: number;
+}) => {
+  const params = new URLSearchParams();
+  if (externalId) {
+    params.set('externalId', externalId);
+  } else if (username) {
+    params.set('username', username);
+  }
+  if (cursor) {
+    params.set('cursor', cursor);
+  }
+  if (limit) {
+    params.set('limit', String(limit));
+  }
+  return `/followers/${integrationId}/member/timeline?${params.toString()}`;
+};
+
 export const useFollowers = ({
   integrationId,
   cursor,
@@ -415,6 +481,54 @@ export const useFollowerDetail = (
   );
 
   return useSWR<FollowerMemberDetail>(url, load, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    revalidateIfStale: false,
+    refreshWhenHidden: false,
+    refreshWhenOffline: false,
+  });
+};
+
+export const useFollowerMemberTimeline = ({
+  integrationId,
+  externalId,
+  username,
+  cursor,
+  limit = 20,
+}: {
+  integrationId?: string;
+  externalId?: string;
+  username?: string;
+  cursor?: string;
+  limit?: number;
+}) => {
+  const fetch = useFetch();
+
+  const url = useMemo(() => {
+    if (!integrationId || (!externalId && !username)) {
+      return null;
+    }
+    return buildFollowerMemberTimelineUrl({
+      integrationId,
+      externalId,
+      username,
+      cursor,
+      limit,
+    });
+  }, [integrationId, externalId, username, cursor, limit]);
+
+  const load = useCallback(
+    async (path: string) => {
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error('Failed to load member timeline');
+      }
+      return (await response.json()) as MemberPostsPage;
+    },
+    [fetch]
+  );
+
+  return useSWR<MemberPostsPage>(url, load, {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
     revalidateIfStale: false,
@@ -681,17 +795,17 @@ export const applyTriageIgnoreToFollowerPage = (
   const items = options?.removeFromPage
     ? page.items.filter((item) => item.id !== externalId)
     : page.items.map((item) => {
-        if (item.id !== externalId) {
-          return item;
-        }
-        if (options?.triage === 'lead') {
-          return { ...item, isLead: false };
-        }
-        if (options?.triage === 'engaged_not_yet') {
-          return { ...item, engagedNotYet: false };
-        }
-        return { ...item, relationshipTriage: null };
-      });
+      if (item.id !== externalId) {
+        return item;
+      }
+      if (options?.triage === 'lead') {
+        return { ...item, isLead: false };
+      }
+      if (options?.triage === 'engaged_not_yet') {
+        return { ...item, engagedNotYet: false };
+      }
+      return { ...item, relationshipTriage: null };
+    });
   return {
     ...page,
     items,

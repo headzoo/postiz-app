@@ -19,6 +19,9 @@ import {
   FollowerPage,
   FollowerQuery,
   FollowerSort,
+  MemberPostsPage,
+  MemberPostsQuery,
+  MemberPostMedia,
   NormalizedChannelContentEvent,
   NormalizedChannelInteractionEvent,
   PendingCheckResponse,
@@ -1912,6 +1915,66 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           : {}),
         ...(user.created_at ? { accountCreatedAt: user.created_at } : {}),
       })),
+      ...(nextCursor ? { nextCursor } : {}),
+      hasMore: !!nextCursor,
+    };
+  }
+
+  async memberPosts(
+    _integration: Integration,
+    accessToken: string,
+    externalId: string,
+    query: MemberPostsQuery
+  ): Promise<MemberPostsPage> {
+    const client = await this.getClient(accessToken);
+    const limit = Math.min(Math.max(query.limit, 1), 100);
+    const timeline = await client.v2.userTimeline(externalId, {
+      'tweet.fields': ['created_at', 'text'],
+      'media.fields': ['url', 'preview_image_url', 'type'],
+      expansions: ['attachments.media_keys'],
+      exclude: ['retweets'],
+      max_results: limit,
+      ...(query.cursor ? { pagination_token: query.cursor } : {}),
+    });
+    const tweets = timeline.data?.data ?? [];
+    const mediaItems = timeline.includes?.media ?? [];
+    const mediaByKey = new Map(
+      mediaItems.map((item) => [item.media_key, item])
+    );
+
+    const items = tweets.map((tweet) => {
+      const media: MemberPostMedia[] =
+        tweet.attachments?.media_keys?.flatMap((key) => {
+          const item = mediaByKey.get(key);
+          if (!item) {
+            return [];
+          }
+          const url = item.url || item.preview_image_url;
+          if (!url) {
+            return [];
+          }
+          const mediaType: MemberPostMedia['type'] | undefined =
+            item.type === 'video' || item.type === 'animated_gif'
+              ? 'video'
+              : item.type === 'photo'
+                ? 'image'
+                : undefined;
+          return mediaType ? [{ url, type: mediaType }] : [{ url }];
+        }) ?? [];
+
+      return {
+        externalId: tweet.id,
+        url: `https://x.com/i/web/status/${tweet.id}`,
+        content: tweet.text ?? '',
+        publishedAt: tweet.created_at ?? new Date().toISOString(),
+        ...(media.length ? { media } : {}),
+      };
+    });
+
+    const nextCursor = timeline.meta?.next_token;
+
+    return {
+      items,
       ...(nextCursor ? { nextCursor } : {}),
       hasMore: !!nextCursor,
     };

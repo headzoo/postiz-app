@@ -4,12 +4,14 @@ import { AgentGraphService } from '@gitroom/nestjs-libraries/agent/agent.graph.s
 
 @Injectable()
 export class AgentRun {
-  constructor(private _agentGraphService: AgentGraphService) {}
+  constructor(private _agentGraphService: AgentGraphService) { }
   @Command({
     command: 'run:agent',
     describe: 'Run the agent',
   })
   async agentRun() {
-    console.log(await this._agentGraphService.createGraph('hello', true));
+    console.log(
+      await (this._agentGraphService as any).createGraph('hello', true)
+    );
   }
 }

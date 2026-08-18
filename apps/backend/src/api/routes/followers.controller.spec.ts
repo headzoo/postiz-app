@@ -18,6 +18,7 @@ describe('FollowersController', () => {
     getFollowerChannels: jest.fn(),
     getFollowers: jest.fn(),
     getFollowerMemberDetails: jest.fn(),
+    getFollowerMemberTimeline: jest.fn(),
     createFollowerMemberNote: jest.fn(),
     updateFollowerMemberNote: jest.fn(),
     deleteFollowerMemberNote: jest.fn(),
@@ -166,6 +167,27 @@ describe('FollowersController', () => {
       'channel-a',
       undefined,
       'SummerYule'
+    );
+  });
+
+  it('delegates follower member timeline reads with username and pagination', async () => {
+    const timeline = { items: [], hasMore: false };
+    service.getFollowerMemberTimeline.mockResolvedValue(timeline);
+
+    await expect(
+      controller.getFollowerMemberTimeline(org, 'channel-a', {
+        username: 'SummerYule',
+        limit: 20,
+        cursor: 'next',
+      })
+    ).resolves.toEqual(timeline);
+    expect(service.getFollowerMemberTimeline).toHaveBeenCalledWith(
+      org,
+      'channel-a',
+      undefined,
+      'SummerYule',
+      20,
+      'next'
     );
   });
 

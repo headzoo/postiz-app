@@ -30,6 +30,8 @@
     "start:prod:frontend": "pnpm --filter ./apps/frontend run start",
     "dev:docker": "docker compose -f ./docker-compose.dev.yaml up -d --wait",
     "commands:build:development": "pnpm --filter ./apps/commands run build",
+    "commands:users:list": "dotenv -e .env -- node apps/commands/dist/apps/commands/src/main.js users:list",
+    "commands:users:set-super-admin": "dotenv -e .env -- node apps/commands/dist/apps/commands/src/main.js users:set-super-admin",
     "prisma-generate": "pnpm exec prisma generate --schema ./libraries/nestjs-libraries/src/database/prisma/schema.prisma",
     "prisma-db-push": "pnpm exec prisma db push --accept-data-loss --schema ./libraries/nestjs-libraries/src/database/prisma/schema.prisma",
     "prisma-db-pull": "pnpm exec prisma db pull --schema ./libraries/nestjs-libraries/src/database/prisma/schema.prisma",

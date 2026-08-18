@@ -25,6 +25,7 @@ import {
   FollowerList,
   FollowerRelationshipSnapshot,
   FollowerSort,
+  MemberPostsPage,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import {
@@ -655,10 +656,10 @@ export class IntegrationService {
         ? externalId
         : username
           ? await this._channelInteractionRepository.findMemberExternalIdByUsername(
-              org.id,
-              integrationId,
-              username
-            )
+            org.id,
+            integrationId,
+            username
+          )
           : null;
       if (!resolvedExternalId) {
         throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
@@ -676,6 +677,81 @@ export class IntegrationService {
       }
       throw error;
     }
+  }
+
+  async getFollowerMemberTimeline(
+    org: Organization,
+    integrationId: string,
+    externalId?: string,
+    username?: string,
+    limit = 20,
+    cursor?: string
+  ): Promise<MemberPostsPage> {
+    const integration = await this._integrationRepository.getIntegrationById(
+      org.id,
+      integrationId
+    );
+
+    if (!integration) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (
+      integration.disabled ||
+      integration.deletedAt ||
+      integration.type !== 'social'
+    ) {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    let provider: SocialProvider;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!provider?.memberPosts) {
+      throw new HttpException(
+        'Member timeline is unavailable for this channel',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    const resolvedExternalId = externalId
+      ? externalId
+      : username
+        ? await this._channelInteractionRepository.findMemberExternalIdByUsername(
+          org.id,
+          integrationId,
+          username
+        )
+        : null;
+
+    if (!resolvedExternalId) {
+      throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+    }
+
+    const page = await this.getMemberPostsPage(
+      integration,
+      provider,
+      resolvedExternalId,
+      { limit, ...(cursor ? { cursor } : {}) }
+    );
+
+    return {
+      items: page.items.map((post) => ({
+        externalId: post.externalId,
+        url: post.url,
+        content: post.content,
+        publishedAt: post.publishedAt,
+        ...(post.media?.length ? { media: post.media } : {}),
+      })),
+      hasMore: page.hasMore,
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+    };
   }
 
   async createFollowerMemberNote(
@@ -2859,6 +2935,67 @@ export class IntegrationService {
           });
         }),
     };
+  }
+
+  private async getMemberPostsPage(
+    integration: Integration,
+    provider: SocialProvider,
+    externalId: string,
+    query: { limit: number; cursor?: string },
+    forceRefresh = false
+  ): Promise<MemberPostsPage> {
+    const liveIntegration = { ...integration };
+    if (
+      forceRefresh ||
+      (!!liveIntegration.tokenExpiration &&
+        dayjs(liveIntegration.tokenExpiration).isBefore(dayjs()))
+    ) {
+      const data = await this._refreshIntegrationService.refresh(liveIntegration);
+      if (!data || !data.accessToken) {
+        throw new HttpException(
+          'Member timeline is temporarily unavailable',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+      liveIntegration.token = data.accessToken;
+      if (provider.refreshWait) {
+        await timer(10000);
+      }
+    }
+
+    try {
+      const page = await provider.memberPosts!(
+        liveIntegration,
+        liveIntegration.token,
+        externalId,
+        query
+      );
+      return {
+        items: Array.isArray(page?.items) ? page.items : [],
+        hasMore: !!page?.hasMore,
+        ...(typeof page?.nextCursor === 'string' &&
+          !this.isHttpUrl(page.nextCursor)
+          ? { nextCursor: page.nextCursor }
+          : {}),
+      };
+    } catch (error) {
+      if (error instanceof RefreshToken && !forceRefresh) {
+        return this.getMemberPostsPage(
+          integration,
+          provider,
+          externalId,
+          query,
+          true
+        );
+      }
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new HttpException(
+        'Member timeline is temporarily unavailable',
+        HttpStatus.SERVICE_UNAVAILABLE
+      );
+    }
   }
 
   private async getFollowerPage(

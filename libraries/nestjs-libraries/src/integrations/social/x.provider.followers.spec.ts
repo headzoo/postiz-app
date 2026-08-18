@@ -48,4 +48,45 @@ describe('XProvider followers', () => {
       expect.objectContaining({ max_results: 24, pagination_token: 'current' })
     );
   });
+
+  it('normalizes member timeline posts from userTimeline', async () => {
+    const provider = new XProvider();
+    const userTimeline = jest.fn().mockResolvedValue({
+      data: {
+        data: [
+          {
+            id: 'tweet-1',
+            text: 'Hello world',
+            created_at: '2024-01-02T12:00:00.000Z',
+          },
+        ],
+      },
+      includes: { media: [] },
+      meta: { next_token: 'next-page' },
+    });
+    jest
+      .spyOn(provider as any, 'getClient')
+      .mockResolvedValue({ v2: { userTimeline } });
+
+    await expect(
+      provider.memberPosts({ internalId: '42' } as any, 'token:secret', '99', {
+        limit: 20,
+      })
+    ).resolves.toEqual({
+      items: [
+        {
+          externalId: 'tweet-1',
+          url: 'https://x.com/i/web/status/tweet-1',
+          content: 'Hello world',
+          publishedAt: '2024-01-02T12:00:00.000Z',
+        },
+      ],
+      nextCursor: 'next-page',
+      hasMore: true,
+    });
+    expect(userTimeline).toHaveBeenCalledWith(
+      '99',
+      expect.objectContaining({ max_results: 20, exclude: ['retweets'] })
+    );
+  });
 });

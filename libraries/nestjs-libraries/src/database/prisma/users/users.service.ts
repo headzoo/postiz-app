@@ -12,7 +12,7 @@ export class UsersService {
     private _usersRepository: UsersRepository,
     private _organizationRepository: OrganizationRepository,
     private _notificationService: NotificationService
-  ) {}
+  ) { }
 
   private readonly _logger = new Logger(UsersService.name);
 
@@ -22,6 +22,25 @@ export class UsersService {
 
   getUserById(id: string) {
     return this._usersRepository.getUserById(id);
+  }
+
+  listUsers() {
+    return this._usersRepository.listUsers();
+  }
+
+  async setSuperAdmin(userId: string, isSuperAdmin: boolean) {
+    try {
+      return await this._usersRepository.setSuperAdmin(
+        userId,
+        isSuperAdmin
+      );
+    } catch (error: any) {
+      if (error?.code === 'P2025') {
+        throw new Error(`User not found: ${userId}`);
+      }
+
+      throw error;
+    }
   }
 
   getUserWithActiveSubscriptionByEmail(email: string, excludeUserId: string) {
@@ -51,10 +70,8 @@ export class UsersService {
       );
 
     this._logger.log(
-      `User login switch performed by admin ${adminId}: account ${
-        kept.id
-      } login ${switched.email} -> ${kept.email}; account ${
-        switched.id
+      `User login switch performed by admin ${adminId}: account ${kept.id
+      } login ${switched.email} -> ${kept.email}; account ${switched.id
       } login ${kept.email} -> ${switched.email}`
     );
 
@@ -67,10 +84,10 @@ export class UsersService {
               account.email,
               'Your Postiz login was changed',
               `An administrator changed the login for your Postiz account. ` +
-                `You can now sign in using ${account.email}. ` +
-                `Your subscription and plan were not changed by this switch — ` +
-                `if you intended to cancel a subscription, please do that ` +
-                `separately from your billing settings.`
+              `You can now sign in using ${account.email}. ` +
+              `Your subscription and plan were not changed by this switch — ` +
+              `if you intended to cancel a subscription, please do that ` +
+              `separately from your billing settings.`
             )
             .catch((err) =>
               this._logger.error(`Failed to notify ${account.email}`, err)

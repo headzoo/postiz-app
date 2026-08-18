@@ -39,6 +39,7 @@ import {
   applyIgnoreToFollowerPage,
   applyTriageIgnoreToFollowerPage,
   buildFollowerDetailHref,
+  buildFollowerTimelineHref,
   useFollowerChannels,
   useFollowerDetail,
   useFollowerListMutations,
@@ -1404,6 +1405,15 @@ export const FollowersComponent: FC = () => {
                     audience === 'ignored'
                       ? { ...follower, isIgnored: true }
                       : follower
+                  }
+                  timelineHref={
+                    follower.username && selectedIntegrationId
+                      ? buildFollowerTimelineHref(
+                        selectedIntegrationId,
+                        follower.username,
+                        follower.id
+                      )
+                      : undefined
                   }
                   lists={followerLists}
                   onToggleList={async (list, assigned) => {

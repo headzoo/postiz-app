@@ -3,6 +3,9 @@ import {
   FollowerPage,
   FollowerQuery,
   FollowerSort,
+  MemberPostsPage,
+  MemberPostsQuery,
+  MemberPostMedia,
   PendingCheckResponse,
   PostDetails,
   PostResponse,
@@ -192,6 +195,79 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
       hasMore: !!this.encodeFollowerCursor(
         this.followerLink(response.headers.get('link'), 'next')
       ),
+    };
+  }
+
+  async memberPosts(
+    _integration: Integration,
+    accessToken: string,
+    externalId: string,
+    query: MemberPostsQuery
+  ): Promise<MemberPostsPage> {
+    const url = new URL(
+      `/api/v1/accounts/${encodeURIComponent(externalId)}/statuses`,
+      this.mastodonInstanceUrl()
+    );
+    const limit = Math.min(Math.max(query.limit, 1), 40);
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('exclude_replies', 'false');
+    for (const [key, value] of Object.entries(
+      this.decodeFollowerCursor(query.cursor)
+    )) {
+      url.searchParams.set(key, value);
+    }
+
+    const response = await this.fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const statuses = (await response.json()) as Array<{
+      id: string | number;
+      content?: string;
+      created_at?: string;
+      url?: string;
+      media_attachments?: Array<{
+        type?: string;
+        url?: string;
+        preview_url?: string;
+      }>;
+    }>;
+
+    const items = (Array.isArray(statuses) ? statuses : []).map((status) => {
+      const media: MemberPostMedia[] =
+        status.media_attachments?.flatMap((attachment) => {
+          const mediaUrl = this.httpUrl(attachment.url || attachment.preview_url);
+          if (!mediaUrl) {
+            return [];
+          }
+          const mediaType: MemberPostMedia['type'] | undefined =
+            attachment.type === 'video' || attachment.type === 'gifv'
+              ? 'video'
+              : attachment.type === 'image'
+                ? 'image'
+                : undefined;
+          return mediaType
+            ? [{ url: mediaUrl, type: mediaType }]
+            : [{ url: mediaUrl }];
+        }) ?? [];
+
+      return {
+        externalId: String(status.id),
+        url: this.httpUrl(status.url) ?? String(status.id),
+        content: String(status.content ?? '')
+          .replace(/<[^>]*>/g, '')
+          .trim(),
+        publishedAt: status.created_at ?? new Date().toISOString(),
+        ...(media.length ? { media } : {}),
+      };
+    });
+
+    const nextLink = this.followerLink(response.headers.get('link'), 'next');
+    const nextCursor = this.encodeFollowerCursor(nextLink);
+
+    return {
+      items,
+      ...(nextCursor ? { nextCursor } : {}),
+      hasMore: !!nextCursor,
     };
   }
 

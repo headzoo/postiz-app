@@ -2,6 +2,7 @@
 
 import { FC, useCallback, useMemo, useState } from 'react';
 import clsx from 'clsx';
+import Link from 'next/link';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { Button } from '@gitroom/react/form/button';
 import { Textarea } from '@gitroom/react/form/textarea';
@@ -14,7 +15,7 @@ import { FollowerRelationshipChart } from '@gitroom/frontend/components/follower
 import { RelationshipTriageBadge } from '@gitroom/frontend/components/followers/follower.card';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
-import { ResetIcon } from '@gitroom/frontend/components/ui/icons';
+import { ResetIcon, TimelineIcon } from '@gitroom/frontend/components/ui/icons';
 import {
   ChannelInteractionKind,
   FollowerMemberDetail,
@@ -23,6 +24,7 @@ import {
   RelationshipScoreDirection,
   DismissibleTriage,
   useFollowerDetail,
+  buildFollowerTimelineHref,
   useFollowerGradeMutation,
   useFollowerListMutations,
   useFollowerNoteMutations,
@@ -427,19 +429,30 @@ const FollowerDetailContent: FC<{
 
   return (
     <div className="flex flex-col gap-[20px]">
-      <div className="flex items-start gap-[12px]">
-        {follower.profileUrl ? (
-          <a
-            href={follower.profileUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="shrink-0 rounded-full hover:opacity-80"
-            aria-label={t(
-              'followers_view_profile_for',
-              'View profile for {{name}}',
-              { name: follower.name }
-            )}
-          >
+      <div className="flex items-start justify-between gap-[12px]">
+        <div className="flex items-start gap-[12px] min-w-0 flex-1">
+          {follower.profileUrl ? (
+            <a
+              href={follower.profileUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="shrink-0 rounded-full hover:opacity-80"
+              aria-label={t(
+                'followers_view_profile_for',
+                'View profile for {{name}}',
+                { name: follower.name }
+              )}
+            >
+              <ImageWithFallback
+                fallbackSrc="/no-picture.jpg"
+                src={follower.picture || '/no-picture.jpg'}
+                className="rounded-full shrink-0 object-cover"
+                alt={follower.name}
+                width={48}
+                height={48}
+              />
+            </a>
+          ) : (
             <ImageWithFallback
               fallbackSrc="/no-picture.jpg"
               src={follower.picture || '/no-picture.jpg'}
@@ -448,88 +461,95 @@ const FollowerDetailContent: FC<{
               width={48}
               height={48}
             />
-          </a>
-        ) : (
-          <ImageWithFallback
-            fallbackSrc="/no-picture.jpg"
-            src={follower.picture || '/no-picture.jpg'}
-            className="rounded-full shrink-0 object-cover"
-            alt={follower.name}
-            width={48}
-            height={48}
-          />
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
-            <h3 className="text-[15px] font-[600] text-newTextColor truncate">
-              {follower.name}
-            </h3>
-            {follower.isLead && (
-              <RelationshipTriageBadge
-                triage="lead"
-                onRemove={handleDismissTriage}
-              />
-            )}
-            {follower.engagedNotYet && (
-              <RelationshipTriageBadge
-                triage="engaged_not_yet"
-                onRemove={handleDismissTriage}
-              />
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
+              <h3 className="text-[15px] font-[600] text-newTextColor truncate">
+                {follower.name}
+              </h3>
+              {follower.isLead && (
+                <RelationshipTriageBadge
+                  triage="lead"
+                  onRemove={handleDismissTriage}
+                />
+              )}
+              {follower.engagedNotYet && (
+                <RelationshipTriageBadge
+                  triage="engaged_not_yet"
+                  onRemove={handleDismissTriage}
+                />
+              )}
+            </div>
+            {handle &&
+              (follower.profileUrl ? (
+                <a
+                  href={follower.profileUrl}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80 block"
+                >
+                  {handle}
+                </a>
+              ) : (
+                <p className="text-[13px] text-textItemBlur truncate">{handle}</p>
+              ))}
+            {(Number.isFinite(follower.followingCount) ||
+              Number.isFinite(follower.followersCount) ||
+              accountCreatedAt) && (
+                <div className="mt-[6px] flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
+                  {Number.isFinite(follower.followingCount) && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.followingCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_following_label', 'Following')}
+                      </span>
+                    </span>
+                  )}
+                  {Number.isFinite(follower.followersCount) && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {formatCompactCount(follower.followersCount!)}
+                      </span>{' '}
+                      <span className="text-textItemBlur">
+                        {t('followers_followers_label', 'Followers')}
+                      </span>
+                    </span>
+                  )}
+                  {accountCreatedAt && (
+                    <span>
+                      <span className="font-[700] text-newTextColor">
+                        {t('followers_joined_label', 'Joined')}
+                      </span>{' '}
+                      <span className="text-textItemBlur">{accountCreatedAt}</span>
+                    </span>
+                  )}
+                </div>
+              )}
+            {follower.bio && (
+              <p className="mt-[8px] text-[13px] text-newTextColor whitespace-pre-wrap">
+                {follower.bio}
+              </p>
             )}
           </div>
-          {handle &&
-            (follower.profileUrl ? (
-              <a
-                href={follower.profileUrl}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80 block"
-              >
-                {handle}
-              </a>
-            ) : (
-              <p className="text-[13px] text-textItemBlur truncate">{handle}</p>
-            ))}
-          {(Number.isFinite(follower.followingCount) ||
-            Number.isFinite(follower.followersCount) ||
-            accountCreatedAt) && (
-              <div className="mt-[6px] flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
-                {Number.isFinite(follower.followingCount) && (
-                  <span>
-                    <span className="font-[700] text-newTextColor">
-                      {formatCompactCount(follower.followingCount!)}
-                    </span>{' '}
-                    <span className="text-textItemBlur">
-                      {t('followers_following_label', 'Following')}
-                    </span>
-                  </span>
-                )}
-                {Number.isFinite(follower.followersCount) && (
-                  <span>
-                    <span className="font-[700] text-newTextColor">
-                      {formatCompactCount(follower.followersCount!)}
-                    </span>{' '}
-                    <span className="text-textItemBlur">
-                      {t('followers_followers_label', 'Followers')}
-                    </span>
-                  </span>
-                )}
-                {accountCreatedAt && (
-                  <span>
-                    <span className="font-[700] text-newTextColor">
-                      {t('followers_joined_label', 'Joined')}
-                    </span>{' '}
-                    <span className="text-textItemBlur">{accountCreatedAt}</span>
-                  </span>
-                )}
-              </div>
-            )}
-          {follower.bio && (
-            <p className="mt-[8px] text-[13px] text-newTextColor whitespace-pre-wrap">
-              {follower.bio}
-            </p>
-          )}
         </div>
+        {follower.username && (
+          <Link
+            href={buildFollowerTimelineHref(
+              integrationId,
+              follower.username,
+              externalId
+            )}
+            className={clsx(
+              'shrink-0 inline-flex h-[28px] w-[28px] items-center justify-center rounded-full border',
+              'border-newTableBorder text-textItemBlur hover:border-newTextColor/40 hover:text-newTextColor'
+            )}
+            aria-label={t('followers_timeline_button', 'Timeline')}
+          >
+            <TimelineIcon size={14} />
+          </Link>
+        )}
       </div>
 
       <section className="flex flex-col gap-[12px]">
