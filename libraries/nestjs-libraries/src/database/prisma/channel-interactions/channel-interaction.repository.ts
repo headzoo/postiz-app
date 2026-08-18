@@ -64,6 +64,8 @@ export type RankedFollowerCursor = {
   externalId: string;
 };
 
+export type AudienceIgnoredVisibility = 'exclude' | 'only' | 'all';
+
 export type RankedFollowersQuery = {
   organizationId: string;
   integrationId: string;
@@ -74,6 +76,7 @@ export type RankedFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
 export type NoteCountFollowerCursor = {
@@ -91,6 +94,7 @@ export type NoteCountFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
 export type LikesCountFollowerCursor = {
@@ -108,6 +112,7 @@ export type LikesCountFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
 export type AudienceLeadCursor = {
@@ -123,6 +128,7 @@ export type AudienceLeadsQuery = {
   limit: number;
   cursor?: AudienceLeadCursor;
   search?: string;
+  ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
 export type FollowerAudienceCounts = {
@@ -138,6 +144,7 @@ export type FollowerAudienceCounts = {
   relationshipSnapshotAt: Date | null;
   listIds: string[];
   ignoredTriages: string[];
+  ignoredAt: Date | null;
 };
 
 export type AudienceFollowerCursor = {
@@ -157,6 +164,22 @@ export type AudienceFollowersQuery = {
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: AudienceFollowerCursor;
+  ignoredVisibility?: AudienceIgnoredVisibility;
+};
+
+export type IgnoredAudienceFollowerCursor = {
+  ignoredAt: string;
+  externalId: string;
+};
+
+export type IgnoredAudienceFollowersQuery = {
+  organizationId: string;
+  integrationId: string;
+  userId: string;
+  search?: string;
+  direction: 'asc' | 'desc';
+  limit: number;
+  cursor?: IgnoredAudienceFollowerCursor;
 };
 
 export type GradeFollowerCursor = {
@@ -174,6 +197,7 @@ export type GradeFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
 export type ProjectedFollowerCursor = {
@@ -192,6 +216,7 @@ export type ProjectedFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
 export type FollowerInteractionMetrics = {
@@ -1066,6 +1091,7 @@ export class ChannelInteractionRepository {
               ...this.audienceSearchFilter(query.search),
               ...this.triageFilter(query.triage),
               ...this.listMembershipFilter(query.listId),
+              ...this.ignoredVisibilityFilter(query.ignoredVisibility),
             },
           },
           ...this.rankedFollowerKeyset(query.cursor, query.direction),
@@ -1449,6 +1475,29 @@ export class ChannelInteractionRepository {
     });
   }
 
+  async findMemberExternalIdByUsername(
+    organizationId: string,
+    integrationId: string,
+    username: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const matches = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId,
+          integrationId,
+          username: { equals: username, mode: 'insensitive' },
+        },
+        select: { externalId: true },
+        take: 2,
+      });
+      if (matches.length !== 1) {
+        return null;
+      }
+      return matches[0].externalId;
+    });
+  }
+
   async createAudienceNote(
     organizationId: string,
     integrationId: string,
@@ -1719,6 +1768,64 @@ export class ChannelInteractionRepository {
     });
   }
 
+  async setAudienceMemberIgnored(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    ignoredByUserId?: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const member = await tx.channelAudienceMember.findFirst({
+        where: { organizationId, integrationId, externalId },
+        select: { externalId: true, ignoredAt: true },
+      });
+      if (!member) {
+        return { missing: 'member' as const };
+      }
+      if (member.ignoredAt) {
+        return { ok: true as const };
+      }
+      await tx.channelAudienceMember.update({
+        where: {
+          integrationId_externalId: { integrationId, externalId },
+        },
+        data: {
+          ignoredAt: new Date(),
+          ...(ignoredByUserId ? { ignoredByUserId } : { ignoredByUserId: null }),
+        },
+      });
+      return { ok: true as const };
+    });
+  }
+
+  async clearAudienceMemberIgnored(
+    organizationId: string,
+    integrationId: string,
+    externalId: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const member = await tx.channelAudienceMember.findFirst({
+        where: { organizationId, integrationId, externalId },
+        select: { externalId: true },
+      });
+      if (!member) {
+        return { missing: 'member' as const };
+      }
+      await tx.channelAudienceMember.update({
+        where: {
+          integrationId_externalId: { integrationId, externalId },
+        },
+        data: {
+          ignoredAt: null,
+          ignoredByUserId: null,
+        },
+      });
+      return { ok: true as const };
+    });
+  }
+
   async upsertAudienceMemberGrade(
     organizationId: string,
     integrationId: string,
@@ -1775,6 +1882,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.noteCountFollowerKeyset(query.cursor, query.direction)
           ),
         },
@@ -1810,6 +1918,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.likesCountFollowerKeyset(query.cursor, query.direction)
           ),
         },
@@ -1850,6 +1959,7 @@ export class ChannelInteractionRepository {
           triageIgnores: { none: { triage: 'lead' } },
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
+            this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.leadInboundKeyset(query.cursor, query.direction)
           ),
         },
@@ -1889,11 +1999,46 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.audienceFollowerKeyset(query.cursor, query.direction)
           ),
         },
         orderBy: [
           { [query.sortField]: query.direction },
+          { externalId: query.direction },
+        ],
+        take: query.limit + 1,
+        select: this.audienceMemberListSelect(query.userId),
+      });
+
+      return {
+        items: rows.slice(0, query.limit),
+        hasMore: rows.length > query.limit,
+      };
+    });
+  }
+
+  async getIgnoredAudienceFollowers(query: IgnoredAudienceFollowersQuery) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+
+      const rows = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          ...this.audienceListFilters(
+            this.audienceSearchFilter(query.search),
+            this.ignoredVisibilityFilter('only'),
+            this.ignoredAudienceKeyset(query.cursor, query.direction)
+          ),
+        },
+        orderBy: [
+          { ignoredAt: query.direction },
           { externalId: query.direction },
         ],
         take: query.limit + 1,
@@ -1924,6 +2069,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.ignoredVisibilityFilter(query.ignoredVisibility),
             { relationshipFormulaVersion: RELATIONSHIP_FORMULA_VERSION },
             this.nullableGradeFollowerKeyset(
               query.cursor,
@@ -1964,6 +2110,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.nullableProjectedFollowerKeyset(
               query.cursor,
               query.direction,
@@ -2017,6 +2164,7 @@ export class ChannelInteractionRepository {
         relationshipSnapshotAt: Date | null;
         personalGrades: Array<{ grade: number }>;
         listMemberships: Array<{ listId: string }>;
+        ignoredAt: Date | null;
       }> = [];
 
       if (!inUngraded) {
@@ -2031,6 +2179,7 @@ export class ChannelInteractionRepository {
                 ...this.audienceSearchFilter(query.search),
                 ...this.triageFilter(query.triage),
                 ...this.listMembershipFilter(query.listId),
+                ...this.ignoredVisibilityFilter(query.ignoredVisibility),
               },
             },
             ...this.myGradeGradedKeyset(query.cursor, query.direction),
@@ -2066,6 +2215,7 @@ export class ChannelInteractionRepository {
               this.audienceSearchFilter(query.search),
               this.triageFilter(query.triage),
               this.listMembershipFilter(query.listId),
+              this.ignoredVisibilityFilter(query.ignoredVisibility),
               this.myGradeUngradedKeyset(
                 query.cursor,
                 query.direction,
@@ -2123,6 +2273,7 @@ export class ChannelInteractionRepository {
           relationshipSnapshotAt: row.relationshipSnapshotAt,
           listIds: (row.listMemberships ?? []).map((membership) => membership.listId),
           ignoredTriages: (row.triageIgnores ?? []).map((ignore) => ignore.triage),
+          ignoredAt: row.ignoredAt ?? null,
         },
       ])
     );
@@ -2226,6 +2377,38 @@ export class ChannelInteractionRepository {
     };
   }
 
+  private ignoredVisibilityFilter(
+    mode: AudienceIgnoredVisibility = 'exclude'
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (mode === 'all') {
+      return {};
+    }
+    if (mode === 'only') {
+      return { ignoredAt: { not: null } };
+    }
+    return { ignoredAt: null };
+  }
+
+  private ignoredAudienceKeyset(
+    cursor: IgnoredAudienceFollowerCursor | undefined,
+    direction: 'asc' | 'desc'
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (!cursor) {
+      return {};
+    }
+    const comparison = direction === 'desc' ? 'lt' : 'gt';
+    const ignoredAt = new Date(cursor.ignoredAt);
+    return {
+      OR: [
+        { ignoredAt: { [comparison]: ignoredAt } },
+        {
+          ignoredAt,
+          externalId: { [comparison]: cursor.externalId },
+        },
+      ],
+    };
+  }
+
   private audienceListFilters(
     ...filters: Prisma.ChannelAudienceMemberWhereInput[]
   ): Prisma.ChannelAudienceMemberWhereInput {
@@ -2311,6 +2494,7 @@ export class ChannelInteractionRepository {
       relationshipTriage: true,
       relationshipFormulaVersion: true,
       relationshipSnapshotAt: true,
+      ignoredAt: true,
       personalGrades: {
         where: { userId },
         select: { grade: true },

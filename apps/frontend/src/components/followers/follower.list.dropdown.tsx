@@ -10,15 +10,25 @@ import {
 import clsx from 'clsx';
 import { useClickOutside } from '@mantine/hooks';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { useDecisionModal } from '@gitroom/frontend/components/layout/new-modal';
 import { CheckmarkIcon, PlusIcon } from '@gitroom/frontend/components/ui/icons';
 import { FollowerList } from '@gitroom/frontend/components/followers/use.followers';
 
 export const FollowerListDropdown: FC<{
   lists: FollowerList[];
   assignedListIds: string[];
+  isIgnored?: boolean;
   onToggle: (list: FollowerList, assigned: boolean) => Promise<void> | void;
-}> = ({ lists, assignedListIds, onToggle }) => {
+  onToggleIgnored?: (ignored: boolean) => Promise<void> | void;
+}> = ({
+  lists,
+  assignedListIds,
+  isIgnored = false,
+  onToggle,
+  onToggleIgnored,
+}) => {
   const t = useT();
+  const decision = useDecisionModal();
   const [open, setOpen] = useState(false);
   const ref = useClickOutside(() => setOpen(false));
   const assigned = new Set(assignedListIds);
@@ -32,6 +42,32 @@ export const FollowerListDropdown: FC<{
     event.preventDefault();
     setOpen((current) => !current);
   }, []);
+
+  const handleToggleIgnored = useCallback(
+    async (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      if (!onToggleIgnored) {
+        return;
+      }
+      if (!isIgnored) {
+        const approved = await decision.open({
+          title: t('followers_ignore_title', 'Ignore this follower?'),
+          description: t(
+            'followers_ignore_description',
+            'This follower will be hidden from all lists except Ignored.'
+          ),
+          approveLabel: t('yes', 'Yes'),
+          cancelLabel: t('cancel', 'Cancel'),
+        });
+        if (!approved) {
+          return;
+        }
+      }
+      await onToggleIgnored(!isIgnored);
+      setOpen(false);
+    },
+    [decision, isIgnored, onToggleIgnored, t]
+  );
 
   return (
     <div ref={ref} className="relative shrink-0">
@@ -56,6 +92,26 @@ export const FollowerListDropdown: FC<{
           onClick={stopCardAction}
           onKeyDown={stopCardAction}
         >
+          {onToggleIgnored && (
+            <>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={isIgnored}
+                className="flex w-full items-center justify-between gap-[8px] rounded-[6px] px-[8px] py-[6px] text-start text-[13px] text-newTextColor hover:bg-newTableHeader"
+                onClick={handleToggleIgnored}
+              >
+                <span className="truncate">
+                  {t('followers_ignored_list', 'Ignored')}
+                </span>
+                {isIgnored && <CheckmarkIcon size={14} />}
+              </button>
+              <div
+                className="my-[4px] border-t border-newTableBorder"
+                role="separator"
+              />
+            </>
+          )}
           {lists.length ? (
             lists.map((list) => {
               const isAssigned = assigned.has(list.id);

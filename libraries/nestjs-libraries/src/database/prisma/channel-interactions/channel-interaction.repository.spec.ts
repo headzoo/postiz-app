@@ -23,6 +23,7 @@ const createHarness = () => {
     integration: { findFirst: jest.fn().mockResolvedValue({ id: 'integration' }) },
     channelAudienceMember: {
       upsert: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
@@ -773,6 +774,7 @@ describe('ChannelInteractionRepository', () => {
             organizationId: 'org',
             integrationId: 'integration',
             membershipState: ChannelAudienceMembership.FOLLOWER,
+            ignoredAt: null,
           },
         },
       }),
@@ -1078,7 +1080,7 @@ describe('ChannelInteractionRepository', () => {
         gradeSnapshots: {
           none: {
             formulaVersion: 2,
-            snapshotAt: { gt: new Date('2026-07-13T12:00:00.000Z') },
+            snapshotAt: { gt: new Date('2026-08-09T12:00:00.000Z') },
           },
         },
       },
@@ -1308,6 +1310,7 @@ describe('ChannelInteractionRepository', () => {
           organizationId: 'org',
           integrationId: 'integration',
           membershipState: ChannelAudienceMembership.FOLLOWER,
+          AND: [{ ignoredAt: null }],
         },
         orderBy: [{ noteCount: 'desc' }, { externalId: 'desc' }],
         take: 3,
@@ -1362,6 +1365,7 @@ describe('ChannelInteractionRepository', () => {
               organizationId: 'org',
               integrationId: 'integration',
               membershipState: ChannelAudienceMembership.FOLLOWER,
+              ignoredAt: null,
               OR: [
                 { username: { contains: 'alice', mode: 'insensitive' } },
                 { name: { contains: 'alice', mode: 'insensitive' } },
@@ -1404,6 +1408,7 @@ describe('ChannelInteractionRepository', () => {
           organizationId: 'org',
           integrationId: 'integration',
           membershipState: ChannelAudienceMembership.FOLLOWER,
+          AND: [{ ignoredAt: null }],
         },
         orderBy: [{ likesCount: 'desc' }, { externalId: 'desc' }],
         take: 3,
@@ -1442,14 +1447,15 @@ describe('ChannelInteractionRepository', () => {
           organizationId: 'org',
           integrationId: 'integration',
           membershipState: ChannelAudienceMembership.FOLLOWER,
-          AND: [
+          AND: expect.arrayContaining([
             {
               OR: [
                 { username: { contains: 'alice', mode: 'insensitive' } },
                 { name: { contains: 'alice', mode: 'insensitive' } },
               ],
             },
-          ],
+            { ignoredAt: null },
+          ]),
         },
       })
     );
@@ -1512,6 +1518,7 @@ describe('ChannelInteractionRepository', () => {
           },
           inboundInteractionCount: { gt: 0 },
           triageIgnores: { none: { triage: 'lead' } },
+          AND: [{ ignoredAt: null }],
         },
         orderBy: [
           { lastInboundAt: { sort: 'desc', nulls: 'last' } },
@@ -1548,14 +1555,15 @@ describe('ChannelInteractionRepository', () => {
           },
           inboundInteractionCount: { gt: 0 },
           triageIgnores: { none: { triage: 'lead' } },
-          AND: [
+          AND: expect.arrayContaining([
             {
               OR: [
                 { username: { contains: 'alex', mode: 'insensitive' } },
                 { name: { contains: 'alex', mode: 'insensitive' } },
               ],
             },
-          ],
+            { ignoredAt: null },
+          ]),
         },
       })
     );
@@ -1603,14 +1611,15 @@ describe('ChannelInteractionRepository', () => {
           organizationId: 'org',
           integrationId: 'integration',
           membershipState: ChannelAudienceMembership.FOLLOWER,
-          AND: [
+          AND: expect.arrayContaining([
             {
               OR: [
                 { username: { contains: 'alice', mode: 'insensitive' } },
                 { name: { contains: 'alice', mode: 'insensitive' } },
               ],
             },
-          ],
+            { ignoredAt: null },
+          ]),
         },
       })
     );
@@ -1664,14 +1673,15 @@ describe('ChannelInteractionRepository', () => {
           organizationId: 'org',
           integrationId: 'integration',
           membershipState: ChannelAudienceMembership.FOLLOWER,
-          AND: [
+          AND: expect.arrayContaining([
             {
               OR: [
                 { username: { contains: 'alice', mode: 'insensitive' } },
                 { name: { contains: 'alice', mode: 'insensitive' } },
               ],
             },
-          ],
+            { ignoredAt: null },
+          ]),
         },
         orderBy: [{ followedAt: 'desc' }, { externalId: 'desc' }],
         take: 3,
@@ -1735,6 +1745,7 @@ describe('ChannelInteractionRepository', () => {
             relationshipSnapshotAt: new Date('2026-08-12T12:00:00.000Z'),
             listIds: [],
             ignoredTriages: [],
+            ignoredAt: null,
           },
         ],
       ])
@@ -1752,6 +1763,7 @@ describe('ChannelInteractionRepository', () => {
           relationshipReciprocationScore: true,
           relationshipNetGap: true,
           relationshipTriage: true,
+          ignoredAt: true,
           personalGrades: expect.objectContaining({
             where: { userId: 'user-a' },
           }),
@@ -1880,10 +1892,13 @@ describe('ChannelInteractionRepository', () => {
       expect(audienceMemberFindMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            AND: [{
-              relationshipTriage: triage,
-              triageIgnores: { none: { triage } },
-            }],
+            AND: expect.arrayContaining([
+              {
+                relationshipTriage: triage,
+                triageIgnores: { none: { triage } },
+              },
+              { ignoredAt: null },
+            ]),
           }),
         })
       );
@@ -1960,11 +1975,14 @@ describe('ChannelInteractionRepository', () => {
     expect(audienceMemberFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          AND: [{
-            relationshipReciprocationScore: { gt: 0 },
-            relationshipEffortScore: 0,
-            triageIgnores: { none: { triage: 'engaged_not_yet' } },
-          }],
+          AND: expect.arrayContaining([
+            {
+              relationshipReciprocationScore: { gt: 0 },
+              relationshipEffortScore: 0,
+              triageIgnores: { none: { triage: 'engaged_not_yet' } },
+            },
+            { ignoredAt: null },
+          ]),
         }),
       })
     );
@@ -1994,7 +2012,8 @@ describe('ChannelInteractionRepository', () => {
           { externalId: direction },
         ],
         where: expect.objectContaining({
-          AND: [
+          AND: expect.arrayContaining([
+            { ignoredAt: null },
             {
               OR: [
                 { [field]: { [direction === 'desc' ? 'lt' : 'gt']: 8 } },
@@ -2007,7 +2026,7 @@ describe('ChannelInteractionRepository', () => {
                 { [field]: null },
               ],
             },
-          ],
+          ]),
         }),
       })
     );
@@ -2028,7 +2047,10 @@ describe('ChannelInteractionRepository', () => {
     expect(audienceMemberFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          AND: [{ relationshipFormulaVersion: 2 }],
+          AND: expect.arrayContaining([
+            { relationshipFormulaVersion: 2 },
+            { ignoredAt: null },
+          ]),
         }),
       })
     );
@@ -2051,7 +2073,7 @@ describe('ChannelInteractionRepository', () => {
     expect(audienceMemberFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          AND: [
+          AND: expect.arrayContaining([
             {
               listMemberships: {
                 some: {
@@ -2060,8 +2082,98 @@ describe('ChannelInteractionRepository', () => {
                 },
               },
             },
-          ],
+            { ignoredAt: null },
+          ]),
         }),
+      })
+    );
+  });
+
+  it('sets ignoredAt when ignoring an audience member', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      externalId: 'person-1',
+      ignoredAt: null,
+    });
+    tx.channelAudienceMember.update.mockResolvedValue({});
+
+    await expect(
+      repository.setAudienceMemberIgnored(
+        'org',
+        'integration',
+        'person-1',
+        'user-a'
+      )
+    ).resolves.toEqual({ ok: true });
+    expect(tx.channelAudienceMember.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          integrationId_externalId: {
+            integrationId: 'integration',
+            externalId: 'person-1',
+          },
+        },
+        data: expect.objectContaining({
+          ignoredByUserId: 'user-a',
+          ignoredAt: expect.any(Date),
+        }),
+      })
+    );
+  });
+
+  it('returns missing member when ignoring an unknown follower', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue(null);
+
+    await expect(
+      repository.setAudienceMemberIgnored('org', 'integration', 'missing', 'user-a')
+    ).resolves.toEqual({ missing: 'member' });
+    expect(tx.channelAudienceMember.update).not.toHaveBeenCalled();
+  });
+
+  it('clears ignoredAt when unignoring an audience member', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      externalId: 'person-1',
+    });
+    tx.channelAudienceMember.update.mockResolvedValue({});
+
+    await expect(
+      repository.clearAudienceMemberIgnored('org', 'integration', 'person-1')
+    ).resolves.toEqual({ ok: true });
+    expect(tx.channelAudienceMember.update).toHaveBeenCalledWith({
+      where: {
+        integrationId_externalId: {
+          integrationId: 'integration',
+          externalId: 'person-1',
+        },
+      },
+      data: {
+        ignoredAt: null,
+        ignoredByUserId: null,
+      },
+    });
+  });
+
+  it('lists only ignored followers for the ignored audience view', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([]);
+
+    await repository.getIgnoredAudienceFollowers({
+      organizationId: 'org',
+      integrationId: 'integration',
+      userId: 'user-a',
+      direction: 'desc',
+      limit: 24,
+    });
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          AND: [{ ignoredAt: { not: null } }],
+        }),
+        orderBy: [{ ignoredAt: 'desc' }, { externalId: 'desc' }],
       })
     );
   });
@@ -2114,5 +2226,50 @@ describe('ChannelInteractionRepository', () => {
         },
       })
     );
+  });
+
+  it('resolves a unique audience member external id by username', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findMany.mockResolvedValue([
+      { externalId: 'person-1' },
+    ]);
+
+    await expect(
+      repository.findMemberExternalIdByUsername(
+        'org',
+        'integration',
+        'SummerYule'
+      )
+    ).resolves.toBe('person-1');
+    expect(tx.channelAudienceMember.findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        username: { equals: 'SummerYule', mode: 'insensitive' },
+      },
+      select: { externalId: true },
+      take: 2,
+    });
+  });
+
+  it('returns null when a username is missing or duplicated', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findMany.mockResolvedValue([]);
+
+    await expect(
+      repository.findMemberExternalIdByUsername('org', 'integration', 'missing')
+    ).resolves.toBeNull();
+
+    tx.channelAudienceMember.findMany.mockResolvedValue([
+      { externalId: 'person-1' },
+      { externalId: 'person-2' },
+    ]);
+    await expect(
+      repository.findMemberExternalIdByUsername(
+        'org',
+        'integration',
+        'SummerYule'
+      )
+    ).resolves.toBeNull();
   });
 });

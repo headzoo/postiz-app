@@ -82,6 +82,7 @@ import {
   AudienceLeadCursor,
   ChannelInteractionRepository,
   GradeFollowerCursor,
+  IgnoredAudienceFollowerCursor,
   LikesCountFollowerCursor,
   NoteCountFollowerCursor,
   ProjectedFollowerCursor,
@@ -563,6 +564,24 @@ export class IntegrationService {
     ) {
       throw new HttpException('Invalid follower query', HttpStatus.BAD_REQUEST);
     }
+    if (normalizedQuery.audience === 'ignored') {
+      if (normalizedQuery.cursor && this.isHttpUrl(normalizedQuery.cursor)) {
+        throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+      }
+      this.assertFollowerCursorQueryIdentity(
+        normalizedQuery.cursor,
+        search,
+        undefined,
+        'ignored'
+      );
+      return this.getIgnoredAudiencePage(
+        org.id,
+        user.id,
+        integration,
+        provider,
+        normalizedQuery
+      );
+    }
     if (normalizedQuery.audience === 'lead') {
       if (normalizedQuery.cursor && this.isHttpUrl(normalizedQuery.cursor)) {
         throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -627,14 +646,27 @@ export class IntegrationService {
     org: Organization,
     user: User,
     integrationId: string,
-    externalId: string
+    externalId?: string,
+    username?: string
   ): Promise<FollowerMemberDetail> {
     const provider = await this.getFollowerIntegrationProvider(org, integrationId);
     try {
+      const resolvedExternalId = externalId
+        ? externalId
+        : username
+          ? await this._channelInteractionRepository.findMemberExternalIdByUsername(
+              org.id,
+              integrationId,
+              username
+            )
+          : null;
+      if (!resolvedExternalId) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+      }
       const details = await this._channelInteractionService.getFollowerDetails(
         org.id,
         integrationId,
-        externalId,
+        resolvedExternalId,
         user.id
       );
       return this.mapFollowerMemberDetails(details, provider);
@@ -844,6 +876,48 @@ export class IntegrationService {
     }
   }
 
+  async ignoreFollowerMember(
+    org: Organization,
+    user: User,
+    integrationId: string,
+    externalId: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.ignoreFollower(
+        org.id,
+        integrationId,
+        externalId,
+        user.id
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
+  async unignoreFollowerMember(
+    org: Organization,
+    integrationId: string,
+    externalId: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    try {
+      await this._channelInteractionService.unignoreFollower(
+        org.id,
+        integrationId,
+        externalId
+      );
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw new HttpException('Follower was not found', HttpStatus.NOT_FOUND);
+      }
+      throw error;
+    }
+  }
+
   private mapFollowerList(list: {
     id: string;
     name: string;
@@ -987,6 +1061,7 @@ export class IntegrationService {
         likesCount?: number;
         membershipState?: string | null;
         inboundInteractionCount?: number | null;
+        ignoredAt?: Date | null;
         relationshipGrade: number | null;
         relationshipEffortScore: number | null;
         relationshipReciprocationScore: number | null;
@@ -1072,6 +1147,7 @@ export class IntegrationService {
       follower: {
         ...this.mapAudienceMemberProfile(details.member),
         ...this.followerLeadFields(details.member, ignoredTriages),
+        ...(details.member.ignoredAt ? { isIgnored: true } : {}),
       },
       notes: details.notes.map((note) => this.mapFollowerMemberNote(note)),
       interactions: details.events.map((event) =>
@@ -1118,6 +1194,7 @@ export class IntegrationService {
     listIds?: string[];
     triageIgnores?: Array<{ triage: string }>;
     ignoredTriages?: string[];
+    ignoredAt?: Date | null;
   }): Follower {
     return this.sanitizeFollower({
       id: member.externalId,
@@ -1152,6 +1229,7 @@ export class IntegrationService {
           ?? [];
         return listIds.length ? { listIds } : {};
       })(),
+      ...(member.ignoredAt ? { isIgnored: true } : {}),
     });
   }
 
@@ -1384,6 +1462,9 @@ export class IntegrationService {
     if (query.cursor?.startsWith('follower-lead:v1:')) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
+    if (query.cursor?.startsWith('follower-ignored:v1:')) {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
     const isAudienceCursor = !!query.cursor?.startsWith('follower-audience:v1:');
     const isRankCursor = !!query.cursor?.startsWith('follower-rank:v1:');
     const isNotesCursor = !!query.cursor?.startsWith('follower-notes:v1:');
@@ -1501,6 +1582,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ignoredVisibility: 'exclude',
     });
     if (cursor && ranked.rollup?.activeGeneration !== cursor.generation) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -1601,6 +1683,7 @@ export class IntegrationService {
       limit: query.limit,
       ...(cursor ? { cursor } : {}),
       ...(query.search ? { search: query.search } : {}),
+      ignoredVisibility: 'exclude',
     });
     const items = ranked.items.map((row) => ({
       ...this.mapAudienceMemberProfile(row),
@@ -1630,6 +1713,65 @@ export class IntegrationService {
         }
         : {}),
     };
+  }
+
+  private async getIgnoredAudiencePage(
+    organizationId: string,
+    userId: string,
+    integration: Integration,
+    provider: SocialProvider,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? 'desc';
+    const cursor = query.cursor
+      ? this.decodeIgnoredAudienceCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        direction,
+        query.search
+      )
+      : undefined;
+    const ranked =
+      await this._channelInteractionRepository.getIgnoredAudienceFollowers({
+        organizationId,
+        integrationId: integration.id,
+        userId,
+        direction,
+        limit: query.limit,
+        ...(cursor ? { cursor } : {}),
+        ...(query.search ? { search: query.search } : {}),
+      });
+    const items = ranked.items.map((row) => ({
+      ...this.mapAudienceMemberProfile(row),
+      isIgnored: true,
+    }));
+    const last = ranked.items.at(-1);
+    const page: FollowerPage = {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last?.ignoredAt
+        ? {
+          nextCursor: this.encodeIgnoredAudienceCursor({
+            organizationId,
+            integrationId: integration.id,
+            direction,
+            search: query.search,
+            audience: 'ignored',
+            ignoredAt: last.ignoredAt.toISOString(),
+            externalId: last.externalId,
+          }),
+        }
+        : {}),
+    };
+    return this.enrichFollowerPageWithInteractionMetrics(
+      organizationId,
+      userId,
+      integration.id,
+      provider,
+      page,
+      { excludeIgnored: false }
+    );
   }
 
   private async getAudienceFollowerPage(
@@ -1664,6 +1806,7 @@ export class IntegrationService {
       ...(search ? { search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ignoredVisibility: 'exclude',
       sortField,
       direction,
       limit: query.limit,
@@ -1727,6 +1870,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ignoredVisibility: 'exclude',
     });
 
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -1777,6 +1921,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ignoredVisibility: 'exclude',
     });
 
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -1829,6 +1974,7 @@ export class IntegrationService {
         ...(query.search ? { search: query.search } : {}),
         ...(query.triage ? { triage: query.triage } : {}),
         ...(query.listId ? { listId: query.listId } : {}),
+        ignoredVisibility: 'exclude',
       });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -1889,6 +2035,7 @@ export class IntegrationService {
         ...(query.search ? { search: query.search } : {}),
         ...(query.triage ? { triage: query.triage } : {}),
         ...(query.listId ? { listId: query.listId } : {}),
+        ignoredVisibility: 'exclude',
       });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -1941,6 +2088,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ignoredVisibility: 'exclude',
     });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
     const last = ranked.items.at(-1);
@@ -2234,6 +2382,55 @@ export class IntegrationService {
     ).toString('base64url')}`;
   }
 
+  private encodeIgnoredAudienceCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    direction: 'asc' | 'desc';
+    search?: string;
+    audience: 'ignored';
+  } & IgnoredAudienceFollowerCursor) {
+    return `follower-ignored:v1:${Buffer.from(
+      JSON.stringify({ version: 1, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private decodeIgnoredAudienceCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    direction: 'asc' | 'desc',
+    search: string | undefined
+  ): IgnoredAudienceFollowerCursor {
+    try {
+      if (!value.startsWith('follower-ignored:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(
+          value.slice('follower-ignored:v1:'.length),
+          'base64url'
+        ).toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.direction !== direction ||
+        cursor.search !== search ||
+        cursor.audience !== 'ignored' ||
+        typeof cursor.ignoredAt !== 'string' ||
+        Number.isNaN(Date.parse(cursor.ignoredAt)) ||
+        typeof cursor.externalId !== 'string'
+      ) {
+        throw new Error();
+      }
+      return {
+        ignoredAt: cursor.ignoredAt,
+        externalId: cursor.externalId,
+      };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
+  }
+
   private decodeLeadAudienceCursor(
     value: string,
     organizationId: string,
@@ -2493,6 +2690,7 @@ export class IntegrationService {
       'follower-my-grade:v1:',
       'follower-projection:v1:',
       'follower-lead:v1:',
+      'follower-ignored:v1:',
     ];
     if (!value || !internalPrefixes.some((prefix) => value.startsWith(prefix))) {
       return;
@@ -2556,17 +2754,20 @@ export class IntegrationService {
     userId: string,
     integrationId: string,
     provider: SocialProvider,
-    page: FollowerPage
+    page: FollowerPage,
+    options?: { excludeIgnored?: boolean }
   ): Promise<FollowerPage> {
     if (!page.items.length) {
       return page;
     }
+    const excludeIgnored = options?.excludeIgnored !== false;
     if (!provider.channelInteractionWebhooks) {
       return this.attachFollowerListIds(
         organizationId,
         userId,
         integrationId,
-        page
+        page,
+        { excludeIgnored }
       );
     }
 
@@ -2585,9 +2786,14 @@ export class IntegrationService {
       ),
     ]);
 
-    return {
-      ...page,
-      items: page.items.map((item) => {
+    const items = page.items
+      .filter((item) => {
+        if (!excludeIgnored) {
+          return true;
+        }
+        return !audienceCounts.get(item.id)?.ignoredAt;
+      })
+      .map((item) => {
         const metric = metrics.get(item.id);
         const counts = audienceCounts.get(item.id);
         return this.sanitizeFollower({
@@ -2598,6 +2804,7 @@ export class IntegrationService {
           ...this.followerGradeFields(counts),
           ...this.followerRelationshipFields(counts),
           ...(counts?.listIds?.length ? { listIds: counts.listIds } : {}),
+          ...(counts?.ignoredAt ? { isIgnored: true } : {}),
           ...(metric
             ? {
               interactionScore: metric.interactionScore,
@@ -2610,7 +2817,11 @@ export class IntegrationService {
             }
             : {}),
         });
-      }),
+      });
+
+    return {
+      ...page,
+      items,
     };
   }
 
@@ -2618,8 +2829,10 @@ export class IntegrationService {
     organizationId: string,
     userId: string,
     integrationId: string,
-    page: FollowerPage
+    page: FollowerPage,
+    options?: { excludeIgnored?: boolean }
   ): Promise<FollowerPage> {
+    const excludeIgnored = options?.excludeIgnored !== false;
     const audienceCounts =
       await this._channelInteractionRepository.getFollowerNoteCounts(
         organizationId,
@@ -2629,13 +2842,22 @@ export class IntegrationService {
       );
     return {
       ...page,
-      items: page.items.map((item) => {
-        const listIds = audienceCounts.get(item.id)?.listIds ?? item.listIds;
-        return this.sanitizeFollower({
-          ...item,
-          ...(listIds?.length ? { listIds } : {}),
-        });
-      }),
+      items: page.items
+        .filter((item) => {
+          if (!excludeIgnored) {
+            return true;
+          }
+          return !audienceCounts.get(item.id)?.ignoredAt;
+        })
+        .map((item) => {
+          const counts = audienceCounts.get(item.id);
+          const listIds = counts?.listIds ?? item.listIds;
+          return this.sanitizeFollower({
+            ...item,
+            ...(listIds?.length ? { listIds } : {}),
+            ...(counts?.ignoredAt ? { isIgnored: true } : {}),
+          });
+        }),
     };
   }
 
@@ -2814,6 +3036,7 @@ export class IntegrationService {
         : {}),
       ...(follower.isLead === true ? { isLead: true } : {}),
       ...(follower.engagedNotYet === true ? { engagedNotYet: true } : {}),
+      ...(follower.isIgnored === true ? { isIgnored: true } : {}),
     };
   }
 

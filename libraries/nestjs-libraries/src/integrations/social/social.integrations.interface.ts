@@ -309,6 +309,7 @@ export type Follower = {
   listIds?: string[];
   isLead?: boolean;
   engagedNotYet?: boolean;
+  isIgnored?: boolean;
 };
 
 export type FollowerSortDirection = 'asc' | 'desc';
@@ -334,7 +335,7 @@ export type FollowerQuery = {
   window?: ChannelInteractionWindow;
   search?: string;
   triage?: FollowerTriageFilter;
-  audience?: 'lead';
+  audience?: 'lead' | 'ignored';
   listId?: string;
 };
 

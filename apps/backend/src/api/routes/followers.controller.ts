@@ -24,6 +24,7 @@ import {
   UpdateFollowerListDto,
 } from '@gitroom/nestjs-libraries/dtos/integrations/follower-list.dto';
 import { IgnoreFollowerTriageDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-triage-ignore.dto';
+import { IgnoreFollowerDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-ignore.dto';
 import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
 import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
@@ -49,7 +50,8 @@ export class FollowersController {
       org,
       user,
       integrationId,
-      query.externalId
+      query.externalId,
+      query.username
     );
   }
 
@@ -80,6 +82,34 @@ export class FollowersController {
       integrationId,
       body.externalId,
       body.triage
+    );
+  }
+
+  @Post('/:integrationId/member/ignore')
+  ignoreFollowerMember(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
+    @Param('integrationId') integrationId: string,
+    @Body() body: IgnoreFollowerDto
+  ) {
+    return this._integrationService.ignoreFollowerMember(
+      org,
+      user,
+      integrationId,
+      body.externalId
+    );
+  }
+
+  @Delete('/:integrationId/member/ignore')
+  unignoreFollowerMember(
+    @GetOrgFromRequest() org: Organization,
+    @Param('integrationId') integrationId: string,
+    @Body() body: IgnoreFollowerDto
+  ) {
+    return this._integrationService.unignoreFollowerMember(
+      org,
+      integrationId,
+      body.externalId
     );
   }
 

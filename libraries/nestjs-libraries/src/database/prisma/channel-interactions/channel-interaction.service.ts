@@ -1183,10 +1183,53 @@ export class ChannelInteractionService {
     }
   }
 
+  async ignoreFollower(
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    ignoredByUserId?: string
+  ) {
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    const result = await this._repository.setAudienceMemberIgnored(
+      organizationId,
+      integrationId,
+      externalId,
+      ignoredByUserId
+    );
+    if (result.missing === 'member') {
+      throw new NotFoundException('Follower was not found');
+    }
+  }
+
+  async unignoreFollower(
+    organizationId: string,
+    integrationId: string,
+    externalId: string
+  ) {
+    this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
+    const result = await this._repository.clearAudienceMemberIgnored(
+      organizationId,
+      integrationId,
+      externalId
+    );
+    if (result.missing === 'member') {
+      throw new NotFoundException('Follower was not found');
+    }
+  }
+
   private normalizeFollowerListName(name: string) {
     const normalized = name.trim().replace(/\s+/g, ' ');
     this.validateBoundedString(normalized, 'name', 64);
-    const reserved = ['all', 'engaged', 'hot', 'mutual', 'costly', 'quiet', 'lead'];
+    const reserved = [
+      'all',
+      'engaged',
+      'hot',
+      'mutual',
+      'costly',
+      'quiet',
+      'lead',
+      'ignored',
+    ];
     if (reserved.includes(normalized.toLowerCase())) {
       throw new BadRequestException('List name cannot match a built-in filter');
     }

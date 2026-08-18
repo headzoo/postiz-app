@@ -25,6 +25,7 @@ import {
   setLastChannelId,
 } from '@gitroom/frontend/components/launches/helpers/last-channel';
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
   ChannelInteractionKindCoverage,
   ChannelInteractionWindow,
@@ -35,8 +36,11 @@ import {
   FollowerSortDirection,
   FollowerTriageFilter,
   Follower,
+  applyIgnoreToFollowerPage,
   applyTriageIgnoreToFollowerPage,
+  buildFollowerDetailHref,
   useFollowerChannels,
+  useFollowerDetail,
   useFollowerListMutations,
   useFollowerLists,
   useFollowers,
@@ -46,7 +50,7 @@ const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
 
 const FOLLOWER_VIEW_BY_SLUG: Record<
   string,
-  { triage?: FollowerTriageFilter; audience?: 'lead' }
+  { triage?: FollowerTriageFilter; audience?: 'lead' | 'ignored' }
 > = {
   engaged: { triage: 'engaged_not_yet' },
   hot: { triage: 'hot_lead' },
@@ -54,6 +58,7 @@ const FOLLOWER_VIEW_BY_SLUG: Record<
   costly: { triage: 'over_invested' },
   quiet: { triage: 'quiet' },
   lead: { audience: 'lead' },
+  ignored: { audience: 'ignored' },
 };
 
 const TRIAGE_FILTER_OPTIONS: {
@@ -102,16 +107,69 @@ const TRIAGE_FILTER_OPTIONS: {
     },
   ];
 
-export const parseFollowerViewPath = (pathname: string) => {
-  const slug = pathname.match(/^\/followers(?:\/([^/?]+))?/)?.[1];
-  if (!slug) {
-    return { slug: undefined, triage: undefined, audience: undefined };
+const decodeFollowerPathSegment = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
-  const view = FOLLOWER_VIEW_BY_SLUG[slug];
+};
+
+export type FollowerListPath = {
+  type: 'list';
+  slug?: string;
+  triage?: FollowerTriageFilter;
+  audience?: 'lead' | 'ignored';
+};
+
+export type FollowerDetailPath = {
+  type: 'follower';
+  integrationId: string;
+  username: string;
+};
+
+export type FollowerPath = FollowerListPath | FollowerDetailPath;
+
+export const parseFollowerPath = (pathname: string): FollowerPath => {
+  const match = pathname.match(/^\/followers(?:\/([^/]+))?(?:\/([^/]+))?\/?$/);
+  if (!match) {
+    return { type: 'list' };
+  }
+  const [, first, second] = match;
+  if (first && second) {
+    const integrationId = decodeFollowerPathSegment(first);
+    const rawHandle = decodeFollowerPathSegment(second);
+    const username = normalizeFollowerSearch(rawHandle);
+    if (integrationId && username && rawHandle.startsWith('@')) {
+      return { type: 'follower', integrationId, username };
+    }
+    return { type: 'list' };
+  }
+  if (!first) {
+    return { type: 'list' };
+  }
+  const view = FOLLOWER_VIEW_BY_SLUG[first];
   if (!view) {
+    return { type: 'list' };
+  }
+  return {
+    type: 'list',
+    slug: first,
+    triage: view.triage,
+    audience: view.audience,
+  };
+};
+
+export const parseFollowerViewPath = (pathname: string) => {
+  const parsed = parseFollowerPath(pathname);
+  if (parsed.type === 'follower') {
     return { slug: undefined, triage: undefined, audience: undefined };
   }
-  return { slug, triage: view.triage, audience: view.audience };
+  return {
+    slug: parsed.slug,
+    triage: parsed.triage,
+    audience: parsed.audience,
+  };
 };
 
 export const buildFollowersPageHref = ({
@@ -144,6 +202,20 @@ export const buildFollowersPageHref = ({
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 };
+
+const pathnameFromHref = (href: string) => {
+  try {
+    return new URL(href, globalThis.location?.origin || 'http://localhost').pathname;
+  } catch {
+    return href.split('?')[0] || '/followers';
+  }
+};
+
+const currentWindowPathname = () => globalThis.location?.pathname || '/followers';
+
+const browserHistory = () => globalThis.history;
+
+export { buildFollowerDetailHref };
 
 const INTERACTION_KIND_LABELS: Record<string, { key: string; defaultLabel: string }> = {
   like: { key: 'followers_interaction_kind_like', defaultLabel: 'Likes' },
@@ -345,10 +417,15 @@ export const FollowersComponent: FC = () => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const modal = useModals();
-  const { slug, triage, audience } = useMemo(
-    () => parseFollowerViewPath(pathname || '/followers'),
-    [pathname]
+  const [historyPath, setHistoryPath] = useState(pathname || '/followers');
+  const followerPath = useMemo(
+    () => parseFollowerPath(historyPath || '/followers'),
+    [historyPath]
   );
+  const { slug, triage, audience } =
+    followerPath.type === 'follower'
+      ? { slug: undefined, triage: undefined, audience: undefined }
+      : followerPath;
   const urlSearch = searchParams.get('search') ?? '';
   const urlListId = searchParams.get('listId') || undefined;
   const urlSort = searchParams.get('sort') || undefined;
@@ -372,6 +449,29 @@ export const FollowersComponent: FC = () => {
   const [pageNumber, setPageNumber] = useState(1);
   const trimmedSearch = debouncedSearch.trim();
   const lastSyncedSearchRef = useRef(urlSearch);
+  const openedFollowerKeyRef = useRef<string | null>(null);
+  const followerModalFromUrlRef = useRef(false);
+  const pushedFollowerHistoryRef = useRef(false);
+  const listHrefRef = useRef('/followers');
+
+  useEffect(() => {
+    if (parseFollowerPath(currentWindowPathname()).type === 'follower') {
+      setHistoryPath(currentWindowPathname());
+      return;
+    }
+    setHistoryPath(pathname || '/followers');
+  }, [pathname]);
+
+  useEffect(() => {
+    if (typeof globalThis.addEventListener !== 'function') {
+      return;
+    }
+    const onPopState = () => {
+      setHistoryPath(currentWindowPathname());
+    };
+    globalThis.addEventListener('popstate', onPopState);
+    return () => globalThis.removeEventListener('popstate', onPopState);
+  }, []);
 
   const {
     data: channels = [],
@@ -391,9 +491,15 @@ export const FollowersComponent: FC = () => {
   );
 
   useEffect(() => {
+    const eligibleIds = channels.map((channel) => channel.id);
+    const preferredId =
+      followerPath.type === 'follower' &&
+        eligibleIds.includes(followerPath.integrationId)
+        ? followerPath.integrationId
+        : selectedIntegrationId;
     const nextId = resolveChannelId({
-      eligibleIds: channels.map((channel) => channel.id),
-      currentId: selectedIntegrationId,
+      eligibleIds,
+      currentId: preferredId,
       fallbackId:
         groupedFollowerIntegrations[0]?.values[0]?.id || channels[0]?.id,
     });
@@ -402,10 +508,22 @@ export const FollowersComponent: FC = () => {
     }
 
     setSelectedIntegrationId(nextId);
+    if (
+      nextId &&
+      followerPath.type === 'follower' &&
+      nextId === followerPath.integrationId
+    ) {
+      setLastChannelId(nextId);
+    }
     setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
     setCursorHistory([]);
     setPageNumber(1);
-  }, [channels, groupedFollowerIntegrations, selectedIntegrationId]);
+  }, [
+    channels,
+    groupedFollowerIntegrations,
+    selectedIntegrationId,
+    followerPath,
+  ]);
 
   const selectedChannel = useMemo(
     () => channels.find((channel) => channel.id === selectedIntegrationId),
@@ -439,8 +557,18 @@ export const FollowersComponent: FC = () => {
       setSelectedIntegrationId(channel.id);
       setWindow(DEFAULT_FOLLOWER_INTERACTION_WINDOW);
       resetPagination();
+      if (followerPath.type === 'follower') {
+        if (openedFollowerKeyRef.current) {
+          modal.closeById(openedFollowerKeyRef.current);
+          openedFollowerKeyRef.current = null;
+        }
+        followerModalFromUrlRef.current = false;
+        pushedFollowerHistoryRef.current = false;
+        browserHistory()?.replaceState(null, '', '/followers');
+        setHistoryPath('/followers');
+      }
     },
-    [resetPagination]
+    [followerPath, modal, resetPagination]
   );
 
   const handleSortChange = useCallback(
@@ -505,8 +633,39 @@ export const FollowersComponent: FC = () => {
 
   const querySort = sort || urlSort;
   const queryDirection = direction || urlDirection;
+  const listHref = buildFollowersPageHref({
+    slug,
+    search: trimmedSearch || undefined,
+    sort: querySort || undefined,
+    direction: querySort && queryDirection ? queryDirection : undefined,
+    listId: urlListId,
+  });
 
   useEffect(() => {
+    if (followerPath.type === 'follower') {
+      return;
+    }
+    listHrefRef.current = listHref;
+  }, [followerPath, listHref]);
+
+  const closeFollowerDetailUrl = useCallback(() => {
+    if (pushedFollowerHistoryRef.current) {
+      pushedFollowerHistoryRef.current = false;
+      browserHistory()?.back();
+      setHistoryPath(currentWindowPathname());
+      return;
+    }
+    if (parseFollowerPath(currentWindowPathname()).type !== 'follower') {
+      return;
+    }
+    browserHistory()?.replaceState(null, '', listHrefRef.current);
+    setHistoryPath(pathnameFromHref(listHrefRef.current));
+  }, []);
+
+  useEffect(() => {
+    if (followerPath.type === 'follower') {
+      return;
+    }
     const nextSearch = trimmedSearch || '';
     const nextSort = querySort || '';
     const nextDirection = querySort && queryDirection ? queryDirection : '';
@@ -525,17 +684,10 @@ export const FollowersComponent: FC = () => {
       return;
     }
     lastSyncedSearchRef.current = nextSearch;
-    router.replace(
-      buildFollowersPageHref({
-        slug,
-        search: nextSearch || undefined,
-        sort: nextSort || undefined,
-        direction: nextDirection || undefined,
-        listId: urlListId,
-      })
-    );
+    router.replace(listHref);
   }, [
-    slug,
+    followerPath,
+    listHref,
     trimmedSearch,
     querySort,
     queryDirection,
@@ -544,6 +696,7 @@ export const FollowersComponent: FC = () => {
     urlDirection,
     urlListId,
     router,
+    searchParams,
   ]);
 
   const currentCursor = cursorHistory[cursorHistory.length - 1];
@@ -573,8 +726,54 @@ export const FollowersComponent: FC = () => {
   });
 
   const { data: followerLists = [] } = useFollowerLists(selectedIntegrationId);
-  const { createList, addMember, removeMember, ignoreTriage } = useFollowerListMutations(
-    selectedIntegrationId
+  const {
+    createList,
+    addMember,
+    removeMember,
+    ignoreTriage,
+    ignoreFollower,
+    unignoreFollower,
+  } = useFollowerListMutations(selectedIntegrationId);
+
+  const deepLinkIdentity =
+    followerPath.type === 'follower'
+      ? { username: followerPath.username }
+      : undefined;
+  const { data: deepLinkDetail } = useFollowerDetail(
+    followerPath.type === 'follower' ? followerPath.integrationId : undefined,
+    deepLinkIdentity
+  );
+
+  const openFollowerDetailModal = useCallback(
+    ({
+      integrationId,
+      externalId,
+      username,
+    }: {
+      integrationId: string;
+      externalId?: string;
+      username?: string;
+    }) => {
+      const modalId = `follower-detail-${integrationId}-${username || externalId}`;
+      openedFollowerKeyRef.current = modalId;
+      modal.openModal({
+        id: modalId,
+        title: '',
+        withCloseButton: false,
+        classNames: {
+          modal: 'w-[100%] max-w-[960px] text-textColor',
+        },
+        onClose: username ? closeFollowerDetailUrl : undefined,
+        children: (
+          <FollowerDetailModal
+            integrationId={integrationId}
+            externalId={externalId}
+            username={username}
+          />
+        ),
+      });
+    },
+    [closeFollowerDetailUrl, modal]
   );
 
   const handleNext = useCallback(() => {
@@ -598,23 +797,71 @@ export const FollowersComponent: FC = () => {
       if (!selectedIntegrationId) {
         return;
       }
-      modal.openModal({
-        id: `follower-detail-${selectedIntegrationId}-${follower.id}`,
-        title: '',
-        withCloseButton: false,
-        classNames: {
-          modal: 'w-[100%] max-w-[960px] text-textColor',
-        },
-        children: (
-          <FollowerDetailModal
-            integrationId={selectedIntegrationId}
-            externalId={follower.id}
-          />
-        ),
+      const username = follower.username
+        ? normalizeFollowerSearch(follower.username)
+        : undefined;
+      if (username) {
+        const href = buildFollowerDetailHref(selectedIntegrationId, username);
+        browserHistory()?.pushState({ followerDetail: true }, '', href);
+        setHistoryPath(pathnameFromHref(href));
+        pushedFollowerHistoryRef.current = true;
+      }
+      openFollowerDetailModal({
+        integrationId: selectedIntegrationId,
+        externalId: follower.id,
+        username,
       });
     },
-    [modal, selectedIntegrationId]
+    [openFollowerDetailModal, selectedIntegrationId]
   );
+
+  useEffect(() => {
+    if (followerPath.type !== 'follower') {
+      if (followerModalFromUrlRef.current && openedFollowerKeyRef.current) {
+        modal.closeById(openedFollowerKeyRef.current);
+        openedFollowerKeyRef.current = null;
+      }
+      followerModalFromUrlRef.current = false;
+      return;
+    }
+    if (
+      !selectedIntegrationId ||
+      selectedIntegrationId !== followerPath.integrationId
+    ) {
+      return;
+    }
+    if (!deepLinkDetail) {
+      return;
+    }
+    if (deepLinkDetail.follower.isIgnored) {
+      followerModalFromUrlRef.current = false;
+      if (openedFollowerKeyRef.current) {
+        modal.closeById(openedFollowerKeyRef.current);
+        openedFollowerKeyRef.current = null;
+      }
+      router.replace('/followers/ignored');
+      return;
+    }
+    const modalId = `follower-detail-${followerPath.integrationId}-${followerPath.username}`;
+    followerModalFromUrlRef.current = true;
+    if (openedFollowerKeyRef.current === modalId) {
+      return;
+    }
+    if (openedFollowerKeyRef.current) {
+      modal.closeById(openedFollowerKeyRef.current);
+    }
+    openFollowerDetailModal({
+      integrationId: followerPath.integrationId,
+      username: followerPath.username,
+    });
+  }, [
+    deepLinkDetail,
+    followerPath,
+    modal,
+    openFollowerDetailModal,
+    router,
+    selectedIntegrationId,
+  ]);
 
   const openCreateListModal = useCallback(() => {
     modal.openModal({
@@ -719,6 +966,22 @@ export const FollowersComponent: FC = () => {
             {t(
               'followers_list_empty_description',
               'Add people from their cards using the + button next to their triage label.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (audience === 'ignored') {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t('followers_ignored_empty_title', 'No ignored followers')}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_ignored_empty_description',
+              'Ignored followers are hidden from all other views. Use the + menu on a follower card to ignore someone, or to restore them from this list.'
             )}
           </p>
         </div>
@@ -1047,6 +1310,25 @@ export const FollowersComponent: FC = () => {
               </Link>
             );
           })}
+          <Link
+            href={buildFollowersPageHref({
+              slug: 'ignored',
+              search: trimmedSearch || undefined,
+              sort: querySort,
+              direction: querySort ? queryDirection : undefined,
+            })}
+            scroll={false}
+            className={clsx(
+              'rounded-[8px] border border-dashed px-[10px] py-[6px] text-[13px] transition-colors',
+              !urlListId && audience === 'ignored'
+                ? 'border-newTableText bg-newTableHeader text-newTextColor'
+                : 'border-newBorder bg-newBgColorInner text-textItemBlur hover:bg-newTableHeader hover:text-newTextColor'
+            )}
+            aria-pressed={!urlListId && audience === 'ignored'}
+            aria-current={!urlListId && audience === 'ignored' ? 'page' : undefined}
+          >
+            {t('followers_ignored_list', 'Ignored')}
+          </Link>
           {followerLists.map((list) => {
             const isSelected = urlListId === list.id;
             return (
@@ -1118,7 +1400,11 @@ export const FollowersComponent: FC = () => {
               {followersPage.items.map((follower) => (
                 <FollowerCard
                   key={follower.id}
-                  follower={follower}
+                  follower={
+                    audience === 'ignored'
+                      ? { ...follower, isIgnored: true }
+                      : follower
+                  }
                   lists={followerLists}
                   onToggleList={async (list, assigned) => {
                     if (assigned) {
@@ -1126,6 +1412,33 @@ export const FollowersComponent: FC = () => {
                       return;
                     }
                     await addMember(list.id, follower.id);
+                  }}
+                  onToggleIgnored={async (ignored) => {
+                    if (ignored) {
+                      await ignoreFollower(follower.id);
+                      if (audience !== 'ignored') {
+                        await mutateFollowers(
+                          (page) =>
+                            applyIgnoreToFollowerPage(page, follower.id, {
+                              removeFromPage: true,
+                              isIgnored: true,
+                            }),
+                          { revalidate: false }
+                        );
+                      }
+                      return;
+                    }
+                    await unignoreFollower(follower.id);
+                    if (audience === 'ignored') {
+                      await mutateFollowers(
+                        (page) =>
+                          applyIgnoreToFollowerPage(page, follower.id, {
+                            removeFromPage: true,
+                            isIgnored: false,
+                          }),
+                        { revalidate: false }
+                      );
+                    }
                   }}
                   onDismissTriage={async (triageValue) => {
                     await ignoreTriage(follower.id, triageValue);

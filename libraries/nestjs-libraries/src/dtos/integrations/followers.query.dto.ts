@@ -69,9 +69,9 @@ export class FollowersQueryDto {
   triage?: 'hot_lead' | 'mutual' | 'over_invested' | 'quiet' | 'engaged_not_yet';
 
   @IsOptional()
-  @IsIn(['lead'])
+  @IsIn(['lead', 'ignored'])
   @Validate(ExclusiveAudienceTriageConstraint)
-  audience?: 'lead';
+  audience?: 'lead' | 'ignored';
 
   @IsOptional()
   @IsString()

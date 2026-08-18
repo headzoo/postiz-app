@@ -6,7 +6,9 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import {
   FollowersComponent,
+  buildFollowerDetailHref,
   buildFollowersPageHref,
+  parseFollowerPath,
   parseFollowerViewPath,
 } from './followers.component';
 import {
@@ -16,7 +18,9 @@ import {
 } from './use.followers';
 
 const openModal = jest.fn();
+const closeById = jest.fn();
 const replace = jest.fn();
+const push = jest.fn();
 const useFollowersMock = jest.fn();
 let mockPathname = '/followers';
 let mockSearchParams = new URLSearchParams();
@@ -25,6 +29,9 @@ let followersPage = {
   hasMore: false,
   total: 0,
 };
+let pushState: jest.SpyInstance;
+let historyBack: jest.SpyInstance;
+let replaceState: jest.SpyInstance;
 
 const channel: FollowerChannel = {
   id: 'channel-1',
@@ -49,7 +56,7 @@ const channel: FollowerChannel = {
 };
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), replace }),
+  useRouter: () => ({ push, replace }),
   usePathname: () => mockPathname,
   useSearchParams: () => mockSearchParams,
 }));
@@ -89,6 +96,7 @@ jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
   useModals: () => ({
     openModal,
     closeAll: jest.fn(),
+    closeById,
   }),
 }));
 
@@ -214,7 +222,39 @@ jest.mock('@gitroom/frontend/components/followers/use.followers', () => {
       createList: jest.fn(),
       addMember: jest.fn(),
       removeMember: jest.fn(),
+      ignoreTriage: jest.fn(),
+      ignoreFollower: jest.fn(),
+      unignoreFollower: jest.fn(),
     }),
+    useFollowerDetail: (
+      integrationId?: string,
+      identity?: { username?: string }
+    ) => {
+      if (!integrationId || !identity?.username) {
+        return { data: undefined, isLoading: false };
+      }
+      return {
+        data: {
+          follower: {
+            id: 'follower-1',
+            name: identity.username,
+            username: identity.username,
+            isIgnored: false,
+          },
+          notes: [],
+          interactions: [],
+          relationship: {
+            windowDays: 30,
+            cadenceDays: 3,
+            formulaVersion: 2,
+            current: null,
+            history: [],
+          },
+          myGrade: null,
+        },
+        isLoading: false,
+      };
+    },
   };
 });
 
@@ -235,6 +275,11 @@ describe('follower page href helpers', () => {
       triage: undefined,
       audience: 'lead',
     });
+    expect(parseFollowerViewPath('/followers/ignored')).toEqual({
+      slug: 'ignored',
+      triage: undefined,
+      audience: 'ignored',
+    });
     expect(
       buildFollowersPageHref({
         slug: 'engaged',
@@ -250,12 +295,37 @@ describe('follower page href helpers', () => {
       })
     ).toBe('/followers?search=alex&listId=list-1');
   });
+
+  it('maps follower detail paths and hrefs', () => {
+    expect(parseFollowerPath('/followers/@SummerYule')).toEqual({ type: 'list' });
+    expect(parseFollowerPath('/followers/channel-1/@SummerYule')).toEqual({
+      type: 'follower',
+      integrationId: 'channel-1',
+      username: 'SummerYule',
+    });
+    expect(parseFollowerPath('/followers/channel-1/%40SummerYule')).toEqual({
+      type: 'follower',
+      integrationId: 'channel-1',
+      username: 'SummerYule',
+    });
+    expect(parseFollowerPath('/followers/hot')).toEqual({
+      type: 'list',
+      slug: 'hot',
+      triage: 'hot_lead',
+      audience: undefined,
+    });
+    expect(buildFollowerDetailHref('channel-1', '@SummerYule')).toBe(
+      '/followers/channel-1/@SummerYule'
+    );
+  });
 });
 
 describe('FollowersComponent', () => {
   beforeEach(() => {
     openModal.mockClear();
+    closeById.mockClear();
     replace.mockClear();
+    push.mockClear();
     useFollowersMock.mockReset();
     mockPathname = '/followers';
     mockSearchParams = new URLSearchParams();
@@ -270,6 +340,17 @@ describe('FollowersComponent', () => {
       error: undefined,
       mutate: jest.fn(),
     }));
+    pushState = jest.spyOn(globalThis.history, 'pushState').mockImplementation(() => { });
+    historyBack = jest.spyOn(globalThis.history, 'back').mockImplementation(() => { });
+    replaceState = jest
+      .spyOn(globalThis.history, 'replaceState')
+      .mockImplementation(() => { });
+  });
+
+  afterEach(() => {
+    pushState.mockRestore();
+    historyBack.mockRestore();
+    replaceState.mockRestore();
   });
 
   it('renders triage chips with accessible pressed state', () => {
@@ -306,6 +387,9 @@ describe('FollowersComponent', () => {
     expect(screen.getByRole('link', { name: /^Lead$/ }).getAttribute('href')).toBe(
       '/followers/lead'
     );
+    expect(screen.getByRole('link', { name: 'Ignored' }).getAttribute('href')).toBe(
+      '/followers/ignored'
+    );
     expect(screen.getByRole('link', { name: 'VIP' }).getAttribute('href')).toBe(
       '/followers?listId=list-1'
     );
@@ -334,6 +418,28 @@ describe('FollowersComponent', () => {
         triage: undefined,
       })
     );
+  });
+
+  it('hydrates the ignored audience from /followers/ignored', () => {
+    mockPathname = '/followers/ignored';
+    render(<FollowersComponent />);
+
+    expect(
+      screen.getByRole('link', { name: 'Ignored' }).getAttribute('aria-pressed')
+    ).toBe('true');
+    expect(useFollowersMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        audience: 'ignored',
+        triage: undefined,
+      })
+    );
+  });
+
+  it('shows an ignored-specific empty state', () => {
+    mockPathname = '/followers/ignored';
+    render(<FollowersComponent />);
+
+    expect(screen.getByText('No ignored followers')).toBeTruthy();
   });
 
   it('hydrates search, sort, and direction from query params', () => {
@@ -510,6 +616,51 @@ describe('FollowersComponent', () => {
         classNames: {
           modal: 'w-[100%] max-w-[960px] text-textColor',
         },
+      })
+    );
+    expect(pushState).not.toHaveBeenCalled();
+  });
+
+  it('pushes a follower URL with the History API and restores it when the modal closes', () => {
+    followersPage = {
+      items: [
+        { id: 'follower-1', name: 'Alex Example', username: 'SummerYule' },
+      ],
+      hasMore: false,
+      total: 1,
+    };
+
+    render(<FollowersComponent />);
+    fireEvent.click(screen.getByRole('button', { name: 'Alex Example' }));
+
+    expect(pushState).toHaveBeenCalledWith(
+      { followerDetail: true },
+      '',
+      '/followers/channel-1/@SummerYule'
+    );
+    expect(push).not.toHaveBeenCalledWith('/followers/channel-1/@SummerYule');
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'follower-detail-channel-1-SummerYule',
+        onClose: expect.any(Function),
+      })
+    );
+
+    act(() => {
+      openModal.mock.calls[0][0].onClose();
+    });
+    expect(historyBack).toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalledWith('/followers');
+  });
+
+  it('opens the detail modal from a follower deep link', () => {
+    mockPathname = '/followers/channel-1/@SummerYule';
+    render(<FollowersComponent />);
+
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'follower-detail-channel-1-SummerYule',
+        children: expect.anything(),
       })
     );
   });

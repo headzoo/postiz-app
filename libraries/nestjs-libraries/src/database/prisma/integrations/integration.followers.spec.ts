@@ -55,8 +55,10 @@ describe('IntegrationService followers', () => {
       getFollowersByProjectedField: jest.fn(),
       getAudienceFollowers: jest.fn(),
       getAudienceLeads: jest.fn(),
+      getIgnoredAudienceFollowers: jest.fn(),
       getFollowerInteractionMetrics: jest.fn().mockResolvedValue(new Map()),
       getFollowerNoteCounts: jest.fn().mockResolvedValue(new Map()),
+      findMemberExternalIdByUsername: jest.fn(),
     };
     (service as any)._channelInteractionService = {
       getFollowerDetails: jest.fn(),
@@ -1400,6 +1402,75 @@ describe('IntegrationService followers', () => {
     ).rejects.toMatchObject({ status: 404, message: 'Follower was not found' });
   });
 
+  it('resolves follower member details by username', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionRepository.findMemberExternalIdByUsername
+      .mockResolvedValue('follower-a');
+    (service as any)._channelInteractionService.getFollowerDetails.mockResolvedValue({
+      member: {
+        externalId: 'follower-a',
+        name: 'Follower A',
+        username: 'SummerYule',
+        picture: null,
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        followedAt: null,
+        accountCreatedAt: null,
+        relationshipGrade: null,
+        membershipState: 'FOLLOWER',
+        listMemberships: [],
+        triageIgnores: [],
+      },
+      notes: [],
+      events: [],
+      snapshots: [],
+      tracking: { followerSync: null, subscriptions: [] },
+      myGrade: null,
+    });
+
+    await expect(
+      service.getFollowerMemberDetails(
+        org,
+        user,
+        'channel-a',
+        undefined,
+        'SummerYule'
+      )
+    ).resolves.toMatchObject({
+      follower: { id: 'follower-a', username: 'SummerYule' },
+    });
+    expect(
+      (service as any)._channelInteractionRepository.findMemberExternalIdByUsername
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'SummerYule');
+    expect(
+      (service as any)._channelInteractionService.getFollowerDetails
+    ).toHaveBeenCalledWith('org-a', 'channel-a', 'follower-a', 'user-a');
+  });
+
+  it('rejects username member lookups that do not uniquely match', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionRepository.findMemberExternalIdByUsername
+      .mockResolvedValue(null);
+
+    await expect(
+      service.getFollowerMemberDetails(
+        org,
+        user,
+        'channel-a',
+        undefined,
+        'missing'
+      )
+    ).rejects.toMatchObject({ status: 404, message: 'Follower was not found' });
+    expect(
+      (service as any)._channelInteractionService.getFollowerDetails
+    ).not.toHaveBeenCalled();
+  });
+
   it('creates, updates, and deletes organization-scoped follower notes', async () => {
     const service = createService([integration], {
       supported: { followers: jest.fn() },
@@ -2155,11 +2226,75 @@ describe('IntegrationService followers', () => {
         integrationId: 'channel-a',
         direction: 'desc',
         limit: 24,
+        ignoredVisibility: 'exclude',
       })
     );
     expect(
       (service as any)._channelInteractionRepository.getAudienceFollowers
     ).not.toHaveBeenCalled();
+  });
+
+  it('returns ignored followers from the ignored audience page', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getIgnoredAudienceFollowers.mockResolvedValue({
+      items: [
+        {
+          externalId: 'ignored-1',
+          name: 'Ignored One',
+          username: null,
+          picture: null,
+          profileUrl: null,
+          bio: null,
+          followersCount: null,
+          followingCount: null,
+          followedAt: null,
+          accountCreatedAt: null,
+          ignoredAt: new Date('2026-08-18T12:00:00.000Z'),
+          listMemberships: [],
+          personalGrades: [],
+          triageIgnores: [],
+        },
+      ],
+      hasMore: false,
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        audience: 'ignored',
+      })
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'ignored-1',
+          name: 'Ignored One',
+          isIgnored: true,
+        }),
+      ],
+      hasMore: false,
+    });
+    expect(
+      (service as any)._channelInteractionRepository.getIgnoredAudienceFollowers
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        integrationId: 'channel-a',
+        direction: 'desc',
+        limit: 24,
+      })
+    );
   });
 
   it('rejects combining lead audience with a triage filter', async () => {

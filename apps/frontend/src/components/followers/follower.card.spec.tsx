@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { FollowerCard } from './follower.card';
 import { Follower } from './use.followers';
 
@@ -292,6 +292,47 @@ describe('FollowerCard', () => {
       { id: 'list-1', name: 'VIP', createdAt: '', updatedAt: '' },
       false
     );
+  });
+
+  it('confirms before ignoring a follower and does not open the card', async () => {
+    const onOpen = jest.fn();
+    const onToggleIgnored = jest.fn();
+    decisionOpen.mockResolvedValue(true);
+    render(
+      <FollowerCard
+        follower={baseFollower}
+        onToggleIgnored={onToggleIgnored}
+        onOpen={onOpen}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to list' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Ignored' }));
+    });
+
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(decisionOpen).toHaveBeenCalled();
+    expect(onToggleIgnored).toHaveBeenCalledWith(true);
+  });
+
+  it('unignores without confirmation when already ignored', async () => {
+    const onToggleIgnored = jest.fn();
+    decisionOpen.mockClear();
+    render(
+      <FollowerCard
+        follower={{ ...baseFollower, isIgnored: true }}
+        onToggleIgnored={onToggleIgnored}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to list' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Ignored' }));
+    });
+
+    expect(decisionOpen).not.toHaveBeenCalled();
+    expect(onToggleIgnored).toHaveBeenCalledWith(false);
   });
 
   it('confirms before dismissing a triage badge and does not open the card', async () => {

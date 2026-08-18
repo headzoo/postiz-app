@@ -140,6 +140,7 @@ model User {
   channelAudienceLists               ChannelAudienceList[]
   channelAudienceMemberGrades        ChannelAudienceMemberGrade[]
   channelAudienceMemberTriageIgnores ChannelAudienceMemberTriageIgnore[]
+  channelAudienceMembersIgnored      ChannelAudienceMember[]             @relation("AudienceMemberIgnoredBy")
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -1241,10 +1242,13 @@ model ChannelAudienceMember {
   relationshipTriage             String?
   relationshipFormulaVersion     Int?
   relationshipSnapshotAt         DateTime?
+  ignoredAt                      DateTime?
+  ignoredByUserId                String?
   createdAt                      DateTime                            @default(now())
   updatedAt                      DateTime                            @updatedAt
   organization                   Organization                        @relation(fields: [organizationId], references: [id])
   integration                    Integration                         @relation(fields: [integrationId], references: [id])
+  ignoredBy                      User?                               @relation("AudienceMemberIgnoredBy", fields: [ignoredByUserId], references: [id])
   interactionSummaries           ChannelInteractionWindowSummary[]   @relation("AudienceMemberInteractionSummaries")
   notes                          ChannelAudienceNote[]               @relation("AudienceMemberNotes")
   listMemberships                ChannelAudienceListMember[]         @relation("AudienceMemberListMemberships")
@@ -1265,6 +1269,8 @@ model ChannelAudienceMember {
   @@index([integrationId, membershipState, relationshipNetGap, externalId], map: "ChannelAudienceMember_rel_net_gap_keyset_idx")
   @@index([integrationId, membershipState, relationshipTriage, externalId], map: "ChannelAudienceMember_rel_triage_keyset_idx")
   @@index([integrationId, membershipState, relationshipFormulaVersion, relationshipSnapshotAt], map: "ChannelAudienceMember_rel_formula_due_idx")
+  @@index([integrationId, membershipState, ignoredAt, externalId], map: "ChannelAudienceMember_ignored_keyset_idx")
+  @@index([ignoredByUserId])
   @@index([integrationId])
   @@index([organizationId])
 }

@@ -137,9 +137,17 @@ export const FollowerCard: FC<{
   follower: Follower;
   lists?: FollowerList[];
   onToggleList?: (list: FollowerList, assigned: boolean) => Promise<void> | void;
+  onToggleIgnored?: (ignored: boolean) => Promise<void> | void;
   onDismissTriage?: (triage: DismissibleTriage) => Promise<void> | void;
   onOpen?: () => void;
-}> = ({ follower, lists = [], onToggleList, onDismissTriage, onOpen }) => {
+}> = ({
+  follower,
+  lists = [],
+  onToggleList,
+  onToggleIgnored,
+  onDismissTriage,
+  onOpen,
+}) => {
   const t = useT();
   const followedAt = follower.followedAt
     ? formatDate(follower.followedAt)
@@ -288,11 +296,13 @@ export const FollowerCard: FC<{
                     </span>
                   );
                 })}
-                {onToggleList && (
+                {(onToggleList || onToggleIgnored) && (
                   <FollowerListDropdown
                     lists={lists}
                     assignedListIds={follower.listIds ?? []}
-                    onToggle={onToggleList}
+                    isIgnored={!!follower.isIgnored}
+                    onToggle={onToggleList ?? (async () => undefined)}
+                    onToggleIgnored={onToggleIgnored}
                   />
                 )}
               </div>

@@ -4,8 +4,11 @@
 
 import {
   applyListMembershipToFollowerPage,
+  applyIgnoreToFollowerPage,
   applyRelationshipSnapshotToFollowerPage,
   applyTriageIgnoreToFollowerPage,
+  buildFollowerDetailHref,
+  buildFollowerDetailUrl,
   buildFollowersUrl,
   isFollowerListCacheKey,
 } from './use.followers';
@@ -89,6 +92,26 @@ describe('buildFollowersUrl', () => {
     ).toBe(
       '/followers/channel-1?limit=24&cursor=cursor-2&sort=their_effort&direction=desc&window=month&search=alex&triage=hot_lead'
     );
+  });
+});
+
+describe('follower detail URLs', () => {
+  it('builds a shareable page href from a username', () => {
+    expect(buildFollowerDetailHref('channel-1', '@SummerYule')).toBe(
+      '/followers/channel-1/@SummerYule'
+    );
+  });
+
+  it('prefers externalId over username for the member API', () => {
+    expect(
+      buildFollowerDetailUrl('channel-1', {
+        externalId: 'follower-1',
+        username: 'SummerYule',
+      })
+    ).toBe('/followers/channel-1/member?externalId=follower-1');
+    expect(
+      buildFollowerDetailUrl('channel-1', { username: 'SummerYule' })
+    ).toBe('/followers/channel-1/member?username=SummerYule');
   });
 });
 
@@ -259,6 +282,32 @@ describe('follower list cache updates', () => {
         { id: 'follower-1', name: 'Alex', engagedNotYet: false },
         { id: 'follower-2', name: 'Sam', engagedNotYet: true },
       ],
+      hasMore: false,
+    });
+  });
+
+  it('applies ignore state and can remove ignored followers from a page', () => {
+    const page = {
+      items: [
+        { id: 'follower-1', name: 'Alex' },
+        { id: 'follower-2', name: 'Sam' },
+      ],
+      hasMore: false,
+    };
+
+    expect(
+      applyIgnoreToFollowerPage(page, 'follower-1', { isIgnored: true })
+    ).toEqual({
+      items: [
+        { id: 'follower-1', name: 'Alex', isIgnored: true },
+        { id: 'follower-2', name: 'Sam' },
+      ],
+      hasMore: false,
+    });
+    expect(
+      applyIgnoreToFollowerPage(page, 'follower-1', { removeFromPage: true })
+    ).toEqual({
+      items: [{ id: 'follower-2', name: 'Sam' }],
       hasMore: false,
     });
   });

@@ -715,13 +715,14 @@ const FollowerDetailContent: FC<{
 
 export const FollowerDetailModal: FC<{
   integrationId: string;
-  externalId: string;
-}> = ({ integrationId, externalId }) => {
+  externalId?: string;
+  username?: string;
+}> = ({ integrationId, externalId, username }) => {
   const t = useT();
-  const { data, error, isLoading, mutate } = useFollowerDetail(
-    integrationId,
-    externalId
-  );
+  const { data, error, isLoading, mutate } = useFollowerDetail(integrationId, {
+    externalId,
+    username,
+  });
 
   if (isLoading) {
     return (
@@ -751,7 +752,7 @@ export const FollowerDetailModal: FC<{
     <FollowerDetailContent
       detail={data}
       integrationId={integrationId}
-      externalId={externalId}
+      externalId={data.follower.id}
       mutate={mutate}
     />
   );

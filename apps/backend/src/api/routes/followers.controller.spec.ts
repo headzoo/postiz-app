@@ -5,7 +5,9 @@ jest.mock(
 
 import { FollowersController } from './followers.controller';
 import { FollowersQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/followers.query.dto';
+import { FollowerMemberQueryDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-member.query.dto';
 import { IgnoreFollowerTriageDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-triage-ignore.dto';
+import { IgnoreFollowerDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-ignore.dto';
 import { RefreshFollowerRelationshipScoreDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-relationship-score.dto';
 import { validate } from 'class-validator';
 
@@ -22,6 +24,8 @@ describe('FollowersController', () => {
     updateFollowerMemberGrade: jest.fn(),
     refreshFollowerMemberRelationshipScore: jest.fn(),
     ignoreFollowerMemberTriage: jest.fn(),
+    ignoreFollowerMember: jest.fn(),
+    unignoreFollowerMember: jest.fn(),
     createFollowerList: jest.fn(),
     listFollowerLists: jest.fn(),
   };
@@ -142,7 +146,53 @@ describe('FollowersController', () => {
       org,
       user,
       'channel-a',
-      'follower-a'
+      'follower-a',
+      undefined
+    );
+  });
+
+  it('delegates follower member detail reads with a username', async () => {
+    const detail = { follower: { id: 'follower-a', name: 'Follower A' } };
+    service.getFollowerMemberDetails.mockResolvedValue(detail);
+
+    await expect(
+      controller.getFollowerMember(org, user, 'channel-a', {
+        username: 'SummerYule',
+      })
+    ).resolves.toEqual(detail);
+    expect(service.getFollowerMemberDetails).toHaveBeenCalledWith(
+      org,
+      user,
+      'channel-a',
+      undefined,
+      'SummerYule'
+    );
+  });
+
+  it('accepts either externalId or username for member detail queries', async () => {
+    const byId = Object.assign(new FollowerMemberQueryDto(), {
+      externalId: 'follower-a',
+    });
+    const byUsername = Object.assign(new FollowerMemberQueryDto(), {
+      username: '@SummerYule',
+    });
+    const both = Object.assign(new FollowerMemberQueryDto(), {
+      externalId: 'follower-a',
+      username: 'SummerYule',
+    });
+    const neither = Object.assign(new FollowerMemberQueryDto(), {});
+
+    await expect(validate(byId)).resolves.toHaveLength(0);
+    await expect(validate(byUsername)).resolves.toHaveLength(0);
+    await expect(validate(both)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'identity' }),
+      ])
+    );
+    await expect(validate(neither)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'identity' }),
+      ])
     );
   });
 
@@ -249,6 +299,49 @@ describe('FollowersController', () => {
       'follower-a',
       'hot_lead'
     );
+  });
+
+  it('delegates follower ignore and unignore with organization and body', async () => {
+    service.ignoreFollowerMember.mockResolvedValue(undefined);
+    service.unignoreFollowerMember.mockResolvedValue(undefined);
+
+    await expect(
+      controller.ignoreFollowerMember(org, user, 'channel-a', {
+        externalId: 'follower-a',
+      })
+    ).resolves.toBeUndefined();
+    expect(service.ignoreFollowerMember).toHaveBeenCalledWith(
+      org,
+      user,
+      'channel-a',
+      'follower-a'
+    );
+
+    await expect(
+      controller.unignoreFollowerMember(org, 'channel-a', {
+        externalId: 'follower-a',
+      })
+    ).resolves.toBeUndefined();
+    expect(service.unignoreFollowerMember).toHaveBeenCalledWith(
+      org,
+      'channel-a',
+      'follower-a'
+    );
+  });
+
+  it('accepts audience=ignored on follower queries', async () => {
+    const valid = Object.assign(new FollowersQueryDto(), {
+      audience: 'ignored',
+      limit: 24,
+    });
+    const invalidCombo = Object.assign(new FollowersQueryDto(), {
+      audience: 'ignored',
+      triage: 'hot_lead',
+      limit: 24,
+    });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(invalidCombo)).resolves.not.toHaveLength(0);
   });
 
   it('accepts only the follower triage ignore allowlist', async () => {

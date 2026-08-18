@@ -3,6 +3,7 @@
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useCallback, useMemo } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
+import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 
 export type FollowerSortDirection = 'asc' | 'desc';
 
@@ -131,6 +132,7 @@ export type Follower = {
   listIds?: string[];
   isLead?: boolean;
   engagedNotYet?: boolean;
+  isIgnored?: boolean;
 };
 
 export type FollowerList = {
@@ -253,7 +255,7 @@ export type UseFollowersParams = {
   window?: ChannelInteractionWindow;
   search?: string;
   triage?: FollowerTriageFilter;
-  audience?: 'lead';
+  audience?: 'lead' | 'ignored';
   listId?: string;
 };
 
@@ -295,6 +297,19 @@ export const buildFollowersUrl = ({
     params.set('listId', listId);
   }
   return `/followers/${integrationId}?${params.toString()}`;
+};
+
+export const buildFollowerDetailHref = (
+  integrationId: string,
+  username: string
+) => {
+  const normalized = normalizeFollowerSearch(username);
+  if (!normalized) {
+    return '/followers';
+  }
+  return `/followers/${encodeURIComponent(integrationId)}/@${encodeURIComponent(
+    normalized
+  )}`;
 };
 
 export const useFollowers = ({
@@ -360,24 +375,33 @@ export const useFollowers = ({
   });
 };
 
-const buildFollowerDetailUrl = (
+export const buildFollowerDetailUrl = (
   integrationId: string,
-  externalId: string
-) =>
-  `/followers/${integrationId}/member?externalId=${encodeURIComponent(externalId)}`;
+  identity: { externalId?: string; username?: string }
+) => {
+  const params = new URLSearchParams();
+  if (identity.externalId) {
+    params.set('externalId', identity.externalId);
+  } else if (identity.username) {
+    params.set('username', identity.username);
+  } else {
+    return null;
+  }
+  return `/followers/${integrationId}/member?${params.toString()}`;
+};
 
 export const useFollowerDetail = (
   integrationId?: string,
-  externalId?: string
+  identity?: { externalId?: string; username?: string }
 ) => {
   const fetch = useFetch();
 
   const url = useMemo(() => {
-    if (!integrationId || !externalId) {
+    if (!integrationId || (!identity?.externalId && !identity?.username)) {
       return null;
     }
-    return buildFollowerDetailUrl(integrationId, externalId);
-  }, [integrationId, externalId]);
+    return buildFollowerDetailUrl(integrationId, identity);
+  }, [integrationId, identity?.externalId, identity?.username]);
 
   const load = useCallback(
     async (path: string) => {
@@ -674,6 +698,34 @@ export const applyTriageIgnoreToFollowerPage = (
   };
 };
 
+export const applyIgnoreToFollowerPage = (
+  page: FollowerPage | undefined,
+  externalId: string,
+  options?: { removeFromPage?: boolean; isIgnored?: boolean }
+): FollowerPage | undefined => {
+  if (!page) {
+    return page;
+  }
+  if (options?.removeFromPage) {
+    return {
+      ...page,
+      items: page.items.filter((item) => item.id !== externalId),
+    };
+  }
+  return {
+    ...page,
+    items: page.items.map((item) => {
+      if (item.id !== externalId) {
+        return item;
+      }
+      return {
+        ...item,
+        isIgnored: options?.isIgnored ?? true,
+      };
+    }),
+  };
+};
+
 export const useFollowerListMutations = (integrationId?: string) => {
   const fetch = useFetch();
   const { mutate: mutateCache } = useSWRConfig();
@@ -789,6 +841,70 @@ export const useFollowerListMutations = (integrationId?: string) => {
     [fetch, integrationId, mutateCache]
   );
 
-  return { createList, addMember, removeMember, ignoreTriage, revalidateLists };
+  const ignoreFollower = useCallback(
+    async (externalId: string) => {
+      if (!integrationId) {
+        throw new Error('Channel is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/member/ignore`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ externalId }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to ignore follower');
+      }
+      await mutateCache(
+        (key) => isFollowerListCacheKey(integrationId, key),
+        (page: FollowerPage | undefined) =>
+          applyIgnoreToFollowerPage(page, externalId, {
+            removeFromPage: true,
+            isIgnored: true,
+          }),
+        { revalidate: true }
+      );
+    },
+    [fetch, integrationId, mutateCache]
+  );
+
+  const unignoreFollower = useCallback(
+    async (externalId: string) => {
+      if (!integrationId) {
+        throw new Error('Channel is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/member/ignore`,
+        {
+          method: 'DELETE',
+          body: JSON.stringify({ externalId }),
+        }
+      );
+      if (!response.ok) {
+        throw new Error('Failed to unignore follower');
+      }
+      await mutateCache(
+        (key) => isFollowerListCacheKey(integrationId, key),
+        (page: FollowerPage | undefined) =>
+          applyIgnoreToFollowerPage(page, externalId, {
+            removeFromPage: true,
+            isIgnored: false,
+          }),
+        { revalidate: true }
+      );
+    },
+    [fetch, integrationId, mutateCache]
+  );
+
+  return {
+    createList,
+    addMember,
+    removeMember,
+    ignoreTriage,
+    ignoreFollower,
+    unignoreFollower,
+    revalidateLists,
+  };
 };
 
