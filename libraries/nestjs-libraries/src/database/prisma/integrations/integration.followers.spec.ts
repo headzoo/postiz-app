@@ -1015,7 +1015,7 @@ describe('IntegrationService followers', () => {
       ],
       relationship: {
         windowDays: 30,
-        cadenceDays: 30,
+        cadenceDays: 3,
         formulaVersion: 1,
         current: {
           snapshotAt: '2026-08-01T00:00:00.000Z',

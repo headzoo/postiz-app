@@ -442,7 +442,7 @@ export type FollowerRelationshipSnapshot = {
 
 export type FollowerRelationship = {
   windowDays: 30;
-  cadenceDays: 30;
+  cadenceDays: 3;
   formulaVersion: number;
   current: FollowerRelationshipSnapshot | null;
   history: FollowerRelationshipSnapshot[];

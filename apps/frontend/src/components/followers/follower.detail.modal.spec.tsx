@@ -109,7 +109,7 @@ const detail: FollowerMemberDetail = {
   myGrade: null,
   relationship: {
     windowDays: 30,
-    cadenceDays: 30,
+    cadenceDays: 3,
     formulaVersion: 1,
     current: {
       snapshotAt: '2026-02-01T00:00:00.000Z',

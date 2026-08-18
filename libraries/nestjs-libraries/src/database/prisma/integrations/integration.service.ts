@@ -45,7 +45,10 @@ import {
   applyPersonalRelationshipGrade,
   calculateRelationshipGrade,
   getRelationshipTriage,
+  RELATIONSHIP_CADENCE_DAYS,
   RELATIONSHIP_FORMULA_VERSION,
+  RELATIONSHIP_WINDOW_DAYS,
+  RELATIONSHIP_WINDOW_MS,
   RelationshipTriage,
   scoreToStars,
 } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.scoring';
@@ -911,7 +914,7 @@ export class IntegrationService {
         {
           snapshotAt: saved.snapshotAt,
           windowStartedAt: new Date(
-            saved.snapshotAt.getTime() - 30 * 24 * 60 * 60 * 1000
+            saved.snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS
           ),
           effortScore: saved.effortScore,
           reciprocationScore: saved.reciprocationScore,
@@ -1074,8 +1077,8 @@ export class IntegrationService {
         this.mapFollowerMemberInteraction(event)
       ),
       relationship: {
-        windowDays: 30,
-        cadenceDays: 30,
+        windowDays: RELATIONSHIP_WINDOW_DAYS,
+        cadenceDays: RELATIONSHIP_CADENCE_DAYS,
         formulaVersion:
           current?.formulaVersion ??
           history.at(-1)?.formulaVersion ??
@@ -1314,7 +1317,7 @@ export class IntegrationService {
       {
         snapshotAt,
         windowStartedAt: new Date(
-          snapshotAt.getTime() - 30 * 24 * 60 * 60 * 1000
+          snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS
         ),
         effortScore: effortScore!,
         reciprocationScore: reciprocationScore!,

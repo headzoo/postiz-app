@@ -20,7 +20,9 @@ import {
 import {
   getChannelInteractionScore,
   getRelationshipTriage,
+  RELATIONSHIP_CADENCE_MS,
   RELATIONSHIP_FORMULA_VERSION,
+  RELATIONSHIP_WINDOW_MS,
 } from './channel-interaction.scoring';
 
 export type AudienceProfile = {
@@ -198,7 +200,6 @@ export type FollowerInteractionMetrics = {
 };
 
 const TRANSACTION_ATTEMPTS = 3;
-const RELATIONSHIP_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const RELATIONSHIP_BATCH_SIZE = 100;
 const RELATIONSHIP_REFRESH_MAX_MEMBERS = 500;
 
@@ -2512,7 +2513,7 @@ export class ChannelInteractionRepository {
   }
 
   private relationshipDueCutoff(snapshotAt: Date) {
-    return new Date(snapshotAt.getTime() - RELATIONSHIP_WINDOW_MS);
+    return new Date(snapshotAt.getTime() - RELATIONSHIP_CADENCE_MS);
   }
 
   private async aggregateRelationshipScores(

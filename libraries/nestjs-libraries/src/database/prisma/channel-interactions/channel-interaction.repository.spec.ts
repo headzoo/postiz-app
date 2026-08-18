@@ -870,7 +870,7 @@ describe('ChannelInteractionRepository', () => {
           gradeSnapshots: {
             none: {
               formulaVersion: 2,
-              snapshotAt: { gt: new Date('2026-07-13T12:00:00.000Z') },
+              snapshotAt: { gt: new Date('2026-08-09T12:00:00.000Z') },
             },
           },
         }),
