@@ -33,6 +33,7 @@ export class PipelinesListTool implements AgentToolInterface {
             active: z.boolean(),
             queueCount: z.number(),
             nextSlot: z.string().optional(),
+            projectedEnqueueFor: z.string().optional(),
             channels: z.array(
               z.object({
                 id: z.string(),
@@ -71,6 +72,9 @@ export class PipelinesListTool implements AgentToolInterface {
             queueCount: pipeline.queueCount,
             nextSlot: pipeline.nextSlot
               ? new Date(pipeline.nextSlot).toISOString()
+              : undefined,
+            projectedEnqueueFor: pipeline.projectedEnqueueFor
+              ? new Date(pipeline.projectedEnqueueFor).toISOString()
               : undefined,
             channels: (pipeline.channels || []).map((channel: any) => ({
               id: channel.id,

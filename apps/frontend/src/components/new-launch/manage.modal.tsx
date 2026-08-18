@@ -947,15 +947,14 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
                 <DatePicker onChange={setDate} date={date} />
               )}
               {pipelineMode && (
-                <div className="h-[44px] max-w-[320px] px-[12px] bg-newBgColorInner border border-newBorder rounded-[8px] flex items-center gap-[8px] text-[13px] text-textColor min-w-0">
-                  <div className="font-[600] truncate">
-                    {selectedPipeline!.name}
-                  </div>
-                  <div className="opacity-70 truncate">
-                    {formatPipelineSlot(
-                      selectedPipeline!.nextSlot,
-                      selectedPipeline!.timezone
-                    )}
+                <div className="h-[44px] max-w-[320px] px-[16px] bg-newBgColorInner border border-newBorder rounded-[8px] flex items-center text-[15px] font-[600] text-textColor min-w-0">
+                  <div className="truncate">
+                    {!selectedPipeline!.active
+                      ? t('pipeline_paused', 'Paused')
+                      : formatPipelineSlot(
+                          selectedPipeline!.projectedEnqueueFor,
+                          selectedPipeline!.timezone
+                        )}
                   </div>
                 </div>
               )}

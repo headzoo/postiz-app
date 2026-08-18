@@ -50,7 +50,10 @@ import { stripLinks as removeLinks } from '@gitroom/helpers/utils/strip.links';
 import { XDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/x.dto';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
-import { xMaxLength } from '@gitroom/helpers/utils/count.length';
+import {
+  isXLongPostSubscription,
+  xMaxLength,
+} from '@gitroom/helpers/utils/count.length';
 
 dayjs.extend(utc);
 
@@ -2229,7 +2232,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     );
 
     const {
-      data: { username, profile_image_url, name, id },
+      data: { username, profile_image_url, name, id, subscription_type },
     } = await client.v2.me({
       'user.fields': [
         'username',
@@ -2237,8 +2240,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         'verified_type',
         'profile_image_url',
         'name',
+        'subscription_type',
       ],
     });
+
+    const hasPremium = isXLongPostSubscription(subscription_type);
 
     return {
       id: String(id),
@@ -2254,7 +2260,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
           description:
             'Enable if this account has X Premium (up to 25,000 characters). Posts over 280 characters are truncated for non-Premium viewers.',
           type: 'checkbox' as const,
-          value: false,
+          value: hasPremium,
         },
       ],
     };

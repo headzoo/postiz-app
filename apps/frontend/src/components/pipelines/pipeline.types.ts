@@ -22,6 +22,7 @@ export interface PipelineSummary {
   channels: Integrations[];
   queueCount: number;
   nextSlot?: string;
+  projectedEnqueueFor?: string;
   contextDocuments?: PipelineContextDocument[];
 }
 

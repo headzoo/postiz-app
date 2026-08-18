@@ -145,7 +145,13 @@ export const withProvider = function <T extends object>(params: {
             )
         );
       }
-    }, [justCurrent, current, isGlobal, setTotalChars]);
+    }, [
+      justCurrent,
+      current,
+      isGlobal,
+      setTotalChars,
+      selectedIntegration?.integration.additionalSettings,
+    ]);
 
     const getInternalPlugs = useCallback(async () => {
       return (

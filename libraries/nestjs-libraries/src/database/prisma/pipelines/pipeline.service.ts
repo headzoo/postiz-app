@@ -40,22 +40,36 @@ export class PipelineService {
   async getPipelines(orgId: string) {
     const pipelines = await this._pipelineRepository.getPipelines(orgId);
     const now = new Date();
-    return pipelines.map((pipeline) => ({
-      id: pipeline.id,
-      name: pipeline.name,
-      timezone: pipeline.timezone,
-      color: pipeline.color,
-      active: pipeline.active,
-      scheduleRevision: pipeline.scheduleRevision,
-      channels: pipeline.integrations.map(({ integration }) =>
-        this.toComposerIntegration(integration)
-      ),
-      contextDocuments: this.toContextDocuments(pipeline.contextDocuments || []),
-      queueCount: pipeline._count.queueItems,
-      nextSlot: pipeline.active
-        ? getNextPipelineSlot(pipeline.scheduleSlots, pipeline.timezone, now)
-        : undefined,
-    }));
+    return pipelines.map((pipeline) => {
+      const queueCount = pipeline._count.queueItems;
+      const enqueueSlots = pipeline.active
+        ? getUpcomingPipelineSlots(
+            pipeline.scheduleSlots,
+            pipeline.timezone,
+            now,
+            queueCount + 1
+          )
+        : [];
+      return {
+        id: pipeline.id,
+        name: pipeline.name,
+        timezone: pipeline.timezone,
+        color: pipeline.color,
+        active: pipeline.active,
+        scheduleRevision: pipeline.scheduleRevision,
+        channels: pipeline.integrations.map(({ integration }) =>
+          this.toComposerIntegration(integration)
+        ),
+        contextDocuments: this.toContextDocuments(
+          pipeline.contextDocuments || []
+        ),
+        queueCount,
+        nextSlot: pipeline.active
+          ? getNextPipelineSlot(pipeline.scheduleSlots, pipeline.timezone, now)
+          : undefined,
+        projectedEnqueueFor: enqueueSlots[queueCount],
+      };
+    });
   }
 
   async getCalendarPosts(

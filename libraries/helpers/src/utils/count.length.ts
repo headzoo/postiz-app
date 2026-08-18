@@ -6,6 +6,20 @@ export const X_PREMIUM_MAX_LENGTH = 25000;
 export const X_TRUNCATION_WARNING_LENGTH = 280;
 export const X_ARTICLE_MAX_LENGTH = 100000;
 
+const X_LONG_POST_SUBSCRIPTION_TYPES = new Set([
+  'Basic',
+  'Premium',
+  'PremiumPlus',
+]);
+
+export const isXLongPostSubscription = (
+  subscriptionType?: string | null
+): boolean => {
+  return (
+    !!subscriptionType && X_LONG_POST_SUBSCRIPTION_TYPES.has(subscriptionType)
+  );
+};
+
 export const textSlicer = (
   integrationType: string,
   end: number,

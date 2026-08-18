@@ -1,10 +1,25 @@
 import {
+  isXLongPostSubscription,
   isXPremium,
   X_ARTICLE_MAX_LENGTH,
   X_PREMIUM_MAX_LENGTH,
   X_STANDARD_MAX_LENGTH,
   xMaxLength,
 } from './count.length';
+
+describe('isXLongPostSubscription', () => {
+  it('is false when subscription is missing or free', () => {
+    expect(isXLongPostSubscription()).toBe(false);
+    expect(isXLongPostSubscription(null)).toBe(false);
+    expect(isXLongPostSubscription('None')).toBe(false);
+  });
+
+  it('is true for paid X subscription tiers', () => {
+    expect(isXLongPostSubscription('Basic')).toBe(true);
+    expect(isXLongPostSubscription('Premium')).toBe(true);
+    expect(isXLongPostSubscription('PremiumPlus')).toBe(true);
+  });
+});
 
 describe('isXPremium', () => {
   it('is false when settings are missing', () => {

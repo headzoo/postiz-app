@@ -255,6 +255,60 @@ describe('Pipeline API boundaries', () => {
     expect(JSON.stringify(detail)).not.toContain('"internalId"');
   });
 
+  it('projects the composer enqueue slot after queued items', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-09T00:00:00.000Z'));
+    const scheduleSlots = [
+      { dayOfWeek: 0, minuteOfDay: 60 },
+      { dayOfWeek: 1, minuteOfDay: 60 },
+    ];
+    const pipeline = (
+      id: string,
+      queueCount: number,
+      active = true
+    ) => ({
+      id,
+      name: id,
+      timezone: 'UTC',
+      color: '#612BD3',
+      active,
+      scheduleRevision: 1,
+      integrations: [],
+      contextDocuments: [],
+      scheduleSlots,
+      _count: { queueItems: queueCount },
+    });
+    const repository = {
+      getPipelines: jest.fn().mockResolvedValue([
+        pipeline('empty', 0),
+        pipeline('queued', 2),
+        pipeline('paused', 2, false),
+      ]),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(service.getPipelines('org')).resolves.toEqual([
+      expect.objectContaining({
+        id: 'empty',
+        queueCount: 0,
+        nextSlot: new Date('2026-08-09T01:00:00.000Z'),
+        projectedEnqueueFor: new Date('2026-08-09T01:00:00.000Z'),
+      }),
+      expect.objectContaining({
+        id: 'queued',
+        queueCount: 2,
+        nextSlot: new Date('2026-08-09T01:00:00.000Z'),
+        projectedEnqueueFor: new Date('2026-08-16T01:00:00.000Z'),
+      }),
+      expect.objectContaining({
+        id: 'paused',
+        queueCount: 2,
+        nextSlot: undefined,
+        projectedEnqueueFor: undefined,
+      }),
+    ]);
+    jest.useRealTimers();
+  });
+
   it('publishes a queue item only after every draft row is linked', async () => {
     const queueItem = { id: 'item', status: 'CREATING' };
     const drafts = [
