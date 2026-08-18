@@ -58,6 +58,20 @@ jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
   useDecisionModal: () => ({ open: decisionOpen }),
 }));
 
+jest.mock('@gitroom/frontend/components/ui/custom.scroll.area', () => ({
+  CustomScrollArea: ({
+    children,
+    maxHeight,
+  }: {
+    children: React.ReactNode;
+    maxHeight?: string | number;
+  }) => (
+    <div data-testid="custom-scroll-area" data-max-height={maxHeight}>
+      {children}
+    </div>
+  ),
+}));
+
 const useSWR = jest.requireMock('swr').default as jest.Mock;
 const useSWRConfig = jest.requireMock('swr').useSWRConfig as jest.Mock;
 const mutateCache = jest.fn();
@@ -271,6 +285,52 @@ describe('FollowerDetailModal', () => {
       screen.getByText('No grade (not enough tracked activity)')
     ).toBeTruthy();
     expect(screen.getByText('3.5')).toBeTruthy();
+  });
+
+  it('renders the relationship chart from current when history is empty', () => {
+    useSWR.mockReturnValue({
+      data: {
+        ...detail,
+        relationship: {
+          ...detail.relationship,
+          history: [],
+        },
+      },
+      error: undefined,
+      isLoading: false,
+      mutate,
+    });
+
+    render(
+      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
+    );
+
+    const table = screen.getByRole('table', { name: 'Relationship history' });
+    const rows = within(table).getAllByRole('row');
+
+    expect(rows).toHaveLength(2);
+    expect(screen.getByText('3.5')).toBeTruthy();
+    expect(screen.getByText('E: 10 · R: 5 · Gap: -5')).toBeTruthy();
+  });
+
+  it('places recent interactions after notes in a 300px scroll area', () => {
+    render(
+      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
+    );
+
+    const notesHeading = screen.getByRole('heading', { name: 'Notes' });
+    const interactionsHeading = screen.getByRole('heading', {
+      name: 'Recent interactions',
+    });
+
+    expect(
+      notesHeading.compareDocumentPosition(interactionsHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(screen.getByTestId('custom-scroll-area').getAttribute('data-max-height')).toBe(
+      '300px'
+    );
+    expect(screen.getByText('You liked them')).toBeTruthy();
   });
 
   it('creates notes and revalidates detail', async () => {

@@ -13,6 +13,7 @@ import {
 import { FollowerRelationshipChart } from '@gitroom/frontend/components/followers/follower.relationship.chart';
 import { RelationshipTriageBadge } from '@gitroom/frontend/components/followers/follower.card';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
+import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
 import { ResetIcon } from '@gitroom/frontend/components/ui/icons';
 import {
   ChannelInteractionKind,
@@ -338,7 +339,12 @@ const FollowerDetailContent: FC<{
   );
 
   const current = detail.relationship.current;
-  const chartHistory = detail.relationship.history;
+  const chartHistory = useMemo(() => {
+    if (detail.relationship.history.length) {
+      return detail.relationship.history;
+    }
+    return current ? [current] : [];
+  }, [current, detail.relationship.history]);
 
   const handleSelectGrade = useCallback(
     async (grade: number) => {
@@ -638,26 +644,6 @@ const FollowerDetailContent: FC<{
 
       <section className="flex flex-col gap-[12px]">
         <h4 className="text-[16px] font-[600] text-newTextColor">
-          {t('followers_recent_interactions', 'Recent interactions')}
-        </h4>
-        {detail.interactions.length ? (
-          <ul className="flex flex-col gap-[8px]">
-            {detail.interactions.map((interaction) => (
-              <InteractionRow key={interaction.id} interaction={interaction} />
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[14px] text-textItemBlur">
-            {t(
-              'followers_no_interactions',
-              'No tracked interactions yet for this follower.'
-            )}
-          </p>
-        )}
-      </section>
-
-      <section className="flex flex-col gap-[12px]">
-        <h4 className="text-[16px] font-[600] text-newTextColor">
           {t('followers_notes', 'Notes')}
         </h4>
         {sortedNotes.length ? (
@@ -694,6 +680,28 @@ const FollowerDetailContent: FC<{
             </Button>
           </div>
         </div>
+      </section>
+
+      <section className="flex flex-col gap-[12px]">
+        <h4 className="text-[16px] font-[600] text-newTextColor">
+          {t('followers_recent_interactions', 'Recent interactions')}
+        </h4>
+        {detail.interactions.length ? (
+          <CustomScrollArea maxHeight="300px">
+            <ul className="flex flex-col gap-[8px]">
+              {detail.interactions.map((interaction) => (
+                <InteractionRow key={interaction.id} interaction={interaction} />
+              ))}
+            </ul>
+          </CustomScrollArea>
+        ) : (
+          <p className="text-[14px] text-textItemBlur">
+            {t(
+              'followers_no_interactions',
+              'No tracked interactions yet for this follower.'
+            )}
+          </p>
+        )}
       </section>
     </div>
   );
