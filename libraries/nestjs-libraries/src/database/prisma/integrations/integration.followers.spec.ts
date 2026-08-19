@@ -67,6 +67,7 @@ describe('IntegrationService followers', () => {
       deleteFollowerNote: jest.fn(),
       upsertFollowerGrade: jest.fn(),
       refreshFollowerRelationshipScore: jest.fn(),
+      getStoredFollowerAudienceCounts: jest.fn(),
     };
     return service;
   };
@@ -75,6 +76,33 @@ describe('IntegrationService followers', () => {
     jest.clearAllMocks();
     (ioRedis.get as jest.Mock).mockResolvedValue(null);
     (ioRedis.set as jest.Mock).mockResolvedValue('OK');
+  });
+
+  it('returns bounded stored audience counts only for an owned follower channel', async () => {
+    const service = createService([integration], {
+      supported: { followers: jest.fn() },
+    });
+    (service as any)._channelInteractionService
+      .getStoredFollowerAudienceCounts
+      .mockResolvedValue({
+        categories: { quiet: 3 },
+        lists: [{ id: 'list-1', name: 'VIP', total: 2 }],
+        listsTruncated: false,
+      });
+
+    await expect(
+      service.getStoredFollowerAudienceCounts(org, integration.id)
+    ).resolves.toEqual({
+      categories: { quiet: 3 },
+      lists: [{ id: 'list-1', name: 'VIP', total: 2 }],
+      listsTruncated: false,
+    });
+    expect(
+      (service as any)._channelInteractionService.getStoredFollowerAudienceCounts
+    ).toHaveBeenCalledWith(org.id, integration.id);
+    await expect(
+      service.getStoredFollowerAudienceCounts({ id: 'other-org' } as any, integration.id)
+    ).rejects.toMatchObject({ status: 404 });
   });
 
   it('returns only eligible, sanitized social channels', async () => {
@@ -2024,6 +2052,52 @@ describe('IntegrationService followers', () => {
         limit: 24,
       })
     );
+  });
+
+  it('supports actorless organization reads without projecting personal grades', async () => {
+    const followers = jest.fn().mockResolvedValue({
+      items: [{ id: 'follower-a', name: 'Follower A', myGrade: 5 }],
+      hasMore: false,
+    });
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [],
+      },
+    });
+
+    const result = await service.getFollowers(org, undefined, 'channel-a', {
+      limit: 24,
+    });
+
+    expect(result.items).toEqual([
+      expect.objectContaining({ id: 'follower-a', myGrade: null }),
+    ]);
+    expect(
+      (service as any)._channelInteractionRepository.getFollowerNoteCounts
+    ).toHaveBeenCalledWith('org-a', 'channel-a', ['follower-a'], undefined);
+  });
+
+  it('rejects actorless my-grade sorting before a repository query', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [],
+      },
+    });
+
+    await expect(
+      service.getFollowers(org, undefined, 'channel-a', {
+        limit: 24,
+        sort: 'my_grade',
+        direction: 'desc',
+      })
+    ).rejects.toMatchObject({
+      message: 'Sorting followers by my_grade requires an authenticated user',
+    });
+    expect(
+      (service as any)._channelInteractionRepository.getFollowersByMyGrade
+    ).not.toHaveBeenCalled();
   });
 
   it('routes a triage filter through the complete synced audience', async () => {

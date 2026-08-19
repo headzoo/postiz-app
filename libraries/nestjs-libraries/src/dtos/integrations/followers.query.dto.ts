@@ -12,7 +12,13 @@ import {
   ValidatorConstraint,
   ValidatorConstraintInterface,
 } from 'class-validator';
-import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+import {
+  FOLLOWER_AUDIENCES,
+  FOLLOWER_INTERACTION_WINDOWS,
+  FOLLOWER_SORT_DIRECTIONS,
+  FOLLOWER_TRIAGE_FILTERS,
+  normalizeFollowerSearch,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 
 @ValidatorConstraint({ name: 'exclusiveAudienceTriage', async: false })
 class ExclusiveAudienceTriageConstraint implements ValidatorConstraintInterface {
@@ -48,12 +54,12 @@ export class FollowersQueryDto {
   sort?: string;
 
   @IsOptional()
-  @IsIn(['asc', 'desc'])
-  direction?: 'asc' | 'desc';
+  @IsIn(FOLLOWER_SORT_DIRECTIONS)
+  direction?: (typeof FOLLOWER_SORT_DIRECTIONS)[number];
 
   @IsOptional()
-  @IsIn(['week', 'month', '90_day', 'year'])
-  window?: 'week' | 'month' | '90_day' | 'year';
+  @IsIn(FOLLOWER_INTERACTION_WINDOWS)
+  window?: (typeof FOLLOWER_INTERACTION_WINDOWS)[number];
 
   @IsOptional()
   @Transform(({ value }) =>
@@ -64,14 +70,14 @@ export class FollowersQueryDto {
   search?: string;
 
   @IsOptional()
-  @IsIn(['hot_lead', 'mutual', 'over_invested', 'quiet', 'engaged_not_yet'])
+  @IsIn(FOLLOWER_TRIAGE_FILTERS)
   @Validate(ExclusiveAudienceTriageConstraint)
-  triage?: 'hot_lead' | 'mutual' | 'over_invested' | 'quiet' | 'engaged_not_yet';
+  triage?: (typeof FOLLOWER_TRIAGE_FILTERS)[number];
 
   @IsOptional()
-  @IsIn(['lead', 'ignored'])
+  @IsIn(FOLLOWER_AUDIENCES)
   @Validate(ExclusiveAudienceTriageConstraint)
-  audience?: 'lead' | 'ignored';
+  audience?: (typeof FOLLOWER_AUDIENCES)[number];
 
   @IsOptional()
   @IsString()

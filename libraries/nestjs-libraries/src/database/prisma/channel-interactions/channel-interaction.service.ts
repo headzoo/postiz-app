@@ -940,10 +940,12 @@ export class ChannelInteractionService {
     organizationId: string,
     integrationId: string,
     externalId: string,
-    userId: string
+    userId?: string
   ) {
     this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
-    this.validateBoundedString(userId, 'userId', MAX_ID_LENGTH);
+    if (userId) {
+      this.validateBoundedString(userId, 'userId', MAX_ID_LENGTH);
+    }
     const details = await this._repository.getFollowerDetails(
       organizationId,
       integrationId,
@@ -1050,6 +1052,18 @@ export class ChannelInteractionService {
 
   async listFollowerLists(organizationId: string, integrationId: string) {
     return this._repository.listAudienceLists(organizationId, integrationId);
+  }
+
+  getStoredFollowerAudienceCounts(
+    organizationId: string,
+    integrationId: string,
+    listLimit = 20
+  ) {
+    return this._repository.getStoredFollowerAudienceCounts(
+      organizationId,
+      integrationId,
+      listLimit
+    );
   }
 
   async createFollowerList(

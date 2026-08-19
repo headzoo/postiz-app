@@ -12,7 +12,11 @@ import {
   ChannelInteractionSubscriptionReconciliationResult,
   FollowerTriageFilter,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
-import { AudienceFollowerSortField } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+import {
+  AudienceFollowerSortField,
+  FOLLOWER_AUDIENCES,
+  FOLLOWER_TRIAGE_FILTERS,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
   PrismaRepository,
   PrismaTransaction,
@@ -87,7 +91,7 @@ export type NoteCountFollowerCursor = {
 export type NoteCountFollowersQuery = {
   organizationId: string;
   integrationId: string;
-  userId: string;
+  userId?: string;
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: NoteCountFollowerCursor;
@@ -105,7 +109,7 @@ export type LikesCountFollowerCursor = {
 export type LikesCountFollowersQuery = {
   organizationId: string;
   integrationId: string;
-  userId: string;
+  userId?: string;
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: LikesCountFollowerCursor;
@@ -123,7 +127,7 @@ export type AudienceLeadCursor = {
 export type AudienceLeadsQuery = {
   organizationId: string;
   integrationId: string;
-  userId: string;
+  userId?: string;
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: AudienceLeadCursor;
@@ -156,7 +160,7 @@ export type AudienceFollowerCursor = {
 export type AudienceFollowersQuery = {
   organizationId: string;
   integrationId: string;
-  userId: string;
+  userId?: string;
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
@@ -167,6 +171,12 @@ export type AudienceFollowersQuery = {
   ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
+export type StoredFollowerAudienceCounts = {
+  categories: Record<string, number>;
+  lists: Array<{ id: string; name: string; total: number }>;
+  listsTruncated: boolean;
+};
+
 export type IgnoredAudienceFollowerCursor = {
   ignoredAt: string;
   externalId: string;
@@ -175,7 +185,7 @@ export type IgnoredAudienceFollowerCursor = {
 export type IgnoredAudienceFollowersQuery = {
   organizationId: string;
   integrationId: string;
-  userId: string;
+  userId?: string;
   search?: string;
   direction: 'asc' | 'desc';
   limit: number;
@@ -208,7 +218,7 @@ export type ProjectedFollowerCursor = {
 export type ProjectedFollowersQuery = {
   organizationId: string;
   integrationId: string;
-  userId: string;
+  userId?: string;
   field: 'relationshipReciprocationScore' | 'relationshipNetGap';
   direction: 'asc' | 'desc';
   limit: number;
@@ -1412,7 +1422,7 @@ export class ChannelInteractionRepository {
     organizationId: string,
     integrationId: string,
     externalId: string,
-    userId: string
+    userId?: string
   ) {
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
@@ -1452,17 +1462,19 @@ export class ChannelInteractionRepository {
           },
         }),
         this.getInteractionTrackingInTransaction(tx, organizationId, integrationId),
-        tx.channelAudienceMemberGrade.findUnique({
-          where: {
-            organizationId_integrationId_counterpartyExternalId_userId: {
-              organizationId,
-              integrationId,
-              counterpartyExternalId: externalId,
-              userId,
+        userId
+          ? tx.channelAudienceMemberGrade.findUnique({
+            where: {
+              organizationId_integrationId_counterpartyExternalId_userId: {
+                organizationId,
+                integrationId,
+                counterpartyExternalId: externalId,
+                userId,
+              },
             },
-          },
-          select: { grade: true },
-        }),
+            select: { grade: true },
+          })
+          : Promise.resolve(null),
       ]);
       return {
         member,
@@ -1580,6 +1592,63 @@ export class ChannelInteractionRepository {
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { id: true, name: true, createdAt: true, updatedAt: true },
       });
+    });
+  }
+
+  async getStoredFollowerAudienceCounts(
+    organizationId: string,
+    integrationId: string,
+    listLimit = 20
+  ): Promise<StoredFollowerAudienceCounts> {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const lists = await tx.channelAudienceList.findMany({
+        where: { organizationId, integrationId, deletedAt: null },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        take: listLimit + 1,
+        select: { id: true, name: true },
+      });
+      const boundedLists = lists.slice(0, listLimit);
+      const categories = [
+        ...FOLLOWER_TRIAGE_FILTERS,
+        ...FOLLOWER_AUDIENCES,
+      ];
+      const [categoryTotals, listTotals] = await Promise.all([
+        Promise.all(
+          categories.map((category) =>
+            tx.channelAudienceMember.count({
+              where: {
+                organizationId,
+                integrationId,
+                ...this.storedAudienceCategoryFilter(category),
+              },
+            })
+          )
+        ),
+        Promise.all(
+          boundedLists.map((list) =>
+            tx.channelAudienceMember.count({
+              where: {
+                organizationId,
+                integrationId,
+                membershipState: ChannelAudienceMembership.FOLLOWER,
+                ignoredAt: null,
+                ...this.listMembershipFilter(list.id),
+              },
+            })
+          )
+        ),
+      ]);
+      return {
+        categories: Object.fromEntries(
+          categories.map((category, index) => [category, categoryTotals[index]])
+        ),
+        lists: boundedLists.map((list, index) => ({
+          ...list,
+          total: listTotals[index],
+        })),
+        listsTruncated: lists.length > boundedLists.length,
+      };
     });
   }
 
@@ -2241,7 +2310,7 @@ export class ChannelInteractionRepository {
     organizationId: string,
     integrationId: string,
     externalIds: string[],
-    userId: string
+    userId?: string
   ): Promise<Map<string, FollowerAudienceCounts>> {
     const uniqueIds = [...new Set(externalIds.filter(Boolean))];
     if (!uniqueIds.length) {
@@ -2264,7 +2333,7 @@ export class ChannelInteractionRepository {
           noteCount: row.noteCount,
           likesCount: row.likesCount,
           relationshipGrade: row.relationshipGrade,
-          myGrade: row.personalGrades[0]?.grade ?? null,
+          myGrade: row.personalGrades?.[0]?.grade ?? null,
           relationshipEffortScore: row.relationshipEffortScore,
           relationshipReciprocationScore: row.relationshipReciprocationScore,
           relationshipNetGap: row.relationshipNetGap,
@@ -2358,6 +2427,35 @@ export class ChannelInteractionRepository {
     return {
       relationshipTriage: triage,
       triageIgnores: { none: { triage } },
+    };
+  }
+
+  private storedAudienceCategoryFilter(
+    category: FollowerTriageFilter | (typeof FOLLOWER_AUDIENCES)[number]
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (category === 'lead') {
+      return {
+        membershipState: {
+          in: [
+            ChannelAudienceMembership.UNKNOWN,
+            ChannelAudienceMembership.NOT_FOLLOWER,
+          ],
+        },
+        inboundInteractionCount: { gt: 0 },
+        ignoredAt: null,
+        triageIgnores: { none: { triage: 'lead' } },
+      };
+    }
+    if (category === 'ignored') {
+      return {
+        membershipState: ChannelAudienceMembership.FOLLOWER,
+        ignoredAt: { not: null },
+      };
+    }
+    return {
+      membershipState: ChannelAudienceMembership.FOLLOWER,
+      ignoredAt: null,
+      ...this.triageFilter(category),
     };
   }
 
@@ -2471,7 +2569,7 @@ export class ChannelInteractionRepository {
     return value;
   }
 
-  private audienceMemberListSelect(userId: string) {
+  private audienceMemberListSelect(userId?: string) {
     return {
       externalId: true,
       name: true,
@@ -2495,11 +2593,15 @@ export class ChannelInteractionRepository {
       relationshipFormulaVersion: true,
       relationshipSnapshotAt: true,
       ignoredAt: true,
-      personalGrades: {
-        where: { userId },
-        select: { grade: true },
-        take: 1,
-      },
+      ...(userId
+        ? {
+          personalGrades: {
+            where: { userId },
+            select: { grade: true },
+            take: 1,
+          },
+        }
+        : {}),
       listMemberships: {
         where: { list: { deletedAt: null } },
         select: { listId: true },

@@ -62,6 +62,11 @@ const createRepository = () => ({
     relationshipGrade: 4,
   }),
   addAudienceTriageIgnore: jest.fn().mockResolvedValue({ ok: true }),
+  getStoredFollowerAudienceCounts: jest.fn().mockResolvedValue({
+    categories: {},
+    lists: [],
+    listsTruncated: false,
+  }),
 });
 
 describe('ChannelInteractionService', () => {
@@ -70,6 +75,24 @@ describe('ChannelInteractionService', () => {
   });
 
   afterEach(() => jest.useRealTimers());
+
+  it('delegates bounded stored audience counts to the repository', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.getStoredFollowerAudienceCounts('org', 'integration')
+    ).resolves.toEqual({
+      categories: {},
+      lists: [],
+      listsTruncated: false,
+    });
+    expect(repository.getStoredFollowerAudienceCounts).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      20
+    );
+  });
 
   it('uses the fixed provider-neutral score matrix', () => {
     expect(getChannelInteractionScore('like', 'inbound')).toBe(2);

@@ -13,11 +13,23 @@ import { PipelinesListTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline
 import { PipelinePostsListTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.posts.list.tool';
 import { PipelineEnqueuePostTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.enqueue.post.tool';
 import { PipelineContextDocumentReadTool } from '@gitroom/nestjs-libraries/chat/tools/pipeline.context-document.read.tool';
+import { FollowerChannelsTool } from '@gitroom/nestjs-libraries/chat/tools/follower.channels.tool';
+import { FollowersListTool } from '@gitroom/nestjs-libraries/chat/tools/followers.list.tool';
+import { FollowerDetailTool } from '@gitroom/nestjs-libraries/chat/tools/follower.detail.tool';
+import { FollowerTimelineTool } from '@gitroom/nestjs-libraries/chat/tools/follower.timeline.tool';
+import { FollowerListsTool } from '@gitroom/nestjs-libraries/chat/tools/follower.lists.tool';
+import { FollowerStatisticsTool } from '@gitroom/nestjs-libraries/chat/tools/follower.statistics.tool';
 
 export const toolList = [
   IntegrationListTool,
   GroupListTool,
   PostsListTool,
+  FollowerChannelsTool,
+  FollowersListTool,
+  FollowerDetailTool,
+  FollowerTimelineTool,
+  FollowerListsTool,
+  FollowerStatisticsTool,
   PipelinesListTool,
   PipelinePostsListTool,
   PipelineEnqueuePostTool,

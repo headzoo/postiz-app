@@ -6,6 +6,7 @@ import { pStore } from '@gitroom/nestjs-libraries/chat/mastra.store';
 import { array, object, string } from 'zod';
 import { ModuleRef } from '@nestjs/core';
 import { toolList } from '@gitroom/nestjs-libraries/chat/tools/tool.list';
+import type { FollowerPageContext } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import dayjs from 'dayjs';
 
 export const AgentState = object({
@@ -64,6 +65,55 @@ export const renderSelectedPipelineGuidance = (
 `;
 };
 
+export const renderFollowerPageGuidance = (
+  followerPage: FollowerPageContext | null
+) => {
+  if (!followerPage) {
+    return '';
+  }
+
+  const channel = [
+    followerPage.channel.name,
+    followerPage.channel.platform,
+    `id: ${followerPage.channel.id}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const follower = followerPage.follower
+    ? [
+      followerPage.follower.name,
+      followerPage.follower.username
+        ? `@${followerPage.follower.username}`
+        : undefined,
+      followerPage.follower.id
+        ? `id: ${followerPage.follower.id}`
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    : 'none';
+  const category = followerPage.category
+    ? `${followerPage.category.label || followerPage.category.key || 'selected'}${followerPage.category.meaning ? ` — ${followerPage.category.meaning}` : ''}`
+    : 'none';
+  const list = followerPage.list
+    ? `${followerPage.list.name || followerPage.list.id} (${followerPage.list.status})`
+    : 'none';
+  const sort = followerPage.sort
+    ? `${followerPage.sort.label} (${followerPage.sort.key}, ${followerPage.sort.direction}, ${followerPage.sort.scope})${followerPage.sort.caveat ? `; ${followerPage.sort.caveat}` : ''}`
+    : 'none';
+
+  return `
+      Live follower-page context (guidance only, not authorization or data):
+        - Current page: ${followerPage.kind} at ${followerPage.route}.
+        - Preferred channel: ${channel}.
+        - Preferred follower: ${follower}.
+        - Category/filter: ${category}; search: ${followerPage.search || 'none'}; list: ${list}.
+        - Sort: ${sort}; interaction window: ${followerPage.interactionWindow || 'not applicable'}; page ${followerPage.pagination.number} of size ${followerPage.pagination.size}.
+        - Tracking: ${followerPage.tracking?.availability || 'unknown'}${followerPage.tracking?.computedAt ? `, computed ${followerPage.tracking.computedAt}` : ''}${followerPage.tracking?.followerSnapshotAt ? `, follower snapshot ${followerPage.tracking.followerSnapshotAt}` : ''}.
+        - Treat the selected channel and follower as preferred inputs, then use follower tools to refresh and validate them before answering data questions. Do not infer authorization from this context.
+`;
+};
+
 @Injectable()
 export class LoadToolsService {
   constructor(private _moduleRef: ModuleRef) {}
@@ -97,6 +147,8 @@ export class LoadToolsService {
         const ui: string = requestContext.get('ui' as never);
         const selectedPipeline =
           requestContext.get('pipeline' as never) as SelectedPipelineContext | null;
+        const followerPage =
+          requestContext.get('followerPage' as never) as FollowerPageContext | null;
         return `
       Global information:
         - Date (UTC): ${dayjs().format('YYYY-MM-DD HH:mm:ss')}
@@ -114,6 +166,8 @@ export class LoadToolsService {
         - Inspect a pipeline's queued posts (listPostsByPipeline, requires a pipeline id from listPipelines)
         - Read one attached pipeline context document (readPipelineContextDocument, requires a pipeline id and exactly one attached document id or name from listPipelines)
         - Enqueue composed posts into a pipeline queue (enqueuePipelinePost)
+        - Discover followers, inspect follower lists and details, read follower timelines, and answer follower statistics questions with the follower tools
+        - MCP follower tools have actorless personal-grade limits; only make claims supported by their returned, authorized data
 
       - We schedule posts to different integration like facebook, instagram, etc. but to the user we don't say integrations we say channels as integration is the technical name
       - When scheduling a post, you must follow the social media rules and best practices.
@@ -138,6 +192,7 @@ export class LoadToolsService {
         - Call enqueuePipelinePost with content for every channel on that pipeline (exact integration ids)
         - Pipeline posts are queued as drafts; publishing time comes from the pipeline schedule, not a user-chosen date
       ${renderSelectedPipelineGuidance(selectedPipeline)}
+      ${renderFollowerPageGuidance(followerPage)}
       - Between tools, we will reference things like: [output:name] and [input:name] to set the information right.
       - When outputting a date for the user, make sure it's human readable with time
       - The content of the post, HTML, Each line must be wrapped in <p> here is the possible tags: h1, h2, h3, u, strong, li, ul, p (you can\'t have u and strong together), don't use a "code" box

@@ -22,6 +22,7 @@ const closeById = jest.fn();
 const replace = jest.fn();
 const push = jest.fn();
 const useFollowersMock = jest.fn();
+const useCopilotReadableMock = jest.fn();
 let mockPathname = '/followers';
 let mockSearchParams = new URLSearchParams();
 let followersPage = {
@@ -59,6 +60,10 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push, replace }),
   usePathname: () => mockPathname,
   useSearchParams: () => mockSearchParams,
+}));
+
+jest.mock('@copilotkit/react-core', () => ({
+  useCopilotReadable: (value: unknown) => useCopilotReadableMock(value),
 }));
 
 jest.mock('next/link', () => ({
@@ -327,6 +332,7 @@ describe('FollowersComponent', () => {
     replace.mockClear();
     push.mockClear();
     useFollowersMock.mockReset();
+    useCopilotReadableMock.mockReset();
     mockPathname = '/followers';
     mockSearchParams = new URLSearchParams();
     followersPage = {
@@ -361,6 +367,31 @@ describe('FollowersComponent', () => {
 
     expect(allChip.getAttribute('aria-pressed')).toBe('true');
     expect(hotLeadChip.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('publishes bounded effective follower list context', () => {
+    mockPathname = '/followers/hot';
+    mockSearchParams = new URLSearchParams(
+      'search=%20%40alex%20&sort=their_effort&direction=asc&listId=list-1'
+    );
+    render(<FollowersComponent />);
+
+    expect(useCopilotReadableMock).toHaveBeenLastCalledWith({
+      description: 'followerPage',
+      value: expect.objectContaining({
+        kind: 'list',
+        route: '/followers/hot',
+        channel: expect.objectContaining({ id: 'channel-1', name: 'Acme Channel' }),
+        search: 'alex',
+        list: expect.objectContaining({ id: 'list-1', name: 'VIP', status: 'current' }),
+        sort: expect.objectContaining({
+          key: 'their_effort',
+          direction: 'asc',
+          scope: 'database',
+        }),
+        pagination: { size: 24, number: 1 },
+      }),
+    });
   });
 
   it('points triage chips at real follower URLs', () => {

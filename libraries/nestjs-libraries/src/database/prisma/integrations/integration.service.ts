@@ -22,6 +22,7 @@ import {
   Follower,
   FollowerPage,
   FollowerQuery,
+  FollowerReadActor,
   FollowerList,
   FollowerRelationshipSnapshot,
   FollowerSort,
@@ -517,10 +518,15 @@ export class IntegrationService {
 
   async getFollowers(
     org: Organization,
-    user: User,
+    actor: FollowerReadActor | User | undefined,
     integrationId: string,
     query: FollowerQuery
   ) {
+    const actorUserId = actor && 'userId' in actor
+      ? actor.userId
+      : actor && 'id' in actor
+        ? actor.id
+        : undefined;
     const integration = await this._integrationRepository.getIntegrationById(
       org.id,
       integrationId
@@ -556,6 +562,15 @@ export class IntegrationService {
       ...query,
       ...(search ? { search } : { search: undefined }),
     };
+    if (
+      normalizedQuery.sort === FOLLOWER_DATABASE_MY_GRADE_SORT.key &&
+      !actorUserId
+    ) {
+      throw new HttpException(
+        'Sorting followers by my_grade requires an authenticated user',
+        HttpStatus.BAD_REQUEST
+      );
+    }
     if (normalizedQuery.audience && normalizedQuery.triage) {
       throw new HttpException('Invalid follower query', HttpStatus.BAD_REQUEST);
     }
@@ -577,7 +592,7 @@ export class IntegrationService {
       );
       return this.getIgnoredAudiencePage(
         org.id,
-        user.id,
+        actorUserId,
         integration,
         provider,
         normalizedQuery
@@ -595,7 +610,7 @@ export class IntegrationService {
       );
       return this.getLeadAudiencePage(
         org.id,
-        user.id,
+        actorUserId,
         integration,
         normalizedQuery
       );
@@ -604,7 +619,7 @@ export class IntegrationService {
     if (sort?.scope === 'database') {
       return this.getDatabaseFollowerPage(
         org.id,
-        user.id,
+        actorUserId,
         integration,
         provider,
         normalizedQuery,
@@ -615,7 +630,7 @@ export class IntegrationService {
     if (search || query.triage || query.listId) {
       return this.getAudienceFollowerPage(
         org.id,
-        user.id,
+        actorUserId,
         integration,
         provider,
         normalizedQuery,
@@ -627,7 +642,7 @@ export class IntegrationService {
       const page = await this.getFollowerPage(integration, provider, normalizedQuery);
       return this.enrichFollowerPageWithInteractionMetrics(
         org.id,
-        user.id,
+        actorUserId,
         integration.id,
         provider,
         page
@@ -645,7 +660,7 @@ export class IntegrationService {
 
   async getFollowerMemberDetails(
     org: Organization,
-    user: User,
+    actor: FollowerReadActor | User | undefined,
     integrationId: string,
     externalId?: string,
     username?: string
@@ -668,7 +683,11 @@ export class IntegrationService {
         org.id,
         integrationId,
         resolvedExternalId,
-        user.id
+        actor && 'userId' in actor
+          ? actor.userId
+          : actor && 'id' in actor
+            ? actor.id
+            : undefined
       );
       return this.mapFollowerMemberDetails(details, provider);
     } catch (error) {
@@ -828,6 +847,17 @@ export class IntegrationService {
       integrationId
     );
     return lists.map((list) => this.mapFollowerList(list));
+  }
+
+  async getStoredFollowerAudienceCounts(
+    org: Organization,
+    integrationId: string
+  ) {
+    await this.getFollowerIntegrationProvider(org, integrationId);
+    return this._channelInteractionService.getStoredFollowerAudienceCounts(
+      org.id,
+      integrationId
+    );
   }
 
   async createFollowerList(
@@ -1600,7 +1630,7 @@ export class IntegrationService {
 
   private async getDatabaseFollowerPage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     provider: SocialProvider,
     query: FollowerQuery,
@@ -1622,6 +1652,12 @@ export class IntegrationService {
       );
     }
     if (sort.key === FOLLOWER_DATABASE_MY_GRADE_SORT.key) {
+      if (!userId) {
+        throw new HttpException(
+          'Sorting followers by my_grade requires an authenticated user',
+          HttpStatus.BAD_REQUEST
+        );
+      }
       return this.getMyGradeFollowerPage(organizationId, userId, integration, query, sort);
     }
     if (
@@ -1737,7 +1773,7 @@ export class IntegrationService {
 
   private async getLeadAudiencePage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     query: FollowerQuery
   ): Promise<FollowerPage> {
@@ -1793,7 +1829,7 @@ export class IntegrationService {
 
   private async getIgnoredAudiencePage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     provider: SocialProvider,
     query: FollowerQuery
@@ -1852,7 +1888,7 @@ export class IntegrationService {
 
   private async getAudienceFollowerPage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     provider: SocialProvider,
     query: FollowerQuery,
@@ -1922,7 +1958,7 @@ export class IntegrationService {
 
   private async getNoteCountFollowerPage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     query: FollowerQuery,
     sort: FollowerSort
@@ -1973,7 +2009,7 @@ export class IntegrationService {
 
   private async getLikesCountFollowerPage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     query: FollowerQuery,
     sort: FollowerSort
@@ -2024,7 +2060,7 @@ export class IntegrationService {
 
   private async getRelationshipGradeFollowerPage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     query: FollowerQuery,
     sort: FollowerSort
@@ -2079,7 +2115,7 @@ export class IntegrationService {
 
   private async getProjectedFollowerPage(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integration: Integration,
     query: FollowerQuery,
     sort: FollowerSort
@@ -2827,7 +2863,7 @@ export class IntegrationService {
 
   private async enrichFollowerPageWithInteractionMetrics(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integrationId: string,
     provider: SocialProvider,
     page: FollowerPage,
@@ -2903,7 +2939,7 @@ export class IntegrationService {
 
   private async attachFollowerListIds(
     organizationId: string,
-    userId: string,
+    userId: string | undefined,
     integrationId: string,
     page: FollowerPage,
     options?: { excludeIgnored?: boolean }
@@ -2932,6 +2968,7 @@ export class IntegrationService {
             ...item,
             ...(listIds?.length ? { listIds } : {}),
             ...(counts?.ignoredAt ? { isIgnored: true } : {}),
+            ...(!userId ? this.followerGradeFields(counts) : {}),
           });
         }),
     };

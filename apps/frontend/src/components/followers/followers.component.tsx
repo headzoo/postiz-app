@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { useDebounce } from 'use-debounce';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useCopilotReadable } from '@copilotkit/react-core';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Button } from '@gitroom/react/form/button';
 import { Input } from '@gitroom/react/form/input';
@@ -25,7 +26,11 @@ import {
   setLastChannelId,
 } from '@gitroom/frontend/components/launches/helpers/last-channel';
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
-import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+import {
+  FOLLOWER_CATEGORY_DESCRIPTIONS,
+  formatFollowerPageContext,
+  normalizeFollowerSearch,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
   ChannelInteractionKindCoverage,
   ChannelInteractionWindow,
@@ -736,6 +741,12 @@ export const FollowersComponent: FC = () => {
     unignoreFollower,
   } = useFollowerListMutations(selectedIntegrationId);
 
+  const activeCategory = !urlListId ? triage || audience : undefined;
+  const activeList = useMemo(
+    () => followerLists.find((list) => list.id === urlListId),
+    [followerLists, urlListId]
+  );
+
   const deepLinkIdentity =
     followerPath.type === 'follower'
       ? { username: followerPath.username }
@@ -744,6 +755,99 @@ export const FollowersComponent: FC = () => {
     followerPath.type === 'follower' ? followerPath.integrationId : undefined,
     deepLinkIdentity
   );
+
+  const followerPageContext = useMemo(() => {
+    const selectedFollower =
+      followerPath.type === 'follower'
+        ? deepLinkDetail?.follower
+        : undefined;
+    const categoryLabel =
+      TRIAGE_FILTER_OPTIONS.find(
+        (option) => option.value === activeCategory || option.audience === activeCategory
+      )?.defaultLabel ||
+      (activeCategory === 'ignored' ? 'Ignored' : undefined);
+    const tracking = followersPage?.tracking || selectedChannel?.tracking;
+
+    return formatFollowerPageContext({
+      kind: followerPath.type === 'follower' ? 'detail' : 'list',
+      route: historyPath || '/followers',
+      channel: {
+        id:
+          selectedIntegrationId ||
+          (followerPath.type === 'follower' ? followerPath.integrationId : ''),
+        name: selectedChannel?.name,
+        platform: selectedChannel?.identifier,
+        display: selectedChannel?.display,
+      },
+      follower:
+        followerPath.type === 'follower'
+          ? {
+            id: selectedFollower?.id,
+            username: selectedFollower?.username || followerPath.username,
+            name: selectedFollower?.name,
+          }
+          : undefined,
+      category: activeCategory
+        ? {
+          key: activeCategory,
+          label: categoryLabel,
+          meaning: FOLLOWER_CATEGORY_DESCRIPTIONS[activeCategory],
+        }
+        : undefined,
+      search: normalizeFollowerSearch(trimmedSearch),
+      list: urlListId
+        ? {
+          id: urlListId,
+          name: activeList?.name,
+          status: activeList ? 'current' : 'unknown_or_deleted',
+        }
+        : undefined,
+      sort: activeSort && effectiveDirection
+        ? {
+          key: activeSort.key,
+          label: activeSort.label,
+          scope: activeSort.scope || 'native',
+          direction: effectiveDirection,
+          caveat:
+            activeSort.scope === 'page'
+              ? 'Sorting applies only to the currently loaded page.'
+              : undefined,
+        }
+        : undefined,
+      interactionWindow: requiresWindow ? window : undefined,
+      pagination: { size: limit, number: pageNumber },
+      tracking: tracking
+        ? {
+          availability: tracking.availability,
+          state: tracking.state,
+          computedAt: tracking.computedAt,
+          followerSnapshotAt: tracking.followerSnapshotAt,
+        }
+        : undefined,
+    });
+  }, [
+    activeCategory,
+    activeList,
+    activeSort,
+    deepLinkDetail?.follower,
+    effectiveDirection,
+    followerPath,
+    followersPage?.tracking,
+    historyPath,
+    limit,
+    pageNumber,
+    requiresWindow,
+    selectedChannel,
+    selectedIntegrationId,
+    trimmedSearch,
+    urlListId,
+    window,
+  ]);
+
+  useCopilotReadable({
+    description: 'followerPage',
+    value: followerPageContext,
+  });
 
   const openFollowerDetailModal = useCallback(
     ({

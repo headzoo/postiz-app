@@ -26,6 +26,7 @@ jest.mock('@gitroom/nestjs-libraries/chat/tools/tool.list', () => ({
 
 import {
   LoadToolsService,
+  renderFollowerPageGuidance,
   renderSelectedPipelineGuidance,
   SelectedPipelineContext,
 } from './load.tools.service';
@@ -75,7 +76,15 @@ describe('renderSelectedPipelineGuidance', () => {
 
     const withPipeline = mockAgentOptions.instructions({
       requestContext: {
-        get: (key: string) => (key === 'pipeline' ? selectedPipeline : 'true'),
+        get: (key: string) => {
+          if (key === 'pipeline') {
+            return selectedPipeline;
+          }
+          if (key === 'followerPage') {
+            return null;
+          }
+          return 'true';
+        },
       },
     });
     const withoutPipeline = mockAgentOptions.instructions({
@@ -84,5 +93,71 @@ describe('renderSelectedPipelineGuidance', () => {
 
     expect(withPipeline).toContain('id: pipeline-1');
     expect(withoutPipeline).not.toContain('User-selected pipeline target');
+  });
+});
+
+describe('renderFollowerPageGuidance', () => {
+  const followerPage = {
+    kind: 'list' as const,
+    route: '/followers/hot',
+    channel: { id: 'channel-1', name: 'Postiz on X', platform: 'x' },
+    category: {
+      key: 'hot_lead' as const,
+      label: 'Hot',
+      meaning: "Their effort exceeds the channel's.",
+    },
+    search: 'alex',
+    sort: {
+      key: 'followers_count',
+      label: 'Followers',
+      scope: 'page' as const,
+      direction: 'desc' as const,
+      caveat: 'Sorting applies only to the currently loaded page.',
+    },
+    pagination: { size: 24, number: 2 },
+  };
+
+  it('renders bounded follower page guidance when context is present', () => {
+    const guidance = renderFollowerPageGuidance(followerPage);
+
+    expect(guidance).toContain('Current page: list at /followers/hot');
+    expect(guidance).toContain('Postiz on X · x · id: channel-1');
+    expect(guidance).toContain("Their effort exceeds the channel's.");
+    expect(guidance).toContain('Sorting applies only to the currently loaded page.');
+    expect(guidance).toContain('use follower tools to refresh and validate');
+  });
+
+  it('does not add follower guidance outside follower pages', () => {
+    expect(renderFollowerPageGuidance(null)).toBe('');
+  });
+
+  it('adds follower guidance to the Mastra agent only when present', async () => {
+    const service = new LoadToolsService({ get: jest.fn() } as any);
+    await service.agent();
+
+    const withFollowerPage = mockAgentOptions.instructions({
+      requestContext: {
+        get: (key: string) => (key === 'followerPage' ? followerPage : null),
+      },
+    });
+    const withoutFollowerPage = mockAgentOptions.instructions({
+      requestContext: { get: () => null },
+    });
+
+    expect(withFollowerPage).toContain('Live follower-page context');
+    expect(withoutFollowerPage).not.toContain('Live follower-page context');
+  });
+
+  it('documents MCP actorless personal-grade limits in base agent instructions', async () => {
+    const service = new LoadToolsService({ get: jest.fn() } as any);
+    await service.agent();
+
+    const instructions = mockAgentOptions.instructions({
+      requestContext: { get: () => null },
+    });
+
+    expect(instructions).toContain('actorless personal-grade limits');
+    expect(instructions).toContain('listFollowerChannels');
+    expect(instructions).toContain('summarizeFollowerAudience');
   });
 });

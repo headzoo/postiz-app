@@ -12,10 +12,10 @@ import {
   CopilotRuntime,
   OpenAIAdapter,
   copilotRuntimeNodeHttpEndpoint,
-  copilotRuntimeNextJSAppRouterEndpoint,
 } from '@copilotkit/runtime';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
-import { Organization } from '@prisma/client';
+import { Organization, User } from '@prisma/client';
+import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
 import { SubscriptionService } from '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service';
 import { MastraAgent } from '@ag-ui/mastra';
 import { MastraService } from '@gitroom/nestjs-libraries/chat/mastra.service';
@@ -24,13 +24,65 @@ import { RequestContext } from '@mastra/core/di';
 import { CheckPolicies } from '@gitroom/backend/services/auth/permissions/permissions.ability';
 import { AuthorizationActions, Sections } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
 import type { SelectedPipelineContext } from '@gitroom/nestjs-libraries/chat/load.tools.service';
+import {
+  formatFollowerPageContext,
+  FollowerPageContext,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+
+export type UiIntegrationContext = {
+  id: string;
+  name: string;
+  picture?: string | null;
+  providerIdentifier: string;
+  type: string;
+  identifier?: string;
+  editor?: 'none' | 'normal' | 'markdown' | 'html';
+  display?: string;
+};
 
 export type ChannelsContext = {
-  integrations: unknown[];
+  integrations: UiIntegrationContext[];
   pipeline: SelectedPipelineContext | null;
+  followerPage: FollowerPageContext | null;
   organization: string;
-  ui: string;
+  user?: string;
+  ui: 'true';
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isUiIntegrationContext = (
+  value: unknown
+): value is UiIntegrationContext =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.name === 'string' &&
+  typeof value.providerIdentifier === 'string' &&
+  typeof value.type === 'string';
+
+const isSelectedPipelineContext = (
+  value: unknown
+): value is SelectedPipelineContext =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.name === 'string' &&
+  typeof value.timezone === 'string' &&
+  typeof value.active === 'boolean' &&
+  Array.isArray(value.channels) &&
+  Array.isArray(value.contextDocuments);
+
+const isFollowerPageContext = (
+  value: unknown
+): value is FollowerPageContext =>
+  isRecord(value) &&
+  (value.kind === 'list' || value.kind === 'detail' || value.kind === 'timeline') &&
+  typeof value.route === 'string' &&
+  isRecord(value.channel) &&
+  typeof value.channel.id === 'string' &&
+  isRecord(value.pagination) &&
+  typeof value.pagination.size === 'number' &&
+  typeof value.pagination.number === 'number';
 
 @Controller('/copilot')
 export class CopilotController {
@@ -38,19 +90,89 @@ export class CopilotController {
     private _subscriptionService: SubscriptionService,
     private _mastraService: MastraService
   ) {}
+
+  private getUiProperties(req: Request) {
+    const properties = req.body?.variables?.properties;
+
+    if (!isRecord(properties)) {
+      return {
+        integrations: [] as UiIntegrationContext[],
+        pipeline: null,
+        followerPage: null,
+      };
+    }
+
+    return {
+      integrations: Array.isArray(properties.integrations)
+        ? properties.integrations.filter(isUiIntegrationContext)
+        : [],
+      pipeline: isSelectedPipelineContext(properties.pipeline)
+        ? properties.pipeline
+        : null,
+      followerPage: isFollowerPageContext(properties.followerPage)
+        ? formatFollowerPageContext(properties.followerPage)
+        : null,
+    };
+  }
+
+  private createRequestContext(
+    req: Request,
+    organization: Organization,
+    user?: User
+  ) {
+    const properties = this.getUiProperties(req);
+    const requestContext = new RequestContext<ChannelsContext>();
+
+    requestContext.set('integrations', properties.integrations);
+    requestContext.set('pipeline', properties.pipeline);
+    requestContext.set('followerPage', properties.followerPage);
+    requestContext.set('organization', JSON.stringify(organization));
+    if (user) {
+      requestContext.set('user', JSON.stringify({ userId: user.id }));
+    }
+    requestContext.set('ui', 'true');
+
+    return requestContext;
+  }
+
+  private async createRuntime(
+    req: Request,
+    organization: Organization,
+    user?: User
+  ) {
+    const mastra = await this._mastraService.mastra();
+    const requestContext = this.createRequestContext(req, organization, user);
+    const agents = MastraAgent.getLocalAgents({
+      resourceId: organization.id,
+      mastra,
+      requestContext: requestContext as any,
+    });
+
+    return new CopilotRuntime({ agents });
+  }
+
+  private hasOpenAiKey() {
+    return (
+      process.env.OPENAI_API_KEY !== undefined &&
+      process.env.OPENAI_API_KEY !== ''
+    );
+  }
+
   @Post('/chat')
-  chatAgent(@Req() req: Request, @Res() res: Response) {
-    if (
-      process.env.OPENAI_API_KEY === undefined ||
-      process.env.OPENAI_API_KEY === ''
-    ) {
+  async chatAgent(
+    @Req() req: Request,
+    @Res() res: Response,
+    @GetOrgFromRequest() organization: Organization,
+    @GetUserFromRequest() user?: User
+  ) {
+    if (!this.hasOpenAiKey()) {
       Logger.warn('OpenAI API key not set, chat functionality will not work');
       return;
     }
 
     const copilotRuntimeHandler = copilotRuntimeNodeHttpEndpoint({
       endpoint: '/copilot/chat',
-      runtime: new CopilotRuntime(),
+      runtime: await this.createRuntime(req, organization, user),
       serviceAdapter: new OpenAIAdapter({
         model: 'gpt-4.1',
       }),
@@ -64,49 +186,23 @@ export class CopilotController {
   async agent(
     @Req() req: Request,
     @Res() res: Response,
-    @GetOrgFromRequest() organization: Organization
+    @GetOrgFromRequest() organization: Organization,
+    @GetUserFromRequest() user: User
   ) {
-    if (
-      process.env.OPENAI_API_KEY === undefined ||
-      process.env.OPENAI_API_KEY === ''
-    ) {
+    if (!this.hasOpenAiKey()) {
       Logger.warn('OpenAI API key not set, chat functionality will not work');
       return;
     }
-    const mastra = await this._mastraService.mastra();
-    const requestContext = new RequestContext<ChannelsContext>();
-    requestContext.set(
-      'integrations',
-      req?.body?.variables?.properties?.integrations || []
-    );
-    requestContext.set(
-      'pipeline',
-      req?.body?.variables?.properties?.pipeline || null
-    );
 
-    requestContext.set('organization', JSON.stringify(organization));
-    requestContext.set('ui', 'true');
-
-    const agents = MastraAgent.getLocalAgents({
-      resourceId: organization.id,
-      mastra,
-      requestContext: requestContext as any,
-    });
-
-    const runtime = new CopilotRuntime({
-      agents,
-    });
-
-    const copilotRuntimeHandler = copilotRuntimeNextJSAppRouterEndpoint({
+    const copilotRuntimeHandler = copilotRuntimeNodeHttpEndpoint({
       endpoint: '/copilot/agent',
-      runtime,
-      // properties: req.body.variables.properties,
+      runtime: await this.createRuntime(req, organization, user),
       serviceAdapter: new OpenAIAdapter({
         model: 'gpt-4.1',
       }),
     });
 
-    return copilotRuntimeHandler.handleRequest(req, res);
+    return copilotRuntimeHandler(req, res);
   }
 
   @Get('/credits')

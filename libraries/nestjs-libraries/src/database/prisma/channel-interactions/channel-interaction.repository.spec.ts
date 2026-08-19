@@ -27,6 +27,7 @@ const createHarness = () => {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
     channelInteractionEvent: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -167,6 +168,83 @@ describe('ChannelInteractionRepository', () => {
       lastInteractionAt: new Date('2026-08-12T12:00:00.000Z'),
     });
     expect(metrics.has('person-2')).toBe(false);
+  });
+
+  it('counts canonical stored categories and at most twenty owned lists', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceList.findMany.mockResolvedValue(
+      Array.from({ length: 21 }, (_, index) => ({
+        id: `list-${index + 1}`,
+        name: `List ${index + 1}`,
+      }))
+    );
+    tx.channelAudienceMember.count
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(2)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(5)
+      .mockResolvedValueOnce(6)
+      .mockResolvedValueOnce(7);
+
+    const result = await repository.getStoredFollowerAudienceCounts(
+      'org',
+      'integration'
+    );
+
+    expect(tx.channelAudienceList.findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        deletedAt: null,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 21,
+      select: { id: true, name: true },
+    });
+    expect(result.categories).toEqual({
+      hot_lead: 1,
+      mutual: 2,
+      over_invested: 3,
+      quiet: 4,
+      engaged_not_yet: 5,
+      lead: 6,
+      ignored: 7,
+    });
+    expect(result.lists).toHaveLength(20);
+    expect(result.lists[0]).toEqual({
+      id: 'list-1',
+      name: 'List 1',
+      total: 0,
+    });
+    expect(result.listsTruncated).toBe(true);
+    expect(tx.channelAudienceMember.count).toHaveBeenCalledTimes(27);
+    expect(tx.channelAudienceMember.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        organizationId: 'org',
+        integrationId: 'integration',
+        membershipState: ChannelAudienceMembership.FOLLOWER,
+        ignoredAt: null,
+        listMemberships: {
+          some: { listId: 'list-1', list: { deletedAt: null } },
+        },
+      }),
+    });
+    expect(tx.channelAudienceMember.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        organizationId: 'org',
+        integrationId: 'integration',
+        membershipState: {
+          in: [
+            ChannelAudienceMembership.UNKNOWN,
+            ChannelAudienceMembership.NOT_FOLLOWER,
+          ],
+        },
+        inboundInteractionCount: { gt: 0 },
+        ignoredAt: null,
+        triageIgnores: { none: { triage: 'lead' } },
+      }),
+    });
   });
 
   it('adds inbound mention score to follower interaction metrics', async () => {
@@ -1768,6 +1846,43 @@ describe('ChannelInteractionRepository', () => {
             where: { userId: 'user-a' },
           }),
         }),
+      })
+    );
+  });
+
+  it('omits personal-grade selection for actorless follower reads', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      {
+        externalId: 'person-1',
+        noteCount: 0,
+        likesCount: 0,
+        relationshipGrade: null,
+        relationshipEffortScore: null,
+        relationshipReciprocationScore: null,
+        relationshipNetGap: null,
+        relationshipTriage: null,
+        relationshipFormulaVersion: null,
+        relationshipSnapshotAt: null,
+        listMemberships: [],
+        triageIgnores: [],
+        ignoredAt: null,
+      },
+    ]);
+
+    await expect(
+      repository.getFollowerNoteCounts('org', 'integration', ['person-1'])
+    ).resolves.toEqual(
+      new Map([
+        [
+          'person-1',
+          expect.objectContaining({ myGrade: null }),
+        ],
+      ])
+    );
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.not.objectContaining({ personalGrades: expect.anything() }),
       })
     );
   });

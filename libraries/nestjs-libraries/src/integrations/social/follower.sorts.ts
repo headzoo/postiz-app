@@ -4,6 +4,152 @@ import {
   FollowerSortDirection,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 
+export const FOLLOWER_SORT_DIRECTIONS = ['asc', 'desc'] as const;
+export type FollowerSortDirectionValue =
+  (typeof FOLLOWER_SORT_DIRECTIONS)[number];
+
+export const FOLLOWER_INTERACTION_WINDOWS = [
+  'week',
+  'month',
+  '90_day',
+  'year',
+] as const;
+export type FollowerInteractionWindow =
+  (typeof FOLLOWER_INTERACTION_WINDOWS)[number];
+
+export const FOLLOWER_TRIAGE_FILTERS = [
+  'hot_lead',
+  'mutual',
+  'over_invested',
+  'quiet',
+  'engaged_not_yet',
+] as const;
+export type FollowerTriageFilterValue =
+  (typeof FOLLOWER_TRIAGE_FILTERS)[number];
+
+export const FOLLOWER_AUDIENCES = ['lead', 'ignored'] as const;
+export type FollowerAudience = (typeof FOLLOWER_AUDIENCES)[number];
+
+export const FOLLOWER_CATEGORY_DESCRIPTIONS = {
+  hot_lead: "Their effort exceeds the channel's.",
+  over_invested: "The channel's effort exceeds theirs.",
+  mutual: 'Balanced activity between both sides.',
+  quiet: 'Neither direction has meaningful activity.',
+  engaged_not_yet: "They engaged, but the channel has not reciprocated.",
+  lead: 'An interacting non-follower.',
+  ignored: 'An organization-managed visibility state, not a relationship score.',
+} as const;
+
+export type FollowerPageKind = 'list' | 'detail' | 'timeline';
+
+export type FollowerPageContext = {
+  kind: FollowerPageKind;
+  route: string;
+  channel: {
+    id: string;
+    name?: string;
+    platform?: string;
+    display?: string;
+  };
+  follower?: {
+    id?: string;
+    username?: string;
+    name?: string;
+  };
+  category?: {
+    key?: keyof typeof FOLLOWER_CATEGORY_DESCRIPTIONS;
+    label?: string;
+    meaning?: string;
+  };
+  search?: string;
+  list?: {
+    id: string;
+    name?: string;
+    status: 'current' | 'unknown_or_deleted';
+  };
+  sort?: {
+    key: string;
+    label: string;
+    scope: 'native' | 'page' | 'database';
+    direction: FollowerSortDirection;
+    caveat?: string;
+  };
+  interactionWindow?: FollowerInteractionWindow;
+  pagination: {
+    size: number;
+    number: number;
+  };
+  tracking?: {
+    availability?: 'ready' | 'provisioning' | 'unavailable';
+    state?: string;
+    computedAt?: string;
+    followerSnapshotAt?: string;
+  };
+};
+
+const shortenFollowerContextText = (value: string | undefined, max = 160) =>
+  value?.trim().slice(0, max) || undefined;
+
+/**
+ * Produces the bounded, transport-safe follower page envelope used by the UI
+ * readable and server-side agent guidance. It deliberately excludes records,
+ * cursors, timeline entries, notes, and any authorization material.
+ */
+export const formatFollowerPageContext = (
+  context: FollowerPageContext
+): FollowerPageContext => ({
+  ...context,
+  route: shortenFollowerContextText(context.route, 240) || '/followers',
+  channel: {
+    id: shortenFollowerContextText(context.channel.id, 160) || '',
+    name: shortenFollowerContextText(context.channel.name),
+    platform: shortenFollowerContextText(context.channel.platform, 80),
+    display: shortenFollowerContextText(context.channel.display),
+  },
+  follower: context.follower
+    ? {
+      id: shortenFollowerContextText(context.follower.id, 160),
+      username: shortenFollowerContextText(context.follower.username),
+      name: shortenFollowerContextText(context.follower.name),
+    }
+    : undefined,
+  category: context.category
+    ? {
+      key: context.category.key,
+      label: shortenFollowerContextText(context.category.label, 80),
+      meaning: shortenFollowerContextText(context.category.meaning),
+    }
+    : undefined,
+  search: shortenFollowerContextText(context.search),
+  list: context.list
+    ? {
+      id: shortenFollowerContextText(context.list.id, 160) || '',
+      name: shortenFollowerContextText(context.list.name),
+      status: context.list.status,
+    }
+    : undefined,
+  sort: context.sort
+    ? {
+      key: shortenFollowerContextText(context.sort.key, 80) || '',
+      label: shortenFollowerContextText(context.sort.label, 80) || '',
+      scope: context.sort.scope,
+      direction: context.sort.direction,
+      caveat: shortenFollowerContextText(context.sort.caveat),
+    }
+    : undefined,
+  tracking: context.tracking
+    ? {
+      availability: context.tracking.availability,
+      state: shortenFollowerContextText(context.tracking.state, 80),
+      computedAt: shortenFollowerContextText(context.tracking.computedAt, 80),
+      followerSnapshotAt: shortenFollowerContextText(
+        context.tracking.followerSnapshotAt,
+        80
+      ),
+    }
+    : undefined,
+});
+
 export const FOLLOWER_NATIVE_RECENT_SORT: FollowerSort = {
   key: 'recent',
   label: 'Recent',

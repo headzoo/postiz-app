@@ -1,3 +1,10 @@
+import type {
+  FollowerAudience,
+  FollowerInteractionWindow,
+  FollowerSortDirectionValue,
+  FollowerTriageFilterValue,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+
 import { Integration } from '@prisma/client';
 import { RelationshipTriage } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.scoring';
 
@@ -312,7 +319,7 @@ export type Follower = {
   isIgnored?: boolean;
 };
 
-export type FollowerSortDirection = 'asc' | 'desc';
+export type FollowerSortDirection = FollowerSortDirectionValue;
 
 export type FollowerSortScope = 'native' | 'page' | 'database';
 
@@ -325,7 +332,7 @@ export type FollowerSort = {
   requiresWindow?: boolean;
 };
 
-export type ChannelInteractionWindow = 'week' | 'month' | '90_day' | 'year';
+export type ChannelInteractionWindow = FollowerInteractionWindow;
 
 export type FollowerQuery = {
   limit: number;
@@ -335,11 +342,15 @@ export type FollowerQuery = {
   window?: ChannelInteractionWindow;
   search?: string;
   triage?: FollowerTriageFilter;
-  audience?: 'lead' | 'ignored';
+  audience?: FollowerAudience;
   listId?: string;
 };
 
-export type FollowerTriageFilter = RelationshipTriage | 'engaged_not_yet';
+export type FollowerTriageFilter = FollowerTriageFilterValue;
+
+export type FollowerReadActor = {
+  userId: string;
+};
 
 export type FollowerList = {
   id: string;

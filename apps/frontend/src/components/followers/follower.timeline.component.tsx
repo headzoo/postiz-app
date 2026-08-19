@@ -4,11 +4,15 @@ import { FC, useCallback, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
+import { useCopilotReadable } from '@copilotkit/react-core';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Button } from '@gitroom/react/form/button';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
-import { normalizeFollowerSearch } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
+import {
+  formatFollowerPageContext,
+  normalizeFollowerSearch,
+} from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import {
   buildFollowerDetailHref,
   MemberPost,
@@ -156,6 +160,37 @@ export const FollowerTimelineComponent: FC = () => {
     ...timelineIdentity,
     cursor: currentCursor,
     limit: TIMELINE_PAGE_SIZE,
+  });
+
+  const timelineContext = useMemo(
+    () =>
+      formatFollowerPageContext({
+        kind: 'timeline',
+        route: `/followers/${integrationId}/${rawHandle}/timeline`,
+        channel: { id: integrationId },
+        follower: {
+          id: memberDetail?.follower.id || externalIdFromQuery,
+          username: memberDetail?.follower.username || username,
+          name: memberDetail?.follower.name,
+        },
+        pagination: {
+          size: TIMELINE_PAGE_SIZE,
+          number: cursorHistory.length + 1,
+        },
+      }),
+    [
+      cursorHistory.length,
+      externalIdFromQuery,
+      integrationId,
+      memberDetail?.follower,
+      rawHandle,
+      username,
+    ]
+  );
+
+  useCopilotReadable({
+    description: 'followerPage',
+    value: timelineContext,
   });
 
   const backHref = useMemo(() => {
