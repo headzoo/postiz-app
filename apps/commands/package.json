@@ -4,7 +4,7 @@
   "description": "",
   "scripts": {
     "dev": "dotenv -e ../../.env -- nest start --watch --entryFile=./apps/command/src/main",
-    "build": "echo 'Building commands app (compiles shared libraries; may take several minutes)...' && cross-env NODE_ENV=production nest build && echo 'Commands build complete.'",
+    "build": "echo 'Building commands app (compiles shared libraries; may take several minutes)...' && echo 'Tip: in a running Docker container, stop pm2 first if this fails (pm2 stop all).' && cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=4096 nest build && echo 'Commands build complete.'",
     "start": "dotenv -e ../../.env -- node ./dist/apps/commands/src/main.js"
   },
   "keywords": [],

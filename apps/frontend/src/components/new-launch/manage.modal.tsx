@@ -255,6 +255,16 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
   const isPublished = rootPost?.state === 'PUBLISHED';
   const hideScheduleControls =
     isEditingExistingPost && (isAlreadyScheduled || isPublished);
+  const publishedRoots = (
+    existingData?.channels?.length
+      ? existingData.channels.map((channel) => channel.posts?.[0])
+      : existingData?.posts?.length
+        ? [existingData.posts[0]]
+        : []
+  ).filter((post) => post?.state === 'PUBLISHED');
+  const cannotEditPublished =
+    publishedRoots.length > 0 &&
+    publishedRoots.some((post) => !(post as { canEdit?: boolean })?.canEdit);
 
   const getComposerSnapshot = useCallback(() => {
     const normalizeContent = (content: string) =>
@@ -961,26 +971,41 @@ export const ManageModal: FC<AddEditModalProps> = (props) => {
             </div>
             <div className="flex items-center gap-[8px] shrink-0">
               {!addEditSets && (
-                <button
-                  disabled={
-                    selectedIntegrations.length === 0 || loading || locked
-                  }
-                  onClick={schedule(
-                    isEditingExistingPost ? 'update' : 'draft'
-                  )}
-                  className="relative cursor-pointer disabled:cursor-not-allowed px-[20px] h-[44px] whitespace-nowrap bg-btnSimple justify-center items-center flex rounded-[8px] text-[15px] font-[600]"
+                <div
+                  {...(cannotEditPublished
+                    ? {
+                      'data-tooltip-id': 'tooltip',
+                      'data-tooltip-content': t(
+                        'cannot_edit_published_post',
+                        'This channel does not support editing published posts'
+                      ),
+                    }
+                    : {})}
                 >
-                  {loading && (
-                    <div className="absolute left-[50%] top-[50%] -translate-y-[50%] -translate-x-[50%]">
-                      <div className="animate-spin h-[20px] w-[20px] border-4 border-textColor border-t-transparent rounded-full" />
+                  <button
+                    disabled={
+                      selectedIntegrations.length === 0 ||
+                      loading ||
+                      locked ||
+                      cannotEditPublished
+                    }
+                    onClick={schedule(
+                      isEditingExistingPost ? 'update' : 'draft'
+                    )}
+                    className="relative cursor-pointer disabled:cursor-not-allowed disabled:opacity-80 px-[20px] h-[44px] whitespace-nowrap bg-btnSimple justify-center items-center flex rounded-[8px] text-[15px] font-[600]"
+                  >
+                    {loading && (
+                      <div className="absolute left-[50%] top-[50%] -translate-y-[50%] -translate-x-[50%]">
+                        <div className="animate-spin h-[20px] w-[20px] border-4 border-textColor border-t-transparent rounded-full" />
+                      </div>
+                    )}
+                    <div className={clsx(loading && 'invisible')}>
+                      {isEditingExistingPost
+                        ? t('save', 'Save')
+                        : t('save_as_draft', 'Save as Draft')}
                     </div>
-                  )}
-                  <div className={clsx(loading && 'invisible')}>
-                    {isEditingExistingPost
-                      ? t('save', 'Save')
-                      : t('save_as_draft', 'Save as Draft')}
-                  </div>
-                </button>
+                  </button>
+                </div>
               )}
               {addEditSets && (
                 <button

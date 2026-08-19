@@ -3,14 +3,14 @@ import { Post } from '@prisma/client';
 
 interface ExistingDataChannel {
   integration: string;
-  posts: Post[];
+  posts: Array<Post & { canEdit?: boolean }>;
   settings: Record<string, unknown>;
 }
 
 interface ExistingData {
   integration?: string;
   group?: string;
-  posts: Post[];
+  posts: Array<Post & { canEdit?: boolean }>;
   settings: Record<string, unknown>;
   channels?: ExistingDataChannel[];
 }

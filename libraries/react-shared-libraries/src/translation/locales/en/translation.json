@@ -8,6 +8,7 @@
   "delete": "Delete",
   "add_a_webhook": "Add a webhook",
   "save": "Save",
+  "cannot_edit_published_post": "This channel does not support editing published posts",
   "send_test": "Send Test",
   "select_role": "Select Role",
   "video_made_with_ai": "Video made with AI",

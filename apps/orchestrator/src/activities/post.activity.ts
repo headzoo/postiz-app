@@ -369,6 +369,91 @@ export class PostActivity {
   }
 
   @ActivityMethod()
+  async editPost(integration: Integration, posts: Post[]) {
+    if (process.env.STRIPE_SECRET_KEY) {
+      const subscription = await this._subscriptionService.getSubscription(
+        integration.organizationId
+      );
+
+      if (!subscription) {
+        throw new Error('No active subscription found for this organization.');
+      }
+    }
+
+    const getIntegration = this._integrationManager.getSocialIntegration(
+      integration.providerIdentifier
+    );
+    if (!getIntegration.editPost) {
+      throw new Error(
+        `Editing published posts is not supported for ${integration.providerIdentifier}`
+      );
+    }
+
+    const newPosts = await this._postService.updateTags(
+      integration.organizationId,
+      posts
+    );
+
+    const mappedPosts = await Promise.all(
+      (newPosts || []).map(async (p) => ({
+        id: p.id,
+        message: stripHtmlValidation(
+          getIntegration.editor,
+          p.content,
+          true,
+          false,
+          !/<\/?[a-z][\s\S]*>/i.test(p.content),
+          getIntegration.mentionFormat
+        ),
+        settings: JSON.parse(p.settings || '{}'),
+        media: await this._postService.updateMedia(
+          p.id,
+          JSON.parse(p.image || '[]'),
+          getIntegration?.convertToJPEG || false
+        ),
+      }))
+    );
+
+    const releaseId = posts[0]?.releaseId;
+    if (!releaseId || releaseId === 'missing') {
+      throw new Error(
+        'This post cannot be edited because it has no platform id'
+      );
+    }
+
+    if (getPublishFileSinkDirectory()) {
+      const filename = await sinkOutboundPublish({
+        action: 'edit',
+        provider: integration.providerIdentifier,
+        integrationId: integration.id,
+        internalId: integration.internalId,
+        name: integration.name,
+        posts: mappedPosts,
+        extra: { releaseId },
+      });
+      console.log(
+        `Publish file sink: wrote ${filename} for ${integration.providerIdentifier} edit`
+      );
+      return mappedPosts.map((p) => ({
+        id: p.id,
+        postId: filename,
+        releaseURL: filename,
+        status: 'completed',
+      }));
+    }
+
+    return this.withPostHttpLog(integration, posts[0]?.id, () =>
+      getIntegration.editPost!(
+        integration.internalId,
+        integration.token,
+        mappedPosts,
+        integration,
+        releaseId
+      )
+    );
+  }
+
+  @ActivityMethod()
   async checkPostStatus(integration: Integration, pendingData: any) {
     if (getPublishFileSinkDirectory()) {
       const filename = await sinkOutboundPublish({

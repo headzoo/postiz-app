@@ -6,6 +6,7 @@ const MAX_FILENAME_ATTEMPTS = 120;
 export type PublishFileSinkAction =
   | 'post'
   | 'comment'
+  | 'edit'
   | 'checkPostStatus'
   | 'finalizePost';
 

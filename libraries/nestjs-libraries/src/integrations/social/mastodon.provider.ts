@@ -9,6 +9,7 @@ import {
   PendingCheckResponse,
   PostDetails,
   PostResponse,
+  PublishedPostEditInput,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
@@ -804,5 +805,109 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
       process.env.MASTODON_URL || 'https://mastodon.social',
       postDetails
     );
+  }
+
+  supportsEdit(post: PublishedPostEditInput): boolean {
+    return (
+      post.state === 'PUBLISHED' &&
+      !!post.releaseId &&
+      post.releaseId !== 'missing'
+    );
+  }
+
+  async editPost(
+    id: string,
+    accessToken: string,
+    postDetails: PostDetails[],
+    integration: Integration,
+    releaseId: string
+  ): Promise<PostResponse[]> {
+    return this.dynamicEdit(
+      id,
+      accessToken,
+      process.env.MASTODON_URL || 'https://mastodon.social',
+      postDetails,
+      releaseId
+    );
+  }
+
+  protected async dynamicEdit(
+    id: string,
+    accessToken: string,
+    url: string,
+    postDetails: PostDetails[],
+    releaseId: string
+  ): Promise<PostResponse[]> {
+    const [firstPost] = postDetails;
+    if (!releaseId || releaseId === 'missing') {
+      throw new BadBody(
+        this.identifier,
+        '{}',
+        '{}',
+        'This post cannot be edited on Mastodon because it has no platform id'
+      );
+    }
+
+    const uploadFiles = await Promise.all(
+      firstPost?.media?.map((media) =>
+        this.uploadFile(url, media.path, accessToken, media.alt)
+      ) || []
+    );
+
+    const pendingData: MastodonPendingData = {
+      url,
+      message: firstPost.message,
+      mediaIds: uploadFiles.filter(Boolean),
+      idempotencyKey: `${firstPost.id}-${makeId(5)}`,
+    };
+
+    const started = Date.now();
+    let current = pendingData;
+    while (true) {
+      const check = await this.checkPostStatus(
+        accessToken,
+        current,
+        {} as Integration
+      );
+      if (check.status === 'ready' || check.status === 'completed') {
+        break;
+      }
+
+      current = check.pendingData;
+      if (Date.now() - started > 8 * 60 * 1000) {
+        throw new BadBody(
+          this.identifier,
+          '{}',
+          '{}',
+          'The media took too long to process, please try again'
+        );
+      }
+      await timer(20000);
+    }
+
+    const form = new FormData();
+    form.append('status', firstPost.message);
+    for (const file of current.mediaIds || []) {
+      form.append('media_ids[]', file);
+    }
+
+    const post = await (
+      await this.fetch(`${url}/api/v1/statuses/${releaseId}`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: form,
+      })
+    ).json();
+
+    return [
+      {
+        id: firstPost.id,
+        postId: post.id || releaseId,
+        releaseURL: post.url || `${url}/statuses/${post.id || releaseId}`,
+        status: 'completed',
+      },
+    ];
   }
 }

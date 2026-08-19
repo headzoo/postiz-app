@@ -636,6 +636,7 @@ export class PostsService {
       posts: await Promise.all(
         (posts || []).map(async (post) => ({
           ...post,
+          canEdit: this.publishedPostCanEdit(post),
           image: await this.updateMedia(
             post.id,
             JSON.parse(post.image || '[]'),
@@ -674,6 +675,7 @@ export class PostsService {
       posts: await Promise.all(
         (posts || []).map(async (post) => ({
           ...post,
+          canEdit: this.publishedPostCanEdit(post),
           image: await this.updateMedia(
             post.id,
             JSON.parse(post.image || '[]'),
@@ -895,6 +897,61 @@ export class PostsService {
     }
   }
 
+  async startEditWorkflow(
+    taskQueue: string,
+    postId: string,
+    orgId: string,
+    throwOnFailure = false
+  ) {
+    try {
+      await this._temporalService.client
+        .getRawClient()
+        ?.workflow.start('postEditWorkflowV1', {
+          workflowId: `post_edit_${postId}`,
+          taskQueue: 'main',
+          workflowIdConflictPolicy: 'TERMINATE_EXISTING',
+          args: [
+            {
+              taskQueue: taskQueue,
+              postId: postId,
+              organizationId: orgId,
+            },
+          ],
+          typedSearchAttributes: new TypedSearchAttributes([
+            {
+              key: postIdSearchParam,
+              value: postId,
+            },
+            {
+              key: organizationId,
+              value: orgId,
+            },
+          ]),
+        });
+    } catch (err) {
+      if (throwOnFailure) {
+        throw err;
+      }
+    }
+  }
+
+  publishedPostCanEdit(post: {
+    state: State;
+    publishDate: Date;
+    releaseId?: string | null;
+    settings?: string | null;
+    integration?: { providerIdentifier: string };
+  }) {
+    if (post.state !== 'PUBLISHED' || !post.integration?.providerIdentifier) {
+      return false;
+    }
+
+    const provider = this._integrationManager.getSocialIntegration(
+      post.integration.providerIdentifier
+    );
+    return !!provider?.supportsEdit?.(post, post.integration as Integration);
+  }
+
   /**
    * Server-side validation that used to live on the client (`checkValidity` +
    * the manage modal loop). Runs the provider's settings DTO validation, the
@@ -1074,6 +1131,17 @@ export class PostsService {
           'createPost'
         );
       }
+      if (body.type === 'update' && post.value?.[0]?.id) {
+        const existing = await this._postRepository.getPostById(
+          post.value[0].id,
+          orgId
+        );
+        if (existing?.state === 'PUBLISHED' && !this.publishedPostCanEdit(existing)) {
+          throw new BadRequestException(
+            'This channel does not support editing published posts'
+          );
+        }
+      }
       const provider = this._integrationManager.getSocialIntegration(
         (post.settings as any)?.__type
       );
@@ -1116,6 +1184,12 @@ export class PostsService {
           posts[0].id,
           orgId,
           posts[0].state
+        ).catch((err) => { });
+      } else if (posts[0].state === 'PUBLISHED') {
+        this.startEditWorkflow(
+          post.settings.__type.split('-')[0].toLowerCase(),
+          posts[0].id,
+          orgId
         ).catch((err) => { });
       }
 

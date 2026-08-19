@@ -186,6 +186,13 @@ export type AuthTokenDetails = {
   }[];
 };
 
+export type PublishedPostEditInput = {
+  state: string;
+  publishDate: Date;
+  releaseId?: string | null;
+  settings?: string | null;
+};
+
 export interface ISocialMediaIntegration {
   post(
     id: string,
@@ -209,6 +216,14 @@ export interface ISocialMediaIntegration {
     postDetails: PostDetails[],
     integration: Integration
   ): Promise<PostResponse[]>; // Schedules a new post
+
+  editPost?(
+    id: string,
+    accessToken: string,
+    postDetails: PostDetails[],
+    integration: Integration,
+    releaseId: string
+  ): Promise<PostResponse[]>;
 }
 
 export type PostResponse = {
@@ -717,6 +732,10 @@ export interface SocialProvider
     accessToken: string,
     postId: string
   ): Promise<PostLiker[]>;
+  supportsEdit?(
+    post: PublishedPostEditInput,
+    integration: Integration
+  ): boolean;
   channelInteractionWebhooks?: ChannelInteractionWebhooksCapability;
   analyticsSnapshot?: ChannelAnalyticsSnapshotCapability;
 }

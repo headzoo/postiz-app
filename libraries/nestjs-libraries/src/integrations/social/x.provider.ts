@@ -28,6 +28,7 @@ import {
   PostDetails,
   PostLiker,
   PostResponse,
+  PublishedPostEditInput,
   ProviderWebhookEndpointReconciliationResult,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
@@ -150,6 +151,7 @@ class XWebhookApiError extends Error {
   }
 }
 
+export const X_EDIT_WINDOW_MINUTES = 30;
 const X_WEBHOOK_NORMALIZATION_VERSION = 2;
 const X_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 const X_WEBHOOK_MAX_CRC_TOKEN_LENGTH = 1024;
@@ -289,6 +291,34 @@ export class XProvider extends SocialAbstract implements SocialProvider {
 
   maxLength(additionalSettings?: any, settings?: any) {
     return xMaxLength(additionalSettings, settings?.post_type);
+  }
+
+  supportsEdit(post: PublishedPostEditInput): boolean {
+    if (
+      post.state !== 'PUBLISHED' ||
+      !post.releaseId ||
+      post.releaseId === 'missing'
+    ) {
+      return false;
+    }
+
+    let settings: { post_type?: string } = {};
+    try {
+      settings =
+        typeof post.settings === 'string'
+          ? JSON.parse(post.settings || '{}')
+          : {};
+    } catch {
+      settings = {};
+    }
+
+    if (settings.post_type === 'article') {
+      return false;
+    }
+
+    return !dayjs
+      .utc()
+      .isAfter(dayjs.utc(post.publishDate).add(X_EDIT_WINDOW_MINUTES, 'minute'));
   }
 
   profileUrl(integration: Integration) {
@@ -3255,6 +3285,107 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       {
         postId: data.id,
         id: commentPost.id,
+        releaseURL: `https://twitter.com/${integration.profile}/status/${data.id}`,
+        status: 'posted',
+      },
+    ];
+  }
+
+  async editPost(
+    id: string,
+    accessToken: string,
+    postDetails: PostDetails<{
+      community?: string;
+      who_can_reply_post?:
+      | 'everyone'
+      | 'following'
+      | 'mentionedUsers'
+      | 'subscribers'
+      | 'verified';
+      made_with_ai?: boolean;
+      paid_partnership?: boolean;
+      post_type?: 'post' | 'article';
+    }>[],
+    integration: Integration,
+    releaseId: string
+  ): Promise<PostResponse[]> {
+    const [firstPost] = postDetails;
+    if (!releaseId || releaseId === 'missing') {
+      throw new BadBody(
+        this.identifier,
+        '{}',
+        Buffer.from('{}'),
+        'This post cannot be edited on X because it has no platform id'
+      );
+    }
+
+    if (firstPost?.settings?.post_type === 'article') {
+      throw new BadBody(
+        this.identifier,
+        '{}',
+        Buffer.from('{}'),
+        'X articles cannot be edited after publishing'
+      );
+    }
+
+    const client = await this.getClient(accessToken);
+    const media = await this.uploadMedia(client, [firstPost]);
+    const mediaIds = (media[firstPost.id] || []).filter((f) => f);
+    const [accessTokenSplit, accessSecretSplit] = accessToken.split(':');
+    const settings = firstPost?.settings || {};
+    const tweetText = this.toTweetText(firstPost.message);
+
+    const tweetUrl = 'https://api.x.com/2/tweets';
+    const tweetBody = {
+      edit_options: { previous_post_id: releaseId },
+      ...(!settings.who_can_reply_post ||
+        settings.who_can_reply_post === 'everyone'
+        ? {}
+        : {
+          reply_settings: settings.who_can_reply_post,
+        }),
+      ...(settings.community
+        ? {
+          share_with_followers: true,
+          community_id: settings.community?.split('/').pop() || '',
+        }
+        : {}),
+      text: this.stripLinks() ? removeLinks(tweetText) : tweetText,
+      ...(mediaIds.length ? { media: { media_ids: mediaIds } } : {}),
+      made_with_ai: this.assetBoolean(settings.made_with_ai),
+      paid_partnership: this.assetBoolean(settings.paid_partnership),
+    };
+
+    const tweetResponse = await this.fetch(tweetUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: this.signOAuth1(
+          'POST',
+          tweetUrl,
+          accessTokenSplit,
+          accessSecretSplit
+        ),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(tweetBody),
+    });
+    const { data } = (await tweetResponse.json()) as {
+      data?: { id: string };
+    };
+
+    if (!data?.id) {
+      throw new BadBody(
+        this.identifier,
+        '{}',
+        Buffer.from('{}'),
+        'X could not edit this post'
+      );
+    }
+
+    return [
+      {
+        postId: data.id,
+        id: firstPost.id,
         releaseURL: `https://twitter.com/${integration.profile}/status/${data.id}`,
         status: 'posted',
       },

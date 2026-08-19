@@ -1,63 +1,63 @@
 jest.mock('nestjs-temporal-core', () => ({
   Activity: () => () => undefined,
   ActivityMethod: () => () => undefined,
-  TemporalService: class TemporalService {},
+  TemporalService: class TemporalService { },
 }));
 
 jest.mock('@gitroom/nestjs-libraries/database/prisma/posts/posts.service', () => ({
-  PostsService: class PostsService {},
+  PostsService: class PostsService { },
 }));
 
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service',
   () => ({
-    NotificationService: class NotificationService {},
+    NotificationService: class NotificationService { },
   })
 );
 
 jest.mock(
   '@gitroom/nestjs-libraries/integrations/integration.manager',
   () => ({
-    IntegrationManager: class IntegrationManager {},
+    IntegrationManager: class IntegrationManager { },
   })
 );
 
 jest.mock(
   '@gitroom/nestjs-libraries/integrations/refresh.integration.service',
   () => ({
-    RefreshIntegrationService: class RefreshIntegrationService {},
+    RefreshIntegrationService: class RefreshIntegrationService { },
   })
 );
 
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service',
   () => ({
-    IntegrationService: class IntegrationService {},
+    IntegrationService: class IntegrationService { },
   })
 );
 
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/webhooks/webhooks.service',
   () => ({
-    WebhooksService: class WebhooksService {},
+    WebhooksService: class WebhooksService { },
   })
 );
 
 jest.mock('@gitroom/nestjs-libraries/database/prisma/logs/logs.service', () => ({
-  LogsService: class LogsService {},
+  LogsService: class LogsService { },
 }));
 
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/subscriptions/subscription.service',
   () => ({
-    SubscriptionService: class SubscriptionService {},
+    SubscriptionService: class SubscriptionService { },
   })
 );
 
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.plug.service',
   () => ({
-    PipelinePlugService: class PipelinePlugService {},
+    PipelinePlugService: class PipelinePlugService { },
   })
 );
 
@@ -174,6 +174,92 @@ describe('PostActivity.sendWebhooks', () => {
         targetUsername: 'example.com',
         eventType: 'post.create',
       })
+    );
+  });
+});
+
+describe('PostActivity.editPost', () => {
+  const originalStripe = process.env.STRIPE_SECRET_KEY;
+
+  afterEach(() => {
+    process.env.STRIPE_SECRET_KEY = originalStripe;
+  });
+
+  it('calls the provider editPost with the stored release id', async () => {
+    delete process.env.STRIPE_SECRET_KEY;
+    const editPost = jest.fn().mockResolvedValue([
+      {
+        id: 'post-1',
+        postId: 'new-id',
+        releaseURL: 'https://x.com/status/new-id',
+        status: 'posted',
+      },
+    ]);
+    const instance = new PostActivity(
+      {
+        updateTags: jest.fn().mockImplementation((_org, posts) => posts),
+        updateMedia: jest.fn().mockResolvedValue([]),
+      } as any,
+      {} as any,
+      {
+        getSocialIntegration: jest.fn().mockReturnValue({
+          editor: 'normal',
+          editPost,
+        }),
+      } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any
+    );
+
+    const { stripHtmlValidation } = jest.requireMock(
+      '@gitroom/helpers/utils/strip.html.validation'
+    );
+    stripHtmlValidation.mockReturnValue('Hello');
+
+    await expect(
+      instance.editPost(
+        {
+          id: 'int-1',
+          organizationId: 'org',
+          providerIdentifier: 'x',
+          token: 'token',
+          internalId: 'user',
+        } as any,
+        [
+          {
+            id: 'post-1',
+            content: 'Hello',
+            settings: '{}',
+            image: '[]',
+            releaseId: 'old-id',
+          } as any,
+        ]
+      )
+    ).resolves.toEqual([
+      {
+        id: 'post-1',
+        postId: 'new-id',
+        releaseURL: 'https://x.com/status/new-id',
+        status: 'posted',
+      },
+    ]);
+
+    expect(editPost).toHaveBeenCalledWith(
+      'user',
+      'token',
+      [
+        expect.objectContaining({
+          id: 'post-1',
+          message: 'Hello',
+        }),
+      ],
+      expect.objectContaining({ providerIdentifier: 'x' }),
+      'old-id'
     );
   });
 });
