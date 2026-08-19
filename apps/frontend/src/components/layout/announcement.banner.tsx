@@ -141,7 +141,6 @@ export const AnnouncementBanner: FC = () => {
           (+{announcements.length - 1} {t('more', 'more')})
         </span>
       )}
-      <style>{`#left-menu {padding-top: ${user?.isSuperAdmin ? '100px !important;' : '60px !important;'}`}</style>
     </div>
   );
 };

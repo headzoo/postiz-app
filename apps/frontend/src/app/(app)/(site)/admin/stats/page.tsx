@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-import { AdminStatsComponent } from '@gitroom/frontend/components/admin/admin-stats.component';
+import { AdminLayout } from '@gitroom/frontend/components/layout/admin.component';
 import { Metadata } from 'next';
 import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
 
@@ -9,9 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default async function Page() {
-  return (
-    <div className="bg-newBgColorInner flex-1 min-w-0 flex-col flex p-[20px] gap-[12px]">
-      <AdminStatsComponent />
-    </div>
-  );
+  return <AdminLayout />;
 }

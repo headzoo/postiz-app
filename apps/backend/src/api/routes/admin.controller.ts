@@ -9,6 +9,7 @@ import { User } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 import { ErrorsService } from '@gitroom/nestjs-libraries/database/prisma/errors/errors.service';
 import { AdminStatsService } from '@gitroom/nestjs-libraries/database/prisma/admin-stats/admin-stats.service';
+import { AdminUsersService } from '@gitroom/nestjs-libraries/database/prisma/admin-users/admin-users.service';
 import dayjs from 'dayjs';
 
 @ApiTags('Admin')
@@ -16,13 +17,29 @@ import dayjs from 'dayjs';
 export class AdminController {
   constructor(
     private _errorsService: ErrorsService,
-    private _adminStatsService: AdminStatsService
-  ) {}
+    private _adminStatsService: AdminStatsService,
+    private _adminUsersService: AdminUsersService
+  ) { }
 
   private assertSuperAdmin(user: User) {
     if (!user?.isSuperAdmin) {
       throw new HttpException('Unauthorized', 400);
     }
+  }
+
+  @Get('/users')
+  async listUsers(
+    @GetUserFromRequest() user: User,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('search') search?: string
+  ) {
+    this.assertSuperAdmin(user);
+    return this._adminUsersService.listUserOrganizations({
+      page: page ? parseInt(page, 10) : 0,
+      limit: limit ? parseInt(limit, 10) : 20,
+      search: search || undefined,
+    });
   }
 
   @Get('/errors')

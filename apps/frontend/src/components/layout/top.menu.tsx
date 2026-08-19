@@ -15,6 +15,7 @@ interface MenuItemInterface {
   role?: string[];
   hide?: boolean;
   requireBilling?: boolean;
+  superAdminOnly?: boolean;
   onClick?: () => void;
 }
 
@@ -316,6 +317,35 @@ export const useMenuItem = () => {
       requireBilling: true,
     },
     {
+      name: t('admin', 'Admin'),
+      icon: (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="21"
+          viewBox="0 0 20 21"
+          fill="none"
+        >
+          <path
+            d="M10 2.16699L17.5 5.50033V9.66699C17.5 14.0003 14.1667 17.8337 10 18.8337C5.83333 17.8337 2.5 14.0003 2.5 9.66699V5.50033L10 2.16699Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M7.5 10.5003L9.16667 12.167L12.5 8.83366"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ),
+      path: '/admin',
+      superAdminOnly: true,
+    },
+    {
       name: t('settings', 'Settings'),
       icon: (
         <svg
@@ -376,6 +406,9 @@ export const TopMenu: FC = () => {
               if (f.name === 'Billing' && user?.isLifetime) {
                 return false;
               }
+              if (f.superAdminOnly) {
+                return !!user?.admin;
+              }
               if (f.role) {
                 return f.role.includes(user?.role!);
               }
@@ -403,6 +436,9 @@ export const TopMenu: FC = () => {
             }
             if (f.name === 'Billing' && user?.isLifetime) {
               return false;
+            }
+            if (f.superAdminOnly) {
+              return !!user?.admin;
             }
             if (f.role) {
               return f.role.includes(user?.role!);
