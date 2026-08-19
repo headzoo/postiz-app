@@ -25,10 +25,13 @@ import {
   getChannelInteractionScore,
   getRelationshipTriage,
   isEngagedNotYet,
-  RELATIONSHIP_CADENCE_MS,
   RELATIONSHIP_FORMULA_VERSION,
   RELATIONSHIP_WINDOW_MS,
 } from './channel-interaction.scoring';
+import {
+  RelationshipGradeScheduleConfig,
+  relationshipGradeDueCutoff,
+} from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule';
 
 export type AudienceProfile = {
   externalId: string;
@@ -1172,9 +1175,10 @@ export class ChannelInteractionRepository {
   async listDueRelationshipGradeCandidates(
     snapshotAt: Date,
     after?: string,
-    take = 1
+    take = 1,
+    cadence?: RelationshipGradeScheduleConfig
   ) {
-    const dueCutoff = this.relationshipDueCutoff(snapshotAt);
+    const dueCutoff = this.relationshipDueCutoff(snapshotAt, cadence);
     const integrations = await this._integration.model.integration.findMany({
       where: {
         type: 'social',
@@ -1223,9 +1227,10 @@ export class ChannelInteractionRepository {
     organizationId: string,
     integrationId: string,
     snapshotAt: Date,
-    take = RELATIONSHIP_BATCH_SIZE
+    take = RELATIONSHIP_BATCH_SIZE,
+    cadence?: RelationshipGradeScheduleConfig
   ): Promise<{ members: RelationshipGradeBatchMember[] }> {
-    const dueCutoff = this.relationshipDueCutoff(snapshotAt);
+    const dueCutoff = this.relationshipDueCutoff(snapshotAt, cadence);
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
       const followers = await tx.channelAudienceMember.findMany({
@@ -1360,7 +1365,8 @@ export class ChannelInteractionRepository {
   async hasDueRelationshipGradeMembers(
     organizationId: string,
     integrationId: string,
-    snapshotAt: Date
+    snapshotAt: Date,
+    cadence?: RelationshipGradeScheduleConfig
   ) {
     const member = await this._dailyAggregate.model.channelAudienceMember.findFirst({
       where: {
@@ -1370,7 +1376,7 @@ export class ChannelInteractionRepository {
         gradeSnapshots: {
           none: {
             formulaVersion: RELATIONSHIP_FORMULA_VERSION,
-            snapshotAt: { gt: this.relationshipDueCutoff(snapshotAt) },
+            snapshotAt: { gt: this.relationshipDueCutoff(snapshotAt, cadence) },
           },
         },
       },
@@ -2800,8 +2806,11 @@ export class ChannelInteractionRepository {
     }
   }
 
-  private relationshipDueCutoff(snapshotAt: Date) {
-    return new Date(snapshotAt.getTime() - RELATIONSHIP_CADENCE_MS);
+  private relationshipDueCutoff(
+    snapshotAt: Date,
+    cadence?: RelationshipGradeScheduleConfig
+  ) {
+    return relationshipGradeDueCutoff(snapshotAt, cadence);
   }
 
   private async aggregateRelationshipScores(

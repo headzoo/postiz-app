@@ -5,6 +5,18 @@ import { FetchWrapperComponent } from '@gitroom/helpers/utils/custom.fetch';
 import { deleteDialog } from '@gitroom/react/helpers/delete.dialog';
 import { useReturnUrl } from '@gitroom/frontend/app/(app)/auth/return.url.component';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
+
+export const getAdminStepUpReturnTo = (
+  pathname: string,
+  search: string
+): string => {
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return `${pathname}${search}`;
+  }
+
+  return '/admin';
+};
+
 export default function LayoutContext(params: { children: ReactNode }) {
   if (params?.children) {
     // eslint-disable-next-line react/no-children-prop
@@ -21,6 +33,21 @@ export function setCookie(cname: string, cvalue: string, exdays: number) {
   const expires = 'expires=' + d.toUTCString();
   document.cookie = cname + '=' + cvalue + ';' + expires + ';path=/';
 }
+
+export const mirrorAdminAuthHeaderToCookie = (
+  response: Pick<Response, 'headers'>,
+  isSecured: boolean
+) => {
+  if (isSecured) {
+    return;
+  }
+
+  const headerAdminAuth =
+    response.headers?.get('admin-auth') || response.headers?.get('Admin-Auth');
+  if (headerAdminAuth) {
+    setCookie('admin_auth', headerAdminAuth, 365);
+  }
+};
 function LayoutContextInner(params: { children: ReactNode }) {
   const returnUrl = useReturnUrl();
   const { backendUrl, isGeneral, isSecured } = useVariables();
@@ -45,6 +72,7 @@ function LayoutContextInner(params: { children: ReactNode }) {
       if (headerAuth) {
         setCookie('auth', headerAuth, 365);
       }
+      mirrorAdminAuthHeaderToCookie(response, isSecured);
       if (showOrg) {
         setCookie('showorg', showOrg, 365);
       }
@@ -55,6 +83,7 @@ function LayoutContextInner(params: { children: ReactNode }) {
         setCookie('auth', '', -10);
         setCookie('showorg', '', -10);
         setCookie('impersonate', '', -10);
+        setCookie('admin_auth', '', -10);
         window.location.href = '/';
         return true;
       }
@@ -80,11 +109,30 @@ function LayoutContextInner(params: { children: ReactNode }) {
         return true;
       }
 
+      if (response.status === 428) {
+        const body = await response
+          .clone()
+          .json()
+          .catch(() => null);
+        if (
+          body?.code === 'ADMIN_STEP_UP_REQUIRED' ||
+          body?.code === 'ADMIN_STEP_UP_FRESH_REQUIRED'
+        ) {
+          const returnTo = getAdminStepUpReturnTo(
+            window.location.pathname,
+            window.location.search
+          );
+          window.location.href = `/admin/passkey/verify?returnTo=${encodeURIComponent(returnTo)}`;
+        }
+        return true;
+      }
+
       if (response.status === 401 || response?.headers?.get('logout')) {
         if (!isSecured) {
           setCookie('auth', '', -10);
           setCookie('showorg', '', -10);
           setCookie('impersonate', '', -10);
+          setCookie('admin_auth', '', -10);
         }
         window.location.href = '/';
       }

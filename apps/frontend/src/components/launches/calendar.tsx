@@ -4,8 +4,10 @@ import React, {
   FC,
   Fragment,
   memo,
+  RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -65,7 +67,10 @@ import {
   getReadableForegroundColor,
   resolveCalendarPostHeaderColor,
 } from '@gitroom/frontend/components/pipelines/pipeline.utils';
-import { useScrollToHour } from '@gitroom/frontend/components/launches/helpers/use.scroll.to.hour';
+import {
+  getHourBlockTop,
+  useScrollToHour,
+} from '@gitroom/frontend/components/launches/helpers/use.scroll.to.hour';
 
 // Extend dayjs with necessary plugins
 extend(localizedFormat);
@@ -453,19 +458,60 @@ export const DayView = () => {
     </div>
   );
 };
-const WeekCurrentTimeLine: FC<{ now: dayjs.Dayjs }> = ({ now }) => {
+const WeekCurrentTimeLine: FC<{
+  containerRef: RefObject<HTMLDivElement | null>;
+  now: dayjs.Dayjs;
+}> = ({ containerRef, now }) => {
+  const [topPx, setTopPx] = useState<number | null>(null);
+  const minuteFraction = (now.minute() * 60 + now.second()) / 3600;
+  const dateKey = now.format('YYYY-MM-DD');
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const updateTop = () => {
+      setTopPx(
+        getHourBlockTop(container, now.hour(), minuteFraction, dateKey)
+      );
+    };
+
+    updateTop();
+    const observer = new ResizeObserver(updateTop);
+    observer.observe(container);
+    const hourEl =
+      container.querySelector(
+        `[data-calendar-cell="${dateKey}"][data-hour="${now.hour()}"]`
+      ) ?? container.querySelector(`[data-hour="${now.hour()}"]`);
+    if (hourEl instanceof HTMLElement) {
+      observer.observe(hourEl);
+    }
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [containerRef, dateKey, minuteFraction, now]);
+
+  if (topPx == null) {
+    return null;
+  }
+
   return (
     <div
-      className="absolute inset-0 z-[40] pointer-events-none"
+      className="absolute inset-x-0 z-[40] pointer-events-none"
       style={{
         gridColumn: '1 / -1',
-        gridRow: now.hour() + 2,
+        gridRow: 1,
+        top: topPx,
       }}
     >
       <div
-        title={now.format(isUSCitizen() ? 'MMMM D, YYYY' : 'D MMMM YYYY')}
+        title={now.format(
+          isUSCitizen() ? 'MMMM D, YYYY h:mm A' : 'D MMMM YYYY HH:mm'
+        )}
         className="absolute inset-x-0 h-[4px] bg-textColor opacity-80 rounded-full pointer-events-auto -translate-y-1/2"
-        style={{ top: `${(now.minute() / 60) * 100}%` }}
       />
     </div>
   );
@@ -480,7 +526,7 @@ export const WeekView = () => {
     useCallback(() => {
       setNowTick((current) => current + 1);
     }, []),
-    60000
+    1000
   );
 
   useEffect(() => {
@@ -619,7 +665,9 @@ export const WeekView = () => {
               ))}
             </Fragment>
           ))}
-          {todayInWeek && <WeekCurrentTimeLine now={now} />}
+          {todayInWeek && (
+            <WeekCurrentTimeLine containerRef={scrollRef} now={now} />
+          )}
         </div>
       </div>
     </div>

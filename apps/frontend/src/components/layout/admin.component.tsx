@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, ReactNode, useEffect, useMemo } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import clsx from 'clsx';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
@@ -10,21 +10,60 @@ import { AdminGeneralComponent } from '@gitroom/frontend/components/admin/admin-
 import { AdminUsersComponent } from '@gitroom/frontend/components/admin/admin-users.component';
 import { AdminErrorsComponent } from '@gitroom/frontend/components/admin/admin-errors.component';
 import { AdminStatsComponent } from '@gitroom/frontend/components/admin/admin-stats.component';
+import { AdminScheduleComponent } from '@gitroom/frontend/components/admin/admin-schedule.component';
+import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { useAdminAuthStatus } from '@gitroom/frontend/components/admin/use.admin-auth';
+import { getSafeAdminReturnTo } from '@gitroom/frontend/components/admin/admin-passkey.utils';
 
-const AdminGuard: FC<{ children: ReactNode }> = ({ children }) => {
+export const AdminGuard: FC<{ children: ReactNode }> = ({ children }) => {
   const user = useUser();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { data: status, error } = useAdminAuthStatus();
+  const returnTo = useMemo(
+    () => {
+      const query = searchParams.toString();
+      return getSafeAdminReturnTo(`${pathname}${query ? `?${query}` : ''}`);
+    },
+    [pathname, searchParams]
+  );
 
   useEffect(() => {
     if (user && !user.admin) {
       router.replace('/calendar');
+      return;
     }
-  }, [user, router]);
+    if (!user?.admin || !status) {
+      return;
+    }
+    if (!status.enrolled) {
+      router.replace(`/admin/passkey/setup?returnTo=${encodeURIComponent(returnTo)}`);
+      return;
+    }
+    if (!status.verified) {
+      router.replace(`/admin/passkey/verify?returnTo=${encodeURIComponent(returnTo)}`);
+    }
+  }, [returnTo, router, status, user]);
 
   if (!user?.admin) {
     return (
       <div className="bg-newBgColorInner flex-1 flex items-center justify-center p-[20px] text-textColor">
         You do not have access to this page.
+      </div>
+    );
+  }
+
+  if (!status && !error) {
+    return <LoadingComponent />;
+  }
+
+  if (error || !status?.verified) {
+    return (
+      <div className="bg-newBgColorInner flex flex-1 items-center justify-center p-[20px] text-newTextColor">
+        {error
+          ? 'Unable to verify admin passkey status. Refresh and try again.'
+          : 'Verifying admin access...'}
       </div>
     );
   }
@@ -43,6 +82,7 @@ export const AdminLayout: FC = () => {
       { tab: 'users', label: t('users', 'Users'), path: '/admin/users' },
       { tab: 'errors', label: t('errors', 'Errors'), path: '/admin/errors' },
       { tab: 'stats', label: t('stats', 'Stats'), path: '/admin/stats' },
+      { tab: 'schedule', label: t('schedule', 'Schedule'), path: '/admin/schedule' },
     ],
     [t]
   );
@@ -56,6 +96,9 @@ export const AdminLayout: FC = () => {
     }
     if (pathname === '/admin/stats') {
       return 'stats';
+    }
+    if (pathname === '/admin/schedule') {
+      return 'schedule';
     }
     return 'general';
   }, [pathname]);
@@ -91,6 +134,7 @@ export const AdminLayout: FC = () => {
         {tab === 'users' && <AdminUsersComponent />}
         {tab === 'errors' && <AdminErrorsComponent />}
         {tab === 'stats' && <AdminStatsComponent />}
+        {tab === 'schedule' && <AdminScheduleComponent />}
       </div>
     </AdminGuard>
   );

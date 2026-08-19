@@ -35,6 +35,12 @@ import {
   AuthorizationActions,
   Sections,
 } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
+import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
+import { AdminPasskeyService } from '@gitroom/nestjs-libraries/database/prisma/admin-passkeys/admin-passkey.service';
+import {
+  clearAdminAuthCookie,
+  readAdminAuthToken,
+} from '@gitroom/backend/services/auth/admin-auth.cookie';
 
 @ApiTags('User')
 @Controller('/user')
@@ -45,7 +51,8 @@ export class UsersController {
     private _authService: AuthService,
     private _orgService: OrganizationService,
     private _userService: UsersService,
-    private _trackService: TrackService
+    private _trackService: TrackService,
+    private _adminPasskeyService: AdminPasskeyService
   ) {}
 
   @Get('/chatbase-token')
@@ -146,6 +153,7 @@ export class UsersController {
   }
 
   @Get('/impersonate')
+  @RequireAdminStepUp('general')
   async getImpersonate(
     @GetUserFromRequest() user: User,
     @Query('name') name: string
@@ -158,6 +166,7 @@ export class UsersController {
   }
 
   @Post('/impersonate')
+  @RequireAdminStepUp('fresh')
   async setImpersonate(
     @GetUserFromRequest() user: User,
     @Body('id') id: string,
@@ -185,6 +194,7 @@ export class UsersController {
   }
 
   @Post('/switch')
+  @RequireAdminStepUp('fresh')
   async switchUser(
     @GetUserFromRequest() user: User,
     @Body('id') id: string,
@@ -329,7 +339,14 @@ export class UsersController {
   }
 
   @Post('/logout')
-  logout(@Res({ passthrough: true }) response: Response) {
+  async logout(
+    @Res({ passthrough: true }) response: Response,
+    @Req() request: Request
+  ) {
+    // Revoke server-side before clearing, so an already-captured admin token
+    // cannot outlive the logout.
+    await this._adminPasskeyService.revokeSession(readAdminAuthToken(request));
+
     response.header('logout', 'true');
     response.cookie('auth', '', {
       domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
@@ -369,6 +386,8 @@ export class UsersController {
       maxAge: -1,
       expires: new Date(0),
     });
+
+    clearAdminAuthCookie(response);
 
     response.status(200).send();
   }

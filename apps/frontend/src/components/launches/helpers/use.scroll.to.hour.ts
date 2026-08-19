@@ -10,6 +10,27 @@ export type ScrollToHourTarget = {
   dateKey?: string | null;
 };
 
+export const getHourBlockTop = (
+  container: HTMLElement,
+  hour: number,
+  minuteFraction: number,
+  dateKey?: string | null
+): number | null => {
+  const target = container.querySelector(`[data-hour="${hour}"]`);
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+
+  const cell =
+    dateKey != null
+      ? container.querySelector(
+        `[data-calendar-cell="${dateKey}"][data-hour="${hour}"]`
+      )
+      : null;
+  const heightEl = cell instanceof HTMLElement ? cell : target;
+  return target.offsetTop + minuteFraction * heightEl.clientHeight;
+};
+
 export const useScrollToHour = (
   containerRef: RefObject<HTMLElement | null>,
   hourOrTarget: number | ScrollToHourTarget | null,
@@ -54,30 +75,24 @@ export const useScrollToHour = (
         return;
       }
 
-      const target = container.querySelector(`[data-hour="${hour}"]`);
-      if (!(target instanceof HTMLElement)) {
+      const top = getHourBlockTop(container, hour, minuteFraction, dateKey);
+      if (top == null) {
         return;
       }
-
-      let top =
-        target.getBoundingClientRect().top -
-        container.getBoundingClientRect().top +
-        container.scrollTop -
-        STICKY_HEADER_PX;
 
       const cell =
         dateKey != null
           ? container.querySelector(
             `[data-calendar-cell="${dateKey}"][data-hour="${hour}"]`
           )
-          : null;
-      const heightEl =
-        cell instanceof HTMLElement ? cell : target;
-      const blockHeight = heightEl.clientHeight;
-      top += minuteFraction * blockHeight;
-      top -= blockHeight * 0.5;
+          : container.querySelector(`[data-hour="${hour}"]`);
+      const blockHeight =
+        cell instanceof HTMLElement ? cell.clientHeight : 0;
 
-      container.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+      container.scrollTo({
+        top: Math.max(0, top - STICKY_HEADER_PX - blockHeight * 0.5),
+        behavior: 'auto',
+      });
       lastScrolledKey.current = scrollKey;
     });
 

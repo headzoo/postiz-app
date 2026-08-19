@@ -17,6 +17,7 @@ import { AdminAddTeamMemberDto } from '@gitroom/nestjs-libraries/dtos/settings/a
 import { ShortlinkPreferenceDto } from '@gitroom/nestjs-libraries/dtos/settings/shortlink-preference.dto';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthorizationActions, Sections } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
+import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
 
 @ApiTags('Settings')
 @Controller('/settings')
@@ -48,6 +49,7 @@ export class SettingsController {
   }
 
   @Post('/team/add')
+  @RequireAdminStepUp('fresh')
   async addTeamMember(
     @GetUserFromRequest() user: User,
     @GetOrgFromRequest() org: Organization,

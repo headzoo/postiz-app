@@ -46,6 +46,7 @@ import {
   getChannelInteractionScore,
   isPersonalRelationshipGrade,
 } from './channel-interaction.scoring';
+import { RelationshipGradeScheduleConfig } from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule';
 
 export {
   applyPersonalRelationshipGrade,
@@ -834,7 +835,8 @@ export class ChannelInteractionService {
   async buildRelationshipGradeSnapshotBatch(
     organizationId: string,
     integrationId: string,
-    snapshotAt = new Date()
+    snapshotAt = new Date(),
+    cadence?: RelationshipGradeScheduleConfig
   ) {
     if (Number.isNaN(snapshotAt.getTime())) {
       throw new BadRequestException('snapshotAt must be a valid timestamp');
@@ -842,7 +844,9 @@ export class ChannelInteractionService {
     const batch = await this._repository.getDueRelationshipGradeBatch(
       organizationId,
       integrationId,
-      snapshotAt
+      snapshotAt,
+      undefined,
+      cadence
     );
     const snapshots = batch.members.map((member) => {
       const grade = calculateRelationshipGrade(
@@ -868,7 +872,8 @@ export class ChannelInteractionService {
       hasMore: await this._repository.hasDueRelationshipGradeMembers(
         organizationId,
         integrationId,
-        snapshotAt
+        snapshotAt,
+        cadence
       ),
     };
   }

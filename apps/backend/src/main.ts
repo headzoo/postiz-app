@@ -32,13 +32,17 @@ async function start() {
         'showorg',
         'impersonate',
         'x-copilotkit-runtime-client-gql-version',
+        // Local-only mirror of the admin step-up cookie.
+        ...(process.env.NOT_SECURED ? ['admin-auth'] : []),
       ],
       exposedHeaders: [
         'reload',
         'onboarding',
         'activate',
         'x-copilotkit-runtime-client-gql-version',
-        ...(process.env.NOT_SECURED ? ['auth', 'showorg', 'impersonate'] : []),
+        ...(process.env.NOT_SECURED
+          ? ['auth', 'showorg', 'impersonate', 'admin-auth']
+          : []),
       ],
       origin: [
         process.env.FRONTEND_URL,

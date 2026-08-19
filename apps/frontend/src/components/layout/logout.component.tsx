@@ -23,6 +23,7 @@ export const LogoutComponent: FC<{ isIcon?: boolean }> = ({ isIcon }) => {
     ) {
       if (!isSecured) {
         setCookie('auth', '', -10);
+        setCookie('admin_auth', '', -10);
       } else {
         await fetch('/user/logout', {
           method: 'POST',

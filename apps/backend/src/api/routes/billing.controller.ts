@@ -11,6 +11,7 @@ import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/n
 import { Request } from 'express';
 import { AuthService } from '@gitroom/helpers/auth/auth.service';
 import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/users.service';
+import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
 
 @ApiTags('Billing')
 @Controller('/billing')
@@ -154,6 +155,7 @@ export class BillingController {
   }
 
   @Get('/charges')
+  @RequireAdminStepUp('general')
   async getCharges(
     @GetUserFromRequest() user: User,
     @GetOrgFromRequest() org: Organization
@@ -166,6 +168,7 @@ export class BillingController {
   }
 
   @Post('/refund-charges')
+  @RequireAdminStepUp('fresh')
   async refundCharges(
     @GetUserFromRequest() user: User,
     @GetOrgFromRequest() org: Organization,
@@ -179,6 +182,7 @@ export class BillingController {
   }
 
   @Post('/cancel-subscription')
+  @RequireAdminStepUp('fresh')
   async cancelSubscription(
     @GetUserFromRequest() user: User,
     @GetOrgFromRequest() org: Organization
@@ -191,6 +195,7 @@ export class BillingController {
   }
 
   @Get('/coupon-info')
+  @RequireAdminStepUp('general')
   async couponInfo(
     @GetUserFromRequest() user: User,
     @GetOrgFromRequest() org: Organization
@@ -203,6 +208,7 @@ export class BillingController {
   }
 
   @Post('/apply-coupon')
+  @RequireAdminStepUp('fresh')
   async applyCoupon(
     @GetUserFromRequest() user: User,
     @GetOrgFromRequest() org: Organization,
@@ -216,6 +222,7 @@ export class BillingController {
   }
 
   @Post('/cancel-coupon')
+  @RequireAdminStepUp('fresh')
   async cancelCoupon(
     @GetUserFromRequest() user: User,
     @GetOrgFromRequest() org: Organization
@@ -252,6 +259,7 @@ export class BillingController {
   }
 
   @Post('/add-subscription')
+  @RequireAdminStepUp('fresh')
   async addSubscription(
     @Body() body: { subscription: string },
     @GetUserFromRequest() user: User,

@@ -1166,6 +1166,54 @@ describe('ChannelInteractionRepository', () => {
     });
   });
 
+  it('uses a custom cadence when checking due relationship grades', async () => {
+    const { repository, tx } = createHarness();
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await repository.hasDueRelationshipGradeMembers('org', 'integration', snapshotAt, {
+      unit: 'hour',
+      interval: 1,
+    });
+
+    expect(tx.channelAudienceMember.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          gradeSnapshots: {
+            none: {
+              formulaVersion: 2,
+              snapshotAt: { gt: new Date('2026-08-12T11:00:00.000Z') },
+            },
+          },
+        }),
+      })
+    );
+  });
+
+  it('uses a monthly cadence when checking due relationship grades', async () => {
+    const { repository, tx } = createHarness();
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await repository.hasDueRelationshipGradeMembers('org', 'integration', snapshotAt, {
+      unit: 'month',
+      interval: 1,
+      timeOfDay: '00:00',
+      dayOfMonth: 1,
+    });
+
+    expect(tx.channelAudienceMember.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          gradeSnapshots: {
+            none: {
+              formulaVersion: 2,
+              snapshotAt: { gt: new Date('2026-07-12T12:00:00.000Z') },
+            },
+          },
+        }),
+      })
+    );
+  });
+
   it('increments inbound counts for inbound likes without likesCount', async () => {
     const { repository, tx } = createHarness();
 

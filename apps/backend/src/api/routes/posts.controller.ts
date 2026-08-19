@@ -29,6 +29,7 @@ import {
   Sections,
 } from '@gitroom/backend/services/auth/permissions/permission.exception.class';
 import { PostValidationException } from '@gitroom/backend/api/routes/posts.validation.exception';
+import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
 
 @ApiTags('Posts')
 @Controller('/posts')
@@ -155,6 +156,7 @@ export class PostsController {
   }
 
   @Get('/group/:group/debug-export')
+  @RequireAdminStepUp('fresh')
   async getPostGroupDebugExport(
     @GetOrgFromRequest() org: Organization,
     @GetUserFromRequest() user: User,

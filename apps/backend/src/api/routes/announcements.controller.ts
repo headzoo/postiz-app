@@ -12,6 +12,7 @@ import { User } from '@prisma/client';
 import { ApiTags } from '@nestjs/swagger';
 import { AnnouncementsService } from '@gitroom/nestjs-libraries/database/prisma/announcements/announcements.service';
 import { AnnouncementDto } from '@gitroom/nestjs-libraries/dtos/announcements/announcements.dto';
+import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
 
 @ApiTags('Announcements')
 @Controller('/announcements')
@@ -24,6 +25,7 @@ export class AnnouncementsController {
   }
 
   @Post('/')
+  @RequireAdminStepUp('fresh')
   async createAnnouncement(
     @GetUserFromRequest() user: User,
     @Body() body: AnnouncementDto
@@ -35,6 +37,7 @@ export class AnnouncementsController {
   }
 
   @Delete('/:id')
+  @RequireAdminStepUp('fresh')
   async deleteAnnouncement(
     @GetUserFromRequest() user: User,
     @Param('id') id: string

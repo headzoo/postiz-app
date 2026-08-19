@@ -141,6 +141,9 @@ model User {
   channelAudienceMemberGrades        ChannelAudienceMemberGrade[]
   channelAudienceMemberTriageIgnores ChannelAudienceMemberTriageIgnore[]
   channelAudienceMembersIgnored      ChannelAudienceMember[]             @relation("AudienceMemberIgnoredBy")
+  adminPasskeyCredentials            AdminPasskeyCredential[]
+  adminWebAuthnChallenges            AdminWebAuthnChallenge[]
+  adminVerificationSessions          AdminVerificationSession[]
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -148,6 +151,65 @@ model User {
   @@index([account])
   @@index([lastOnline])
   @@index([pictureId])
+}
+
+model AdminPasskeyCredential {
+  id                   String                     @id @default(uuid())
+  userId               String
+  credentialId         String                     @unique
+  publicKey            Bytes
+  counter              BigInt
+  transports           Json?
+  deviceType           String
+  backedUp             Boolean
+  aaguid               String?
+  name                 String?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  lastUsedAt           DateTime?
+  revokedAt            DateTime?
+  user                 User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verificationSessions AdminVerificationSession[]
+
+  @@index([userId])
+  @@index([userId, revokedAt])
+}
+
+model AdminWebAuthnChallenge {
+  id        String                     @id @default(uuid())
+  userId    String
+  challenge String                     @unique
+  kind      AdminWebAuthnChallengeKind
+  expiresAt DateTime
+  createdAt DateTime                   @default(now())
+  usedAt    DateTime?
+  user      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, expiresAt])
+  @@index([expiresAt])
+}
+
+model AdminVerificationSession {
+  id              String                  @id @default(uuid())
+  userId          String
+  credentialId    String?
+  tokenHash       String                  @unique
+  authenticatedAt DateTime                @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credential      AdminPasskeyCredential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+
+  @@index([userId, expiresAt])
+  @@index([userId, revokedAt])
+  @@index([credentialId])
+}
+
+enum AdminWebAuthnChallengeKind {
+  REGISTRATION
+  AUTHENTICATION
 }
 
 model UsedCodes {

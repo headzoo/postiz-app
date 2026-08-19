@@ -6,12 +6,16 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { TemporalService } from 'nestjs-temporal-core';
+import { RelationshipGradeScheduleService } from './relationship-grade.schedule.service';
 
 @Injectable()
 export class InfiniteWorkflowRegister implements OnModuleInit {
   private readonly _logger = new Logger(InfiniteWorkflowRegister.name);
 
-  constructor(private _temporalService: TemporalService) { }
+  constructor(
+    private _temporalService: TemporalService,
+    private _relationshipGradeScheduleService: RelationshipGradeScheduleService
+  ) { }
 
   async onModuleInit(): Promise<void> {
     if (!!process.env.RUN_CRON) {
@@ -106,24 +110,7 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
   }
 
   private async startChannelRelationshipGrade() {
-    const workflow = this._temporalService.client?.getRawClient()?.workflow;
-    if (!workflow) {
-      throw new Error(
-        'Temporal workflow client unavailable during relationship grade start'
-      );
-    }
-    try {
-      await workflow.start('channelRelationshipGradeWorkflowV1', {
-        workflowId: 'channel-relationship-grade-workflow-v1',
-        taskQueue: 'main',
-        args: [{}],
-      });
-    } catch (error) {
-      if (!this.isAlreadyStarted(error)) {
-        this._logger.error('Failed to start Channel relationship grade', error);
-        throw error;
-      }
-    }
+    await this._relationshipGradeScheduleService.install();
   }
 
   private async startChannelAnalyticsSnapshot() {
@@ -195,7 +182,7 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
 @Module({
   imports: [],
   controllers: [],
-  providers: [InfiniteWorkflowRegister],
+  providers: [InfiniteWorkflowRegister, RelationshipGradeScheduleService],
   get exports() {
     return this.providers;
   },

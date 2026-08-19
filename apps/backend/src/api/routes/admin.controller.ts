@@ -1,7 +1,10 @@
 import {
+  Body,
   Controller,
   Get,
   HttpException,
+  Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
@@ -10,15 +13,20 @@ import { ApiTags } from '@nestjs/swagger';
 import { ErrorsService } from '@gitroom/nestjs-libraries/database/prisma/errors/errors.service';
 import { AdminStatsService } from '@gitroom/nestjs-libraries/database/prisma/admin-stats/admin-stats.service';
 import { AdminUsersService } from '@gitroom/nestjs-libraries/database/prisma/admin-users/admin-users.service';
+import { RelationshipGradeScheduleService } from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule.service';
+import { RelationshipGradeScheduleDto } from '@gitroom/nestjs-libraries/dtos/admin/relationship-grade.schedule.dto';
+import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
 import dayjs from 'dayjs';
 
 @ApiTags('Admin')
 @Controller('/admin')
+@RequireAdminStepUp('general')
 export class AdminController {
   constructor(
     private _errorsService: ErrorsService,
     private _adminStatsService: AdminStatsService,
-    private _adminUsersService: AdminUsersService
+    private _adminUsersService: AdminUsersService,
+    private _relationshipGradeScheduleService: RelationshipGradeScheduleService
   ) { }
 
   private assertSuperAdmin(user: User) {
@@ -84,5 +92,35 @@ export class AdminController {
       to: toDate.endOf('day').toDate(),
       unknownOnly: unknownOnly === 'true' || unknownOnly === '1',
     });
+  }
+
+  @Get('/schedule/relationship-grades')
+  async getRelationshipGradeSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._relationshipGradeScheduleService.getStatus();
+  }
+
+  @Put('/schedule/relationship-grades')
+  @RequireAdminStepUp('fresh')
+  async updateRelationshipGradeSchedule(
+    @GetUserFromRequest() user: User,
+    @Body() body: RelationshipGradeScheduleDto
+  ) {
+    this.assertSuperAdmin(user);
+    try {
+      return await this._relationshipGradeScheduleService.update(body);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new HttpException(error.message, 400);
+      }
+      throw error;
+    }
+  }
+
+  @Post('/schedule/relationship-grades/trigger')
+  @RequireAdminStepUp('fresh')
+  async triggerRelationshipGradeSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._relationshipGradeScheduleService.trigger();
   }
 }

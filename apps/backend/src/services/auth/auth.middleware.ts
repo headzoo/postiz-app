@@ -6,8 +6,9 @@ import { OrganizationService } from '@gitroom/nestjs-libraries/database/prisma/o
 import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/users.service';
 import { getCookieUrlFromDomain } from '@gitroom/helpers/subdomain/subdomain.management';
 import { HttpForbiddenException } from '@gitroom/nestjs-libraries/services/exception.filter';
-import { MastraService } from '@gitroom/nestjs-libraries/chat/mastra.service';
 import { setSentryUserContext } from '@gitroom/nestjs-libraries/sentry/initialize.sentry';
+import { ORIGINAL_OPERATOR_REQUEST_KEY } from '@gitroom/nestjs-libraries/user/original.operator.from.request';
+import { clearAdminAuthCookie } from '@gitroom/backend/services/auth/admin-auth.cookie';
 
 export const removeAuth = (res: Response) => {
   res.cookie('auth', '', {
@@ -22,6 +23,7 @@ export const removeAuth = (res: Response) => {
     expires: new Date(0),
     maxAge: -1,
   });
+  clearAdminAuthCookie(res);
   res.header('logout', 'true');
 };
 
@@ -56,6 +58,12 @@ export class AuthMiddleware implements NestMiddleware {
       if (!user.activated) {
         throw new HttpForbiddenException();
       }
+
+      delete user.password;
+
+      // Preserve the normal-login principal before impersonation can replace
+      // `req.user`, so admin step-up always belongs to the original operator.
+      req[ORIGINAL_OPERATOR_REQUEST_KEY] = user;
 
       const impersonate = req.cookies.impersonate || req.headers.impersonate;
       if (user?.isSuperAdmin && impersonate) {

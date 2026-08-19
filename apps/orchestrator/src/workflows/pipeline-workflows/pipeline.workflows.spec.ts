@@ -414,16 +414,32 @@ describe('Pipeline Temporal workflow boundaries', () => {
       }),
     };
     const workflow = {
-      getHandle: jest.fn().mockReturnValue(v1Handle),
+      getHandle: jest.fn((workflowId: string) => {
+        if (workflowId === 'pipeline-scheduler-workflow-v1') {
+          return v1Handle;
+        }
+        return {
+          describe: jest.fn().mockRejectedValue(
+            Object.assign(new Error('workflow not found'), {
+              name: 'WorkflowNotFoundError',
+            })
+          ),
+          terminate: jest.fn(),
+          signal: jest.fn(),
+        };
+      }),
       start: jest.fn().mockImplementation(async (workflowType: string) => {
         if (workflowType === 'pipelineSchedulerWorkflowV2') {
           order.push('started-v2');
         }
       }),
     };
-    const register = new InfiniteWorkflowRegister({
-      client: { getRawClient: () => ({ workflow }) },
-    } as any);
+    const register = new InfiniteWorkflowRegister(
+      {
+        client: { getRawClient: () => ({ workflow }) },
+      } as any,
+      { install: jest.fn().mockResolvedValue(undefined) } as any
+    );
     const previousRunCron = process.env.RUN_CRON;
     process.env.RUN_CRON = '1';
 
@@ -438,7 +454,7 @@ describe('Pipeline Temporal workflow boundaries', () => {
     }
 
     expect(order).toEqual(['terminated-v1', 'started-v2']);
-    expect(workflow.start).toHaveBeenLastCalledWith(
+    expect(workflow.start).toHaveBeenCalledWith(
       'pipelineSchedulerWorkflowV2',
       expect.objectContaining({ workflowId: 'pipeline-scheduler-workflow-v2' })
     );
@@ -459,9 +475,12 @@ describe('Pipeline Temporal workflow boundaries', () => {
         })
       ),
     };
-    const register = new InfiniteWorkflowRegister({
-      client: { getRawClient: () => ({ workflow }) },
-    } as any);
+    const register = new InfiniteWorkflowRegister(
+      {
+        client: { getRawClient: () => ({ workflow }) },
+      } as any,
+      { install: jest.fn().mockResolvedValue(undefined) } as any
+    );
     const previousRunCron = process.env.RUN_CRON;
     process.env.RUN_CRON = '1';
 

@@ -7,6 +7,22 @@ export interface Params {
     response: Response
   ) => Promise<boolean>;
 }
+// Exact-name cookie lookup: substring matching would let `admin_auth` satisfy
+// the `auth` lookup and send the step-up token as the normal auth token.
+const readCookie = (name: string) => {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+
+  return cookie ? cookie.slice(prefix.length) : null;
+};
+
 export const customFetch = (
   params: Params,
   auth?: string,
@@ -19,29 +35,15 @@ export const customFetch = (
         ? undefined
         : new URL(window.location.href).searchParams.get('loggedAuth');
     const newRequestObject = await params?.beforeRequest?.(url, options);
-    const authNonSecuredCookie =
-      typeof document === 'undefined'
-        ? null
-        : document.cookie
-            .split(';')
-            .find((p) => p.includes('auth='))
-            ?.split('=')[1];
+    const authNonSecuredCookie = readCookie('auth');
 
-    const authNonSecuredOrg =
-      typeof document === 'undefined'
-        ? null
-        : document.cookie
-            .split(';')
-            .find((p) => p.includes('showorg='))
-            ?.split('=')[1];
+    const authNonSecuredOrg = readCookie('showorg');
 
-    const authNonSecuredImpersonate =
-      typeof document === 'undefined'
-        ? null
-        : document.cookie
-            .split(';')
-            .find((p) => p.includes('impersonate='))
-            ?.split('=')[1];
+    const authNonSecuredImpersonate = readCookie('impersonate');
+
+    // Only readable in local `NOT_SECURED` mode; secured deployments keep the
+    // admin step-up cookie HttpOnly.
+    const authNonSecuredAdminAuth = readCookie('admin_auth');
 
     const fetchRequest = await fetch(params.baseUrl + url, {
       ...(secured ? { credentials: 'include' } : {}),
@@ -65,6 +67,9 @@ export const customFetch = (
           : {}),
         ...(authNonSecuredImpersonate
           ? { impersonate: authNonSecuredImpersonate }
+          : {}),
+        ...(authNonSecuredAdminAuth
+          ? { 'admin-auth': authNonSecuredAdminAuth }
           : {}),
       },
       // @ts-ignore

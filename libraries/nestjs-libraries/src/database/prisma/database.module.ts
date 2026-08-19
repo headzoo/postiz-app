@@ -67,6 +67,8 @@ import { LogsRepository } from '@gitroom/nestjs-libraries/database/prisma/logs/l
 import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
 import { ChannelAnalyticsRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.repository';
 import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.service';
+import { AdminPasskeyRepository } from '@gitroom/nestjs-libraries/database/prisma/admin-passkeys/admin-passkey.repository';
+import { AdminPasskeyService } from '@gitroom/nestjs-libraries/database/prisma/admin-passkeys/admin-passkey.service';
 
 @Global()
 @Module({
@@ -125,6 +127,8 @@ import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/pris
     AdminStatsService,
     AdminUsersRepository,
     AdminUsersService,
+    AdminPasskeyRepository,
+    AdminPasskeyService,
     PipelineRepository,
     PipelineExecutionRepository,
     PipelinePlugRepository,
