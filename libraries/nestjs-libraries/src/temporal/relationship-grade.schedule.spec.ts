@@ -21,7 +21,7 @@ describe('relationship grade schedule helpers', () => {
     expect(
       toRelationshipGradeScheduleSpec({ unit: 'hour', interval: 1 })
     ).toEqual({
-      intervals: [{ every: '1 hours' }],
+      intervals: [{ every: 60 * 60 * 1000 }],
     });
     expect(
       toRelationshipGradeScheduleSpec({
@@ -30,7 +30,12 @@ describe('relationship grade schedule helpers', () => {
         timeOfDay: '09:30',
       })
     ).toEqual({
-      intervals: [{ every: '3 days', offset: '9 hours 30 minutes' }],
+      intervals: [
+        {
+          every: 3 * 24 * 60 * 60 * 1000,
+          offset: 9 * 60 * 60 * 1000 + 30 * 60 * 1000,
+        },
+      ],
     });
     expect(
       toRelationshipGradeScheduleSpec({

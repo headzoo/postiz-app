@@ -1,4 +1,9 @@
+import type { ScheduleSpec } from '@temporalio/client';
 import { RELATIONSHIP_CADENCE_DAYS } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.scoring';
+
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
 
 export const RELATIONSHIP_GRADE_SCHEDULE_UNITS = [
   'hour',
@@ -103,11 +108,11 @@ export function relationshipGradeDueCutoff(
 
 export function toRelationshipGradeScheduleSpec(
   cadence: RelationshipGradeScheduleConfig
-) {
+): ScheduleSpec {
   const config = normalizeRelationshipGradeSchedule(cadence);
   if (config.unit === 'hour') {
     return {
-      intervals: [{ every: `${config.interval} hours` }],
+      intervals: [{ every: config.interval * HOUR_MS }],
     };
   }
   const { hour, minute } = parseTimeOfDay(config.timeOfDay);
@@ -115,8 +120,8 @@ export function toRelationshipGradeScheduleSpec(
     return {
       intervals: [
         {
-          every: `${config.interval} days`,
-          offset: `${hour} hours ${minute} minutes`,
+          every: config.interval * DAY_MS,
+          offset: hour * HOUR_MS + minute * MINUTE_MS,
         },
       ],
     };

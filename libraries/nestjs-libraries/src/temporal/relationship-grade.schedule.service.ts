@@ -180,23 +180,31 @@ export class RelationshipGradeScheduleService {
   }
 
   private cadenceFromDescription(description: {
-    action?: { args?: unknown[] };
+    action?: { args?: readonly unknown[] };
     memo?: Record<string, unknown>;
   }) {
-    const arg = description.action?.args?.[0] as
-      | { cadence?: RelationshipGradeScheduleConfig }
-      | RelationshipGradeScheduleConfig
-      | undefined;
-    const fromArgs =
-      arg && typeof arg === 'object' && 'cadence' in arg ? arg.cadence : arg;
-    const fromMemo = description.memo?.cadence as
-      | RelationshipGradeScheduleConfig
-      | undefined;
     try {
-      return normalizeRelationshipGradeSchedule(fromArgs || fromMemo);
+      return normalizeRelationshipGradeSchedule(
+        this.cadenceFromUnknown(description.action?.args?.[0]) ??
+        this.cadenceFromUnknown(description.memo?.cadence)
+      );
     } catch {
       return DEFAULT_RELATIONSHIP_GRADE_SCHEDULE;
     }
+  }
+
+  private cadenceFromUnknown(
+    value: unknown
+  ): Partial<RelationshipGradeScheduleConfig> | undefined {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+    if ('cadence' in value) {
+      return this.cadenceFromUnknown(
+        (value as { cadence?: unknown }).cadence
+      );
+    }
+    return value as Partial<RelationshipGradeScheduleConfig>;
   }
 
   private getHandle() {
