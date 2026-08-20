@@ -67,3 +67,4 @@ apps/frontend/public/g.js
 !libraries/nestjs-libraries/src/database/prisma/migrations/**/*.sql
 docs/.vitepress/cache
 docs/.vitepress/static
+graphify-out
