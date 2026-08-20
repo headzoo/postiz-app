@@ -72,6 +72,34 @@ describe('IntegrationService followers', () => {
     return service;
   };
 
+  const ignoredNoteCounts = (externalIds: string[]) =>
+    new Map(
+      externalIds.map((id) => [
+        id,
+        {
+          noteCount: 0,
+          likesCount: 0,
+          relationshipGrade: null,
+          myGrade: null,
+          relationshipEffortScore: null,
+          relationshipReciprocationScore: null,
+          relationshipNetGap: null,
+          relationshipTriage: null,
+          relationshipFormulaVersion: null,
+          relationshipSnapshotAt: null,
+          listIds: [],
+          ignoredTriages: [],
+          ignoredAt: new Date('2026-08-18T12:00:00.000Z'),
+        },
+      ])
+    );
+
+  const followerItems = (start: number, count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `follower-${start + index}`,
+      name: `Follower ${start + index}`,
+    }));
+
   beforeEach(() => {
     jest.clearAllMocks();
     (ioRedis.get as jest.Mock).mockResolvedValue(null);
@@ -478,6 +506,207 @@ describe('IntegrationService followers', () => {
       'token',
       expect.objectContaining({ limit: 24, sort: undefined, direction: undefined })
     );
+  });
+
+  it('backfills the next provider page when ignored followers empty the current page', async () => {
+    const followers = jest
+      .fn()
+      .mockResolvedValueOnce({
+        items: followerItems(1, 24),
+        nextCursor: 'page-2',
+        hasMore: true,
+      })
+      .mockResolvedValueOnce({
+        items: followerItems(25, 24),
+        nextCursor: 'page-3',
+        hasMore: true,
+      });
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [
+          {
+            key: 'recent',
+            label: 'Recent',
+            directions: ['desc'],
+            defaultDirection: 'desc',
+          },
+        ],
+      },
+    });
+    (service as any)._channelInteractionRepository.getFollowerNoteCounts.mockImplementation(
+      async (_org: string, _integrationId: string, externalIds: string[]) =>
+        ignoredNoteCounts(
+          externalIds.filter((id) => Number(id.replace('follower-', '')) <= 24)
+        )
+    );
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+      })
+    ).resolves.toEqual({
+      items: followerItems(25, 24),
+      nextCursor: 'page-3',
+      hasMore: true,
+    });
+    expect(followers).toHaveBeenCalledTimes(2);
+    expect(followers).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      'token',
+      expect.objectContaining({ cursor: 'page-2', limit: 24 })
+    );
+  });
+
+  it('stops backfilling when the provider runs out of followers', async () => {
+    const followers = jest
+      .fn()
+      .mockResolvedValueOnce({
+        items: followerItems(1, 24),
+        nextCursor: 'page-2',
+        hasMore: true,
+      })
+      .mockResolvedValueOnce({
+        items: followerItems(25, 3),
+        hasMore: false,
+      });
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [
+          {
+            key: 'recent',
+            label: 'Recent',
+            directions: ['desc'],
+            defaultDirection: 'desc',
+          },
+        ],
+      },
+    });
+    (service as any)._channelInteractionRepository.getFollowerNoteCounts.mockImplementation(
+      async (_org: string, _integrationId: string, externalIds: string[]) =>
+        ignoredNoteCounts(
+          externalIds.filter((id) => Number(id.replace('follower-', '')) <= 24)
+        )
+    );
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+      })
+    ).resolves.toEqual({
+      items: followerItems(25, 3),
+      hasMore: false,
+    });
+    expect(followers).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps ignored backfill at five provider pages', async () => {
+    const followers = jest.fn().mockImplementation(
+      async (_integration: unknown, _token: string, query: { cursor?: string }) => {
+        const page = query.cursor
+          ? Number(String(query.cursor).replace('page-', ''))
+          : 1;
+        const start = (page - 1) * 24 + 1;
+        return {
+          items: followerItems(start, 24),
+          nextCursor: `page-${page + 1}`,
+          hasMore: true,
+        };
+      }
+    );
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [
+          {
+            key: 'recent',
+            label: 'Recent',
+            directions: ['desc'],
+            defaultDirection: 'desc',
+          },
+        ],
+      },
+    });
+    const keptIds = new Set(['follower-1', 'follower-25', 'follower-49', 'follower-73', 'follower-97']);
+    (service as any)._channelInteractionRepository.getFollowerNoteCounts.mockImplementation(
+      async (_org: string, _integrationId: string, externalIds: string[]) =>
+        ignoredNoteCounts(externalIds.filter((id) => !keptIds.has(id)))
+    );
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+      })
+    ).resolves.toEqual({
+      items: [
+        { id: 'follower-1', name: 'Follower 1' },
+        { id: 'follower-25', name: 'Follower 25' },
+        { id: 'follower-49', name: 'Follower 49' },
+        { id: 'follower-73', name: 'Follower 73' },
+        { id: 'follower-97', name: 'Follower 97' },
+      ],
+      nextCursor: 'page-6',
+      hasMore: true,
+    });
+    expect(followers).toHaveBeenCalledTimes(5);
+  });
+
+  it('does not skip leftover followers when a later provider page would overflow', async () => {
+    const followers = jest
+      .fn()
+      .mockResolvedValueOnce({
+        items: followerItems(1, 24),
+        nextCursor: 'page-2',
+        hasMore: true,
+      })
+      .mockResolvedValueOnce({
+        items: followerItems(25, 24),
+        nextCursor: 'page-3',
+        hasMore: true,
+      });
+    const service = createService([integration], {
+      supported: {
+        followers,
+        followerSorts: [
+          {
+            key: 'recent',
+            label: 'Recent',
+            directions: ['desc'],
+            defaultDirection: 'desc',
+          },
+        ],
+      },
+    });
+    (service as any)._channelInteractionRepository.getFollowerNoteCounts.mockImplementation(
+      async (_org: string, _integrationId: string, externalIds: string[]) =>
+        ignoredNoteCounts(
+          externalIds.filter((id) => {
+            const n = Number(id.replace('follower-', ''));
+            return n >= 22 && n <= 24;
+          })
+        )
+    );
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        sort: 'recent',
+        direction: 'desc',
+      })
+    ).resolves.toEqual({
+      items: followerItems(1, 21),
+      nextCursor: 'page-2',
+      hasMore: true,
+    });
+    expect(followers).toHaveBeenCalledTimes(2);
   });
 
   it('refreshes exactly once after a refresh-token failure', async () => {

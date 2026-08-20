@@ -95,6 +95,8 @@ import { ChannelAnalyticsRepository } from '@gitroom/nestjs-libraries/database/p
 
 dayjs.extend(utc);
 
+const FOLLOWER_IGNORED_BACKFILL_MAX_PAGES = 5;
+
 @Injectable()
 export class IntegrationService {
   private storage = UploadFactory.createStorage();
@@ -639,13 +641,12 @@ export class IntegrationService {
     }
 
     try {
-      const page = await this.getFollowerPage(integration, provider, normalizedQuery);
-      return this.enrichFollowerPageWithInteractionMetrics(
+      return await this.getFollowerPageWithIgnoredBackfill(
         org.id,
         actorUserId,
-        integration.id,
+        integration,
         provider,
-        page
+        normalizedQuery
       );
     } catch (error) {
       if (error instanceof HttpException) {
@@ -3033,6 +3034,89 @@ export class IntegrationService {
         HttpStatus.SERVICE_UNAVAILABLE
       );
     }
+  }
+
+  private async getFollowerPageWithIgnoredBackfill(
+    organizationId: string,
+    userId: string | undefined,
+    integration: Integration,
+    provider: SocialProvider,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const accumulated: Follower[] = [];
+    const seen = new Set<string>();
+    let lastPage: FollowerPage | undefined;
+    let cursor = query.cursor;
+
+    for (
+      let pageIndex = 0;
+      pageIndex < FOLLOWER_IGNORED_BACKFILL_MAX_PAGES;
+      pageIndex++
+    ) {
+      const rawPage = await this.getFollowerPage(integration, provider, {
+        ...query,
+        cursor,
+      });
+      const page = await this.enrichFollowerPageWithInteractionMetrics(
+        organizationId,
+        userId,
+        integration.id,
+        provider,
+        rawPage,
+        { excludeIgnored: true }
+      );
+      const incoming = page.items.filter((item) => !seen.has(item.id));
+      const remaining = query.limit - accumulated.length;
+
+      if (pageIndex > 0 && incoming.length > remaining) {
+        break;
+      }
+
+      lastPage = page;
+      for (const item of incoming) {
+        if (accumulated.length >= query.limit) {
+          break;
+        }
+        seen.add(item.id);
+        accumulated.push(item);
+      }
+
+      if (accumulated.length >= query.limit) {
+        break;
+      }
+      if (!page.hasMore || typeof page.nextCursor !== 'string') {
+        break;
+      }
+      if (page.nextCursor === cursor) {
+        break;
+      }
+      const ignoredRemoved = rawPage.items.length - page.items.length;
+      if (ignoredRemoved <= 0 && accumulated.length > 0) {
+        break;
+      }
+      cursor = page.nextCursor;
+    }
+
+    const items = accumulated.slice(0, query.limit);
+    const pageScoped = isPageScopedFollowerSort(
+      this.getFollowerSorts(provider),
+      query.sort
+    );
+    if (pageScoped && query.sort) {
+      const sort = this.getFollowerSorts(provider).find(
+        (candidate) => candidate.key === query.sort
+      );
+      const direction = query.direction ?? sort?.defaultDirection ?? 'desc';
+      return {
+        ...(lastPage ?? { hasMore: false }),
+        items: sortFollowers(items, query.sort, direction),
+      };
+    }
+
+    return {
+      ...(lastPage ?? { hasMore: false }),
+      items,
+    };
   }
 
   private async getFollowerPage(
