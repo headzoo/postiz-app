@@ -29,7 +29,7 @@ Post++ lets users prepare posts once and schedule them across supported social a
 
 The calendar view is the central planning surface. It helps users see what is scheduled, spot gaps, adjust timing, and coordinate campaigns before they go live.
 
-![Calendar view for multi-channel scheduling](./docs/.vitepress/static/images/features/calendar.png)
+![Calendar view for multi-channel scheduling](./images/features/calendar.png)
 
 ### Pipelines
 
@@ -37,7 +37,7 @@ Pipelines turn recurring publishing plans into repeatable workflows. A team can 
 
 This is useful for teams that publish steadily: daily tips, weekly announcements, recurring community updates, content repurposing, or always-on campaigns. Rather than scheduling every item one by one, users can build a system that keeps moving.
 
-![Pipelines overview](./docs/.vitepress/static/images/features/pipelines.png)
+![Pipelines overview](./images/features/pipelines.png)
 
 ### Autopost
 
@@ -45,7 +45,7 @@ Autopost builds on pipelines by automatically publishing queued content into con
 
 For users, the value is simple: build the queue, configure the rhythm, and avoid empty calendar slots.
 
-![Autopost schedule configuration](./docs/.vitepress/static/images/features/autopost.png)
+![Autopost schedule configuration](./images/features/autopost.png)
 
 ### Agents And Assisted Creation
 
@@ -53,7 +53,7 @@ Post++ includes agent-driven workflows for helping users create, refine, and ada
 
 Agents can work with context documents, media, and channel-specific constraints so users can generate content that fits both the campaign and the destination platform.
 
-![Agents and assisted creation](./docs/.vitepress/static/images/features/agents.png)
+![Agents and assisted creation](./images/features/agents.png)
 
 ### Analytics
 
@@ -61,7 +61,7 @@ Analytics help users understand what happened after publishing. Users can review
 
 The goal is practical decision-making: publish, measure, learn, and improve the next round of content.
 
-![Analytics dashboard](./docs/.vitepress/static/images/features/analytics.png)
+![Analytics dashboard](./images/features/analytics.png)
 
 ### Followers And Audience Tools
 
@@ -69,7 +69,7 @@ Post++ includes audience tooling for understanding and organizing follower relat
 
 This turns social activity into a lightweight relationship workflow, especially for creators, founders, sales teams, and community managers who need to remember context over time.
 
-![Followers and audience tools](./docs/.vitepress/static/images/features/followers.png)
+![Followers and audience tools](./images/features/followers.png)
 
 ### Channel Interaction Tracking
 
@@ -89,7 +89,7 @@ The media library gives users a central place to upload, reuse, and manage creat
 
 For content teams, this keeps reusable campaign assets close to the publishing workflow.
 
-![Media library](./docs/.vitepress/static/images/features/media-library.png)
+![Media library](./images/features/media-library.png)
 
 ### Context Documents
 
@@ -97,7 +97,7 @@ Context documents let users store background material that can guide AI-assisted
 
 This helps generated content stay grounded in the team’s own knowledge instead of starting from generic prompts each time.
 
-![Context documents](./docs/.vitepress/static/images/features/context-documents.png)
+![Context documents](./images/features/context-documents.png)
 
 ### Automation And API Access
 
