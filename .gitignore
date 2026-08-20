@@ -65,3 +65,5 @@ apps/frontend/public/g.js
 *.scratch.*
 *.sql
 !libraries/nestjs-libraries/src/database/prisma/migrations/**/*.sql
+docs/.vitepress/cache
+docs/.vitepress/static

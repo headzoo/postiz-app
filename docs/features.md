@@ -10,11 +10,15 @@ Post++ lets users prepare posts once and schedule them across supported social a
 
 The calendar view is the central planning surface. It helps users see what is scheduled, spot gaps, adjust timing, and coordinate campaigns before they go live.
 
+![Calendar view for multi-channel scheduling](/images/features/calendar.png)
+
 ## Pipelines
 
 Pipelines turn recurring publishing plans into repeatable workflows. A team can define recurring slots, keep a queue of ready content, and let Post++ pull from that queue when the right publishing window arrives.
 
 This is useful for teams that publish steadily: daily tips, weekly announcements, recurring community updates, content repurposing, or always-on campaigns. Rather than scheduling every item one by one, users can build a system that keeps moving.
+
+![Pipelines overview](/images/features/pipelines.png)
 
 ## Autopost
 
@@ -22,11 +26,15 @@ Autopost builds on pipelines by automatically publishing queued content into con
 
 For users, the value is simple: build the queue, configure the rhythm, and avoid empty calendar slots.
 
+![Autopost schedule configuration](/images/features/autopost.png)
+
 ## Agents And Assisted Creation
 
 Post++ includes agent-driven workflows for helping users create, refine, and adapt content. These features are meant to reduce blank-page work and help teams move faster from idea to scheduled post.
 
 Agents can work with context documents, media, and channel-specific constraints so users can generate content that fits both the campaign and the destination platform.
+
+![Agents and assisted creation](/images/features/agents.png)
 
 ## Analytics
 
@@ -34,11 +42,15 @@ Analytics help users understand what happened after publishing. Users can review
 
 The goal is practical decision-making: publish, measure, learn, and improve the next round of content.
 
+![Analytics dashboard](/images/features/analytics.png)
+
 ## Followers And Audience Tools
 
 Post++ includes audience tooling for understanding and organizing follower relationships. Users can review audience members, triage interactions, keep notes, maintain lists, and use relationship grades to prioritize who needs attention.
 
 This turns social activity into a lightweight relationship workflow, especially for creators, founders, sales teams, and community managers who need to remember context over time.
+
+![Followers and audience tools](/images/features/followers.png)
 
 ## Channel Interaction Tracking
 
@@ -58,11 +70,15 @@ The media library gives users a central place to upload, reuse, and manage creat
 
 For content teams, this keeps reusable campaign assets close to the publishing workflow.
 
+![Media library](/images/features/media-library.png)
+
 ## Context Documents
 
 Context documents let users store background material that can guide AI-assisted work. Examples include brand voice, product notes, campaign briefs, positioning, audience descriptions, FAQs, or reusable talking points.
 
 This helps generated content stay grounded in the team’s own knowledge instead of starting from generic prompts each time.
+
+![Context documents](/images/features/context-documents.png)
 
 ## Automation And API Access
 

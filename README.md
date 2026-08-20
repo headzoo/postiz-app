@@ -26,6 +26,7 @@ pnpm install
 pnpm test
 pnpm docs:serve
 pnpm docs:build
+SCREENSHOT_AUTH_TOKEN=<token> pnpm docs:screenshots
 ```
 
 ## License

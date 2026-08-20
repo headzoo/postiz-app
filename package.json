@@ -46,7 +46,8 @@
     "docs:build": "pnpm docs:build:nav && vitepress build docs",
     "docs:build:nav": "node scripts/build-docs-nav.mjs && node scripts/assert-docs-slugs.mjs",
     "docs:preview": "pnpm docs:build && vitepress preview docs",
-    "docs:serve": "pnpm docs:build:nav && concurrently --kill-others --prefixColors=auto -n nav,vp \"node scripts/watch-docs-nav.mjs\" \"vitepress dev docs\""
+    "docs:serve": "pnpm docs:build:nav && concurrently --kill-others --prefixColors=auto -n nav,vp \"node scripts/watch-docs-nav.mjs\" \"vitepress dev docs\"",
+    "docs:screenshots": "node -r dotenv/config scripts/capture-feature-screenshots.mjs"
   },
   "dependencies": {
     "@ag-ui/mastra": "^1.0.1",
@@ -316,6 +317,7 @@
     "jest-mock-extended": "^4.0.0-beta1",
     "jsdom": "~22.1.0",
     "nodemon": "^3.1.9",
+    "playwright": "1.58.2",
     "postcss": "8.4.38",
     "prettier": "^2.6.2",
     "prisma": "6.5.0",
