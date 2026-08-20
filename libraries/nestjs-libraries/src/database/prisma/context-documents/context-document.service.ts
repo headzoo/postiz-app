@@ -8,10 +8,15 @@ import {
   ContextDocumentContentDto,
   ContextDocumentMetadataDto,
   ContextDocumentUploadResponseDto,
+  SkillContentDto,
+  SkillMetadataDto,
 } from '@gitroom/nestjs-libraries/dtos/context-documents/context-document.dto';
 import {
+  buildSkillFilename,
   getContextDocumentLargeWarning,
   isContextDocumentLarge,
+  isReservedAgentCommandSlug,
+  parseSkillFilename,
   validateContextDocumentUpload,
 } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
 import { ContextDocument } from '@prisma/client';
@@ -29,6 +34,42 @@ export class ContextDocumentService {
       await this._contextDocumentRepository.listMetadata(organizationId);
 
     return documents.map((document) => this.toMetadata(document));
+  }
+
+  async listSkills(organizationId: string): Promise<SkillMetadataDto[]> {
+    const documents =
+      await this._contextDocumentRepository.listSkillMetadata(organizationId);
+
+    return documents.flatMap((document) => {
+      const slug = parseSkillFilename(document.name);
+      if (!slug || isReservedAgentCommandSlug(slug)) {
+        return [];
+      }
+      return [this.toSkillMetadata(document, slug)];
+    });
+  }
+
+  async getSkillBySlug(
+    organizationId: string,
+    slug: string
+  ): Promise<SkillContentDto> {
+    const name = buildSkillFilename(slug);
+    if (isReservedAgentCommandSlug(slug)) {
+      throw new NotFoundException('Agent skill not found.');
+    }
+    const document =
+      await this._contextDocumentRepository.findSkillByCanonicalName(
+        organizationId,
+        name
+      );
+    if (parseSkillFilename(document?.name || '') !== slug) {
+      throw new NotFoundException('Agent skill not found.');
+    }
+
+    return {
+      ...this.toSkillMetadata(document, slug),
+      content: document.content,
+    };
   }
 
   async uploadDocument(
@@ -58,6 +99,9 @@ export class ContextDocumentService {
     if (!document) {
       throw new NotFoundException('Context document not found.');
     }
+    if (parseSkillFilename(document.name)) {
+      throw new NotFoundException('Context document not found.');
+    }
 
     return this.toContentResponse(document);
   }
@@ -69,6 +113,9 @@ export class ContextDocumentService {
     );
 
     if (!document) {
+      throw new NotFoundException('Context document not found.');
+    }
+    if (parseSkillFilename(document.name)) {
       throw new NotFoundException('Context document not found.');
     }
 
@@ -97,6 +144,9 @@ export class ContextDocumentService {
       );
 
     if (!document) {
+      throw new NotFoundException('Context document not found.');
+    }
+    if (parseSkillFilename(document.name)) {
       throw new NotFoundException('Context document not found.');
     }
 
@@ -128,6 +178,7 @@ export class ContextDocumentService {
     >
   ): ContextDocumentMetadataDto {
     const warning = getContextDocumentLargeWarning(document.fileSize);
+    const slug = parseSkillFilename(document.name);
 
     return {
       id: document.id,
@@ -138,6 +189,15 @@ export class ContextDocumentService {
       updatedAt: document.updatedAt,
       isLarge: isContextDocumentLarge(document.fileSize),
       ...(warning ? { warning } : {}),
+      ...(slug
+        ? {
+            skill: {
+              slug,
+              command: `/${slug}`,
+              conflict: isReservedAgentCommandSlug(slug),
+            },
+          }
+        : {}),
     };
   }
 
@@ -150,6 +210,27 @@ export class ContextDocumentService {
       id: document.id,
       name: document.name,
       content: document.content,
+      fileSize: document.fileSize,
+      updatedAt: document.updatedAt,
+      isLarge: isContextDocumentLarge(document.fileSize),
+      ...(warning ? { warning } : {}),
+    };
+  }
+
+  private toSkillMetadata(
+    document: Pick<
+      ContextDocument,
+      'id' | 'name' | 'fileSize' | 'updatedAt'
+    >,
+    slug: string
+  ): SkillMetadataDto {
+    const warning = getContextDocumentLargeWarning(document.fileSize);
+
+    return {
+      slug,
+      command: `/${slug}`,
+      id: document.id,
+      name: document.name,
       fileSize: document.fileSize,
       updatedAt: document.updatedAt,
       isLarge: isContextDocumentLarge(document.fileSize),

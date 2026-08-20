@@ -11,6 +11,7 @@ import {
   PrismaRepository,
   PrismaTransaction,
 } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
+import { parseSkillFilename } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
 
 const QUEUE_POSITION_INCREMENT = 1024;
 const TRANSACTION_ATTEMPTS = 3;
@@ -19,6 +20,7 @@ class PipelineQueueChangedError extends Error {}
 class PipelineScheduleRevisionChangedError extends Error {}
 class PipelineScheduleSourceChangedError extends Error {}
 class PipelineContextDocumentsChangedError extends Error {}
+class PipelineSkillContextDocumentsChangedError extends Error {}
 
 export const activePipelineIntegrationWhere = {
   deletedAt: null,
@@ -191,7 +193,7 @@ export class PipelineRepository {
         organizationId: orgId,
         id: { in: documentIds },
       },
-      select: { id: true },
+      select: { id: true, name: true },
     });
   }
 
@@ -250,10 +252,13 @@ export class PipelineRepository {
               organizationId: orgId,
               id: { in: body.contextDocumentIds },
             },
-            select: { id: true },
+            select: { id: true, name: true },
           });
           if (ownedDocuments.length !== body.contextDocumentIds.length) {
             throw new PipelineContextDocumentsChangedError();
+          }
+          if (ownedDocuments.some((document: any) => parseSkillFilename(document.name))) {
+            throw new PipelineSkillContextDocumentsChangedError();
           }
         }
 
@@ -298,6 +303,9 @@ export class PipelineRepository {
     } catch (error) {
       if (error instanceof PipelineContextDocumentsChangedError) {
         return 'invalid-context-documents' as const;
+      }
+      if (error instanceof PipelineSkillContextDocumentsChangedError) {
+        return 'skill-context-documents' as const;
       }
       throw error;
     }

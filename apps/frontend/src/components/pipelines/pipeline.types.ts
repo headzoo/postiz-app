@@ -29,6 +29,7 @@ export interface PipelineSummary {
 export interface PipelineDetail extends PipelineSummary {
   scheduleSlots: PipelineScheduleSlot[];
   integrations: { integrationId: string; integration: Integrations }[];
+  blockedContextDocuments: PipelineContextDocument[];
   queueItems: PipelineQueueItem[];
   projections: { itemId: string; projectedFor?: string }[];
 }

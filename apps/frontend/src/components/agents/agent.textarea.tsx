@@ -9,6 +9,11 @@ interface AutoResizingTextareaProps {
   onCompositionStart?: () => void;
   onCompositionEnd?: () => void;
   autoFocus?: boolean;
+  role?: React.AriaRole;
+  'aria-autocomplete'?: 'none' | 'inline' | 'list' | 'both';
+  'aria-controls'?: string;
+  'aria-expanded'?: boolean;
+  'aria-activedescendant'?: string;
 }
 
 const AutoResizingTextarea = forwardRef<HTMLTextAreaElement, AutoResizingTextareaProps>(
@@ -22,6 +27,11 @@ const AutoResizingTextarea = forwardRef<HTMLTextAreaElement, AutoResizingTextare
       onCompositionStart,
       onCompositionEnd,
       autoFocus,
+      role,
+      'aria-autocomplete': ariaAutocomplete,
+      'aria-controls': ariaControls,
+      'aria-expanded': ariaExpanded,
+      'aria-activedescendant': ariaActiveDescendant,
     },
     ref,
   ) => {
@@ -62,6 +72,11 @@ const AutoResizingTextarea = forwardRef<HTMLTextAreaElement, AutoResizingTextare
         onKeyDown={onKeyDown}
         onCompositionStart={onCompositionStart}
         onCompositionEnd={onCompositionEnd}
+        role={role}
+        aria-autocomplete={ariaAutocomplete}
+        aria-controls={ariaControls}
+        aria-expanded={ariaExpanded}
+        aria-activedescendant={ariaActiveDescendant}
         placeholder={placeholder}
         style={{
           overflow: "auto",

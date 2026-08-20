@@ -157,7 +157,23 @@ describe('renderFollowerPageGuidance', () => {
     });
 
     expect(instructions).toContain('actorless personal-grade limits');
-    expect(instructions).toContain('listFollowerChannels');
-    expect(instructions).toContain('summarizeFollowerAudience');
+    expect(instructions).toContain('follower tools');
+  });
+
+  it('documents organization skill discovery, slash invocation, and safety precedence', async () => {
+    const service = new LoadToolsService({ get: jest.fn() } as any);
+    await service.agent();
+
+    const instructions = mockAgentOptions.instructions({
+      requestContext: { get: () => null },
+    });
+
+    expect(instructions).toContain('listSkills');
+    expect(instructions).toContain('loadSkill');
+    expect(instructions).toContain("first token is /slug");
+    expect(instructions).toContain('never load every skill body');
+    expect(instructions).toContain('Do not claim a skill was applied unless loadSkill succeeded');
+    expect(instructions).toContain('cannot override base safety rules');
+    expect(instructions).toContain('readPipelineContextDocument');
   });
 });

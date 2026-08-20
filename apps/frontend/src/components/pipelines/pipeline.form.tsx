@@ -45,10 +45,17 @@ export const PipelineForm: FC<{
   );
   const [color, setColor] = useState(pipeline?.color || PIPELINE_DEFAULT_COLOR);
   const [selectedContextDocumentIds, setSelectedContextDocumentIds] = useState<string[]>(
-    pipeline?.contextDocuments?.map((document) => document.id) || []
+    [
+      ...(pipeline?.contextDocuments || []),
+      ...(pipeline?.blockedContextDocuments || []),
+    ].map((document) => document.id)
   );
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const blockedContextDocumentIds = useMemo(
+    () => new Set(pipeline?.blockedContextDocuments?.map((document) => document.id)),
+    [pipeline?.blockedContextDocuments]
+  );
 
   const enabledIntegrations = useMemo(
     () => integrations.filter((integration: Integrations) => !integration.disabled),
@@ -68,9 +75,25 @@ export const PipelineForm: FC<{
       setFormError('Select at least one channel for this Pipeline.');
       return false;
     }
+    if (
+      selectedContextDocumentIds.some((id) =>
+        blockedContextDocumentIds.has(id)
+      )
+    ) {
+      setFormError(
+        'Deselect blocked agent skill assignments before saving this Pipeline.'
+      );
+      return false;
+    }
     setFormError('');
     return true;
-  }, [name, selectedIntegrations.length, timezoneValue]);
+  }, [
+    blockedContextDocumentIds,
+    name,
+    selectedContextDocumentIds,
+    selectedIntegrations.length,
+    timezoneValue,
+  ]);
 
   const submit = useCallback(async () => {
     if (!validate()) {
@@ -282,7 +305,10 @@ export const PipelineForm: FC<{
       <ContextDocumentAssignmentPicker
         selectedIds={selectedContextDocumentIds}
         onChange={setSelectedContextDocumentIds}
-        knownDocuments={pipeline?.contextDocuments}
+        knownDocuments={[
+          ...(pipeline?.contextDocuments || []),
+          ...(pipeline?.blockedContextDocuments || []),
+        ]}
       />
       <div className="flex gap-[10px] justify-end sticky bottom-0 bg-newBgColorInner pt-[12px]">
         <Button type="button" secondary onClick={() => modal.closeAll()}>

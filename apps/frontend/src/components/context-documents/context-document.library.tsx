@@ -28,8 +28,11 @@ import {
   CONTEXT_DOCUMENT_MAX_BYTES,
   ContextDocumentMetadata,
   formatContextDocumentSize,
+  getContextDocumentSkillSlug,
+  isAttemptedContextDocumentSkillFilename,
   isContextDocumentLarge,
   normalizeContextDocumentName,
+  RESERVED_AGENT_COMMAND_SLUGS,
 } from '@gitroom/frontend/components/context-documents/context-document.types';
 import { useContextDocumentList } from '@gitroom/frontend/components/context-documents/use.context-document.list';
 import { useContextDocumentContent } from '@gitroom/frontend/components/context-documents/use.context-document.content';
@@ -75,9 +78,15 @@ const ContextDocumentMarkdown: FC<{
   );
 };
 
-const ContextDocumentReader: FC<{ documentId: string }> = ({ documentId }) => {
+const ContextDocumentReader: FC<{
+  documentId: string;
+  skillSlug?: string;
+}> = ({ documentId, skillSlug }) => {
   const t = useT();
-  const { data, error, isLoading } = useContextDocumentContent(documentId);
+  const { data, error, isLoading } = useContextDocumentContent(
+    documentId,
+    skillSlug
+  );
 
   if (isLoading && !data) {
     return (
@@ -169,15 +178,28 @@ const ContextDocumentCard: FC<{
 }> = ({ document, pending, uploading, onReplace, onDelete }) => {
   const t = useT();
   const modal = useModals();
+  const skillSlug =
+    document.skill?.slug || getContextDocumentSkillSlug(document.name);
+  const skillConflict =
+    document.skill?.conflict ||
+    (skillSlug ? RESERVED_AGENT_COMMAND_SLUGS.has(skillSlug) : false);
 
   const openReader = useCallback(() => {
+    if (skillConflict) {
+      return;
+    }
     modal.openModal({
       title: document.name,
       size: '840px',
       maxSize: '90vw',
-      children: <ContextDocumentReader documentId={document.id} />,
+      children: (
+        <ContextDocumentReader
+          documentId={document.id}
+          skillSlug={skillSlug}
+        />
+      ),
     });
-  }, [document.id, document.name, modal]);
+  }, [document.id, document.name, modal, skillConflict, skillSlug]);
 
   return (
     <div
@@ -190,12 +212,28 @@ const ContextDocumentCard: FC<{
         type="button"
         onClick={openReader}
         aria-label={t('context_document_open', 'Open document')}
+        disabled={skillConflict}
         className="min-w-0 flex-1 p-[12px] flex flex-col gap-[8px] text-start"
       >
         <div className="min-w-0 flex items-center gap-[6px]">
           <span className="font-[600] text-[13px] truncate min-w-0 flex-1">
             {document.name}
           </span>
+          {skillSlug && (
+            <span
+              className={clsx(
+                'shrink-0 text-[11px] px-[7px] py-[2px] rounded-full border',
+                skillConflict
+                  ? 'border-amber-500/40 text-amber-500'
+                  : 'border-btnPrimary/40 text-btnPrimary'
+              )}
+            >
+              {skillConflict
+                ? t('agent_skill_conflict_badge', 'Skill conflict')
+                : t('agent_skill_badge', 'Skill')}{' '}
+              · /{skillSlug}
+            </span>
+          )}
           {document.isLarge && (
             <span className="shrink-0 text-[11px] px-[7px] py-[2px] rounded-full border border-amber-500/40 text-amber-500">
               {t('context_document_large_badge', 'Large')}
@@ -208,6 +246,14 @@ const ContextDocumentCard: FC<{
         </div>
         {document.warning && (
           <div className="text-[12px] text-amber-500">{document.warning}</div>
+        )}
+        {skillConflict && (
+          <div className="text-[12px] text-amber-500">
+            {t(
+              'agent_skill_conflict_hint',
+              'This command is reserved and cannot be invoked. Replace or delete this legacy file to resolve the conflict.'
+            )}
+          </div>
         )}
       </button>
       <div className="shrink-0 p-[12px] ps-0">
@@ -270,6 +316,29 @@ export const ContextDocumentLibrary: FC = () => {
           t(
             'context_document_invalid_extension',
             'Only .md and .markdown files are supported.'
+          ),
+          'warning'
+        );
+        return;
+      }
+
+      const skillSlug = getContextDocumentSkillSlug(normalizedName);
+      if (isAttemptedContextDocumentSkillFilename(normalizedName) && !skillSlug) {
+        toaster.show(
+          t(
+            'context_document_invalid_skill_name',
+            'Agent skill filenames must use the format {slug}.skill.md, with lowercase letters, numbers, and hyphens in the slug.'
+          ),
+          'warning'
+        );
+        return;
+      }
+
+      if (skillSlug && RESERVED_AGENT_COMMAND_SLUGS.has(skillSlug)) {
+        toaster.show(
+          t(
+            'context_document_reserved_skill',
+            `Agent skill command /${skillSlug} is reserved and cannot be used.`
           ),
           'warning'
         );
@@ -428,7 +497,7 @@ export const ContextDocumentLibrary: FC = () => {
         <p className="text-[14px] opacity-70 max-w-[760px]">
           {t(
             'context_documents_description',
-            'Upload reusable Markdown files for your organization. Attach them to Pipelines so the agent can read on-brand guidance when drafting posts. Maximum file size is 256 KiB.'
+            'Upload reusable Markdown files for your organization. Standard documents can be attached to Pipelines; {slug}.skill.md files are agent procedures invoked with /slug. Maximum file size is 256 KiB.'
           )}
         </p>
       </div>
@@ -470,7 +539,7 @@ export const ContextDocumentLibrary: FC = () => {
           <div className="text-[14px] opacity-70 max-w-[520px]">
             {t(
               'context_documents_empty_description',
-              'Upload .md or .markdown files such as BRANDING.md or TONE.md, then attach them to Pipelines for agent guidance.'
+              'Upload .md or .markdown files such as BRANDING.md for Pipeline guidance, or {slug}.skill.md files for agent procedures invoked with /slug.'
             )}
           </div>
           <Button onClick={handleUploadClick} loading={uploading}>

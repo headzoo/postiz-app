@@ -5,7 +5,9 @@ import {
   CONTEXT_DOCUMENT_LARGE_WARNING_BYTES,
   CONTEXT_DOCUMENT_MAX_BYTES,
   decodeUtf8Fatal,
+  buildSkillFilename,
   normalizeContextDocumentName,
+  parseSkillFilename,
   validateContextDocumentUpload,
 } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
 
@@ -15,8 +17,10 @@ describe('ContextDocumentService', () => {
 
   const createRepository = () => ({
     listMetadata: jest.fn(),
+    listSkillMetadata: jest.fn(),
     findById: jest.fn(),
     findByName: jest.fn(),
+    findSkillByCanonicalName: jest.fn(),
     upsertDocument: jest.fn(),
     deleteDocument: jest.fn(),
   });
@@ -115,6 +119,38 @@ describe('ContextDocumentService', () => {
     expect(documents[0]).not.toHaveProperty('content');
   });
 
+  it('keeps invocable and reserved skills in the management catalog as metadata', async () => {
+    const { repository, service } = createService();
+    repository.listMetadata.mockResolvedValue([
+      sampleDocument,
+      { ...sampleDocument, id: 'skill', name: 'campaign-review.skill.md' },
+      { ...sampleDocument, id: 'reserved', name: 'followers.skill.md' },
+    ]);
+
+    await expect(service.listDocuments(organizationId)).resolves.toEqual([
+      expect.objectContaining({ id: 'doc-1', name: 'BRANDING.md' }),
+      expect.objectContaining({
+        id: 'skill',
+        name: 'campaign-review.skill.md',
+        skill: {
+          slug: 'campaign-review',
+          command: '/campaign-review',
+          conflict: false,
+        },
+      }),
+      expect.objectContaining({
+        id: 'reserved',
+        name: 'followers.skill.md',
+        skill: {
+          slug: 'followers',
+          command: '/followers',
+          conflict: true,
+        },
+      }),
+    ]);
+    expect(repository.listMetadata).toHaveBeenCalledWith(organizationId);
+  });
+
   it('flags large documents at or above the warning threshold', async () => {
     const largeContent = 'x'.repeat(CONTEXT_DOCUMENT_LARGE_WARNING_BYTES);
     const { repository, service } = createService();
@@ -176,6 +212,75 @@ describe('ContextDocumentService', () => {
   it('normalizes path components from filenames', () => {
     expect(normalizeContextDocumentName('nested/path/BRANDING.markdown')).toBe(
       'BRANDING.markdown'
+    );
+  });
+
+  it('classifies canonical skill filenames without treating .skill.markdown as a skill', () => {
+    expect(parseSkillFilename('campaign-review.skill.md')).toBe(
+      'campaign-review'
+    );
+    expect(parseSkillFilename('campaign-review.skill.markdown')).toBeUndefined();
+    expect(buildSkillFilename('campaign-review')).toBe(
+      'campaign-review.skill.md'
+    );
+  });
+
+  it('rejects malformed and reserved skill upload names while preserving Markdown uploads', () => {
+    for (const originalname of [
+      'Campaign.skill.md',
+      'campaign_review.skill.md',
+      '.skill.md',
+      'followers.skill.md',
+    ]) {
+      expect(() =>
+        validateContextDocumentUpload({
+          originalname,
+          buffer: Buffer.from('# Skill'),
+          size: 7,
+        } as Express.Multer.File)
+      ).toThrow(BadRequestException);
+    }
+    expect(
+      validateContextDocumentUpload({
+        originalname: 'campaign-review.skill.markdown',
+        buffer: Buffer.from('# Context'),
+        size: 9,
+      } as Express.Multer.File).name
+    ).toBe('campaign-review.skill.markdown');
+  });
+
+  it('lists only invocable skill metadata and loads a canonical org-scoped skill', async () => {
+    const { repository, service } = createService();
+    repository.listSkillMetadata.mockResolvedValue([
+      { ...sampleDocument, name: 'campaign-review.skill.md' },
+      { ...sampleDocument, id: 'reserved', name: 'followers.skill.md' },
+      { ...sampleDocument, id: 'normal', name: 'notes.md' },
+    ]);
+    repository.findSkillByCanonicalName.mockResolvedValue({
+      ...sampleDocument,
+      name: 'campaign-review.skill.md',
+    });
+
+    await expect(service.listSkills(organizationId)).resolves.toEqual([
+      {
+        slug: 'campaign-review',
+        command: '/campaign-review',
+        id: 'doc-1',
+        name: 'campaign-review.skill.md',
+        fileSize: 28,
+        updatedAt: sampleDocument.updatedAt,
+        isLarge: false,
+      },
+    ]);
+    await expect(
+      service.getSkillBySlug(organizationId, 'campaign-review')
+    ).resolves.toMatchObject({
+      command: '/campaign-review',
+      content: sampleDocument.content,
+    });
+    expect(repository.findSkillByCanonicalName).toHaveBeenCalledWith(
+      organizationId,
+      'campaign-review.skill.md'
     );
   });
 

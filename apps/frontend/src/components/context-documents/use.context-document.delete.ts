@@ -7,6 +7,7 @@ import { parseApiError } from '@gitroom/frontend/components/pipelines/pipeline.u
 import { CONTEXT_DOCUMENTS_KEY } from '@gitroom/frontend/components/context-documents/use.context-document.list';
 import { contextDocumentContentKey } from '@gitroom/frontend/components/context-documents/use.context-document.content';
 import { PIPELINES_KEY } from '@gitroom/frontend/components/pipelines/use.pipeline.list';
+import { AGENT_SKILLS_KEY } from '@gitroom/frontend/components/agents/use.agent.skills';
 
 export const useContextDocumentDelete = () => {
   const fetch = useFetch();
@@ -26,6 +27,7 @@ export const useContextDocumentDelete = () => {
 
       await Promise.all([
         mutate(CONTEXT_DOCUMENTS_KEY),
+        mutate(AGENT_SKILLS_KEY),
         mutate(PIPELINES_KEY),
         mutate(contextDocumentContentKey(id), undefined, { revalidate: false }),
       ]);

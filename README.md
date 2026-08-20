@@ -95,6 +95,8 @@ For content teams, this keeps reusable campaign assets close to the publishing w
 
 Context documents let users store background material that can guide AI-assisted work. Examples include brand voice, product notes, campaign briefs, positioning, audience descriptions, FAQs, or reusable talking points.
 
+The same library also supports AI skills: upload a Markdown file named like `campaign-review.skill.md`, and agents can load that procedure on demand with a slash command such as `/campaign-review`. Skills are organization-authored guides for repeatable agent workflows, separate from pipeline brand or tone context.
+
 This helps generated content stay grounded in the team’s own knowledge instead of starting from generic prompts each time.
 
 ![Context documents](./images/features/context-documents.png)

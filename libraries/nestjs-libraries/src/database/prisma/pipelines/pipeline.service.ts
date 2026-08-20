@@ -24,6 +24,7 @@ import { PipelineRepository } from './pipeline.repository';
 import { PipelineManager } from './pipeline.manager';
 import { AutopostService } from '@gitroom/nestjs-libraries/database/prisma/autopost/autopost.service';
 import { socialIntegrationList } from '@gitroom/nestjs-libraries/integrations/integration.manager';
+import { parseSkillFilename } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 
@@ -229,6 +230,9 @@ export class PipelineService {
         this.toComposerIntegration(integration)
       ),
       contextDocuments: this.toContextDocuments(pipeline.contextDocuments || []),
+      blockedContextDocuments: this.toBlockedContextDocuments(
+        pipeline.contextDocuments || []
+      ),
       queueItems: pipeline.queueItems.map((item) => ({
         id: item.id,
         group: item.group,
@@ -267,6 +271,11 @@ export class PipelineService {
     if (pipeline === 'invalid-context-documents') {
       throw new BadRequestException(
         'Pipeline context documents must belong to the organization'
+      );
+    }
+    if (pipeline === 'skill-context-documents') {
+      throw new BadRequestException(
+        'Agent skills cannot be attached as pipeline context documents'
       );
     }
     if (pipeline === false) {
@@ -497,6 +506,11 @@ export class PipelineService {
         'Pipeline context documents must belong to the organization'
       );
     }
+    if (documents.some((document) => parseSkillFilename(document.name))) {
+      throw new BadRequestException(
+        'Agent skills cannot be attached as pipeline context documents'
+      );
+    }
   }
 
   private toContextDocuments(
@@ -510,6 +524,31 @@ export class PipelineService {
     }>
   ) {
     return [...assignments]
+      .filter(({ contextDocument }) => !parseSkillFilename(contextDocument.name))
+      .map(({ contextDocument }) => ({
+        id: contextDocument.id,
+        name: contextDocument.name,
+        fileSize: contextDocument.fileSize,
+        updatedAt: contextDocument.updatedAt,
+      }))
+      .sort(
+        (first, second) =>
+          first.name.localeCompare(second.name) || first.id.localeCompare(second.id)
+      );
+  }
+
+  private toBlockedContextDocuments(
+    assignments: Array<{
+      contextDocument: {
+        id: string;
+        name: string;
+        fileSize: number;
+        updatedAt: Date;
+      };
+    }>
+  ) {
+    return [...assignments]
+      .filter(({ contextDocument }) => parseSkillFilename(contextDocument.name))
       .map(({ contextDocument }) => ({
         id: contextDocument.id,
         name: contextDocument.name,

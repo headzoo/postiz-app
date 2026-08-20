@@ -234,7 +234,7 @@ const McpSection = ({
           <div className="text-[13px] text-customColor18 mt-[2px]">
             {t(
               'connect_your_mcp_client_to_postiz_to_schedule_your_posts_faster',
-              'Connect Post Plus Plus MCP server to your client (Http streaming) to schedule your posts faster.'
+              'Connect Post Plus Plus MCP server to your client (Http streaming) to schedule your posts faster. Connected MCP agents can call listSkills and loadSkill to discover and apply your organization agent procedures on demand.'
             )}
           </div>
         </div>
@@ -422,7 +422,7 @@ const CliSection = ({ apiKey }: { apiKey: string }) => {
           <div className="text-[13px] text-customColor18 mt-[2px]">
             {t(
               'cli_description',
-              'Use the Post Plus Plus CLI to automate posting from your terminal, or install the skill to let your AI agent schedule posts for you.'
+              'Use the Post Plus Plus CLI to automate posting from your terminal, or install the skill to let your AI agent schedule posts for you. When connected through MCP, agents can also call listSkills and loadSkill for organization procedures; the external gitroomhq/postiz-agent package may need a separate update to document those tools.'
             )}
           </div>
         </div>

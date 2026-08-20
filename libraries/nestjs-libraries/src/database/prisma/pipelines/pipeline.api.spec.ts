@@ -106,6 +106,15 @@ describe('Pipeline API boundaries', () => {
                 content: 'must-not-leak',
               },
             },
+            {
+              contextDocument: {
+                id: 'legacy-skill',
+                name: 'campaign-review.skill.md',
+                fileSize: 4096,
+                updatedAt: new Date('2026-08-11T12:00:00.000Z'),
+                content: 'must-not-leak',
+              },
+            },
           ],
           scheduleSlots: [],
           _count: { queueItems: 1 },
@@ -142,6 +151,15 @@ describe('Pipeline API boundaries', () => {
               content: 'must-not-leak',
             },
           },
+            {
+              contextDocument: {
+                id: 'legacy-skill',
+                name: 'campaign-review.skill.md',
+                fileSize: 4096,
+                updatedAt: new Date('2026-08-11T12:00:00.000Z'),
+                content: 'must-not-leak',
+              },
+            },
         ],
         queueItems: [
           {
@@ -216,6 +234,14 @@ describe('Pipeline API boundaries', () => {
       },
     ]);
     expect(detail.contextDocuments).toEqual(list[0].contextDocuments);
+    expect(detail.blockedContextDocuments).toEqual([
+      {
+        id: 'legacy-skill',
+        name: 'campaign-review.skill.md',
+        fileSize: 4096,
+        updatedAt: new Date('2026-08-11T12:00:00.000Z'),
+      },
+    ]);
     expect(list[0].channels).toEqual([
       expect.objectContaining({ id: 'twitter', identifier: 'x' }),
       expect.objectContaining({ id: 'linkedin', identifier: 'linkedin' }),
@@ -251,8 +277,32 @@ describe('Pipeline API boundaries', () => {
     });
     expect(JSON.stringify(list)).not.toContain('must-not-leak');
     expect(JSON.stringify(detail)).not.toContain('must-not-leak');
+    expect(JSON.stringify(detail.contextDocuments)).not.toContain('legacy-skill');
     expect(JSON.stringify(detail)).not.toContain('"organizationId"');
     expect(JSON.stringify(detail)).not.toContain('"internalId"');
+  });
+
+  it('rejects skill documents before creating pipeline assignments', async () => {
+    const repository = {
+      getOwnedIntegrations: jest.fn().mockResolvedValue([{ id: 'channel' }]),
+      getOwnedContextDocuments: jest
+        .fn()
+        .mockResolvedValue([{ id: 'skill', name: 'campaign-review.skill.md' }]),
+      createPipeline: jest.fn(),
+    };
+    const service = new PipelineService(repository as any, {} as any);
+
+    await expect(
+      service.createPipeline('org', {
+        name: 'Pipeline',
+        timezone: 'UTC',
+        integrations: [{ id: 'channel' }],
+        contextDocumentIds: ['skill'],
+      })
+    ).rejects.toMatchObject({
+      message: 'Agent skills cannot be attached as pipeline context documents',
+    });
+    expect(repository.createPipeline).not.toHaveBeenCalled();
   });
 
   it('projects the composer enqueue slot after queued items', async () => {
@@ -1749,7 +1799,13 @@ describe('Pipeline API boundaries', () => {
   it('replaces context document assignments on update and preserves them when omitted', async () => {
     const update = jest.fn().mockResolvedValue({ id: 'pipeline' });
     const contextDocumentFindMany = jest.fn(async ({ where }: any) =>
-      (where.id?.in || []).map((id: string) => ({ id }))
+      (where.id?.in || []).map((id: string) => ({
+        id,
+        name:
+          id === 'skill'
+            ? 'campaign-review.skill.md'
+            : `${id}.markdown`,
+      }))
     );
     const transaction = {
       model: {
@@ -1791,6 +1847,12 @@ describe('Pipeline API boundaries', () => {
       contextDocumentIds: [],
     });
     await repository.updatePipeline('org', 'pipeline', base);
+    await expect(
+      repository.updatePipeline('org', 'pipeline', {
+        ...base,
+        contextDocumentIds: ['skill'],
+      })
+    ).resolves.toBe('skill-context-documents');
 
     expect(update).toHaveBeenNthCalledWith(1, {
       where: { id: 'pipeline' },

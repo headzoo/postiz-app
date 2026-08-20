@@ -10,6 +10,11 @@ export type ContextDocumentMetadata = {
   updatedAt: string;
   isLarge: boolean;
   warning?: string;
+  skill?: {
+    slug: string;
+    command: string;
+    conflict: boolean;
+  };
 };
 
 export type ContextDocumentContent = {
@@ -25,6 +30,20 @@ export type ContextDocumentContent = {
 export type ContextDocumentUploadResponse = ContextDocumentMetadata;
 
 const ALLOWED_EXTENSIONS = ['.markdown', '.md'] as const;
+const SKILL_FILENAME_SUFFIX = '.skill.md';
+const SKILL_SLUG_PATTERN = /^[a-z0-9-]+$/;
+export const RESERVED_AGENT_COMMAND_SLUGS = new Set(['followers']);
+
+export type AgentSkillMetadata = {
+  slug: string;
+  command: string;
+  id: string;
+  name: string;
+  fileSize: number;
+  updatedAt: string;
+  isLarge: boolean;
+  warning?: string;
+};
 
 export const normalizeContextDocumentName = (
   originalName: string
@@ -73,3 +92,17 @@ export const formatContextDocumentSize = (bytes: number): string => {
 
 export const isContextDocumentLarge = (fileSize: number): boolean =>
   fileSize >= CONTEXT_DOCUMENT_LARGE_WARNING_BYTES;
+
+export const getContextDocumentSkillSlug = (
+  name: string | undefined
+): string | undefined => {
+  if (typeof name !== 'string' || !name.endsWith(SKILL_FILENAME_SUFFIX)) {
+    return undefined;
+  }
+
+  const slug = name.slice(0, -SKILL_FILENAME_SUFFIX.length);
+  return SKILL_SLUG_PATTERN.test(slug) ? slug : undefined;
+};
+
+export const isAttemptedContextDocumentSkillFilename = (name: string): boolean =>
+  name.endsWith(SKILL_FILENAME_SUFFIX);

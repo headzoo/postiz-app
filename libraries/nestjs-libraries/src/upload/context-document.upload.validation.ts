@@ -6,6 +6,9 @@ export const CONTEXT_DOCUMENT_LARGE_WARNING_BYTES = 128 * 1024;
 
 const ALLOWED_EXTENSIONS = new Set(['.md', '.markdown']);
 const MAX_FILENAME_LENGTH = 255;
+export const SKILL_FILENAME_SUFFIX = '.skill.md';
+export const SKILL_SLUG_PATTERN = /^[a-z0-9-]+$/;
+export const RESERVED_AGENT_COMMAND_SLUGS = new Set(['followers']);
 
 export type ValidatedContextDocumentUpload = {
   name: string;
@@ -56,6 +59,36 @@ export function normalizeContextDocumentName(originalName: string): string {
   return normalizedName;
 }
 
+export function parseSkillFilename(name: string | undefined): string | undefined {
+  if (typeof name !== 'string') {
+    return undefined;
+  }
+  if (!name.endsWith(SKILL_FILENAME_SUFFIX)) {
+    return undefined;
+  }
+
+  const slug = name.slice(0, -SKILL_FILENAME_SUFFIX.length);
+  return SKILL_SLUG_PATTERN.test(slug) ? slug : undefined;
+}
+
+export function isAttemptedSkillFilename(name: string): boolean {
+  return name.endsWith(SKILL_FILENAME_SUFFIX);
+}
+
+export function buildSkillFilename(slug: string): string {
+  if (!SKILL_SLUG_PATTERN.test(slug)) {
+    throw new BadRequestException(
+      'Agent skill commands must use lowercase letters, numbers, and hyphens.'
+    );
+  }
+
+  return `${slug}${SKILL_FILENAME_SUFFIX}`;
+}
+
+export function isReservedAgentCommandSlug(slug: string): boolean {
+  return RESERVED_AGENT_COMMAND_SLUGS.has(slug);
+}
+
 export function decodeUtf8Fatal(buffer: Buffer): string {
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
@@ -93,6 +126,17 @@ export function validateContextDocumentUpload(
   }
 
   const name = normalizeContextDocumentName(file.originalname || '');
+  const skillSlug = parseSkillFilename(name);
+  if (isAttemptedSkillFilename(name) && !skillSlug) {
+    throw new BadRequestException(
+      'Agent skill filenames must use the format {slug}.skill.md, with lowercase letters, numbers, and hyphens in the slug.'
+    );
+  }
+  if (skillSlug && isReservedAgentCommandSlug(skillSlug)) {
+    throw new BadRequestException(
+      `Agent skill command /${skillSlug} is reserved and cannot be used.`
+    );
+  }
   const content = decodeUtf8Fatal(file.buffer);
 
   if (!content.trim()) {

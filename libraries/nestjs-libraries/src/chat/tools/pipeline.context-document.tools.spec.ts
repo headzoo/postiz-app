@@ -97,6 +97,21 @@ describe('pipeline context document tools', () => {
       );
     });
 
+    it('does not read a legacy attached skill document', async () => {
+      const repository = createRepository();
+      repository.findAttachedToPipeline.mockResolvedValue({
+        ...sampleDocument,
+        name: 'campaign-review.skill.md',
+      });
+      const service = createContextDocumentService(repository);
+
+      await expect(
+        service.getAttachedDocumentForPipeline(organizationId, pipelineId, {
+          documentId: sampleDocument.id,
+        })
+      ).rejects.toThrow(NotFoundException);
+    });
+
     it('returns attached document content by exact name', async () => {
       const repository = createRepository();
       repository.findAttachedToPipeline.mockResolvedValue(sampleDocument);

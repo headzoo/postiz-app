@@ -26,6 +26,25 @@ export class ContextDocumentRepository {
     });
   }
 
+  listSkillMetadata(organizationId: string) {
+    return this._contextDocument.model.contextDocument.findMany({
+      where: {
+        organizationId,
+      },
+      select: metadataSelect,
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+  }
+
+  findSkillByCanonicalName(organizationId: string, name: string) {
+    return this._contextDocument.model.contextDocument.findFirst({
+      where: {
+        organizationId,
+        name,
+      },
+    });
+  }
+
   findById(organizationId: string, id: string) {
     return this._contextDocument.model.contextDocument.findFirst({
       where: {

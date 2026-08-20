@@ -19,6 +19,8 @@ import { FollowerDetailTool } from '@gitroom/nestjs-libraries/chat/tools/followe
 import { FollowerTimelineTool } from '@gitroom/nestjs-libraries/chat/tools/follower.timeline.tool';
 import { FollowerListsTool } from '@gitroom/nestjs-libraries/chat/tools/follower.lists.tool';
 import { FollowerStatisticsTool } from '@gitroom/nestjs-libraries/chat/tools/follower.statistics.tool';
+import { AgentSkillsListTool } from '@gitroom/nestjs-libraries/chat/tools/agent-skills.list.tool';
+import { AgentSkillLoadTool } from '@gitroom/nestjs-libraries/chat/tools/agent-skill.load.tool';
 
 export const toolList = [
   IntegrationListTool,
@@ -34,6 +36,8 @@ export const toolList = [
   PipelinePostsListTool,
   PipelineEnqueuePostTool,
   PipelineContextDocumentReadTool,
+  AgentSkillsListTool,
+  AgentSkillLoadTool,
   IntegrationValidationTool,
   IntegrationTriggerTool,
   IntegrationSchedulePostTool,

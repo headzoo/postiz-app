@@ -41,6 +41,19 @@ export class ContextDocumentsController {
     return this._contextDocumentService.uploadDocument(org.id, file);
   }
 
+  @Get('/skills')
+  listSkills(@GetOrgFromRequest() org: Organization) {
+    return this._contextDocumentService.listSkills(org.id);
+  }
+
+  @Get('/skills/:slug')
+  getSkill(
+    @GetOrgFromRequest() org: Organization,
+    @Param('slug') slug: string
+  ) {
+    return this._contextDocumentService.getSkillBySlug(org.id, slug);
+  }
+
   @Get('/:id')
   getDocument(
     @GetOrgFromRequest() org: Organization,

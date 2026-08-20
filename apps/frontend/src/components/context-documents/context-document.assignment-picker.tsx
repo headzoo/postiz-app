@@ -10,6 +10,7 @@ import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import {
   formatContextDocumentSize,
+  getContextDocumentSkillSlug,
 } from '@gitroom/frontend/components/context-documents/context-document.types';
 import { useContextDocumentList } from '@gitroom/frontend/components/context-documents/use.context-document.list';
 import { PipelineContextDocument } from '@gitroom/frontend/components/pipelines/pipeline.types';
@@ -21,6 +22,7 @@ type AssignmentRow = {
   updatedAt: string;
   isLarge?: boolean;
   stale?: boolean;
+  skill?: boolean;
 };
 
 export const ContextDocumentAssignmentPicker: FC<{
@@ -31,6 +33,10 @@ export const ContextDocumentAssignmentPicker: FC<{
   const t = useT();
   const { data: library = [], error, isLoading } = useContextDocumentList();
   const [search, setSearch] = useState('');
+  const pipelineDocuments = useMemo(
+    () => library.filter((document) => !getContextDocumentSkillSlug(document.name)),
+    [library]
+  );
 
   const rows = useMemo(() => {
     const libraryById = new Map(library.map((document) => [document.id, document]));
@@ -44,12 +50,18 @@ export const ContextDocumentAssignmentPicker: FC<{
       .map((id): AssignmentRow | null => {
         const fromLibrary = libraryById.get(id);
         if (fromLibrary) {
+          const skill = getContextDocumentSkillSlug(fromLibrary.name);
+          if (skill && !selectedIds.includes(id)) {
+            return null;
+          }
           return {
             id: fromLibrary.id,
             name: fromLibrary.name,
             fileSize: fromLibrary.fileSize,
             updatedAt: fromLibrary.updatedAt,
             isLarge: fromLibrary.isLarge,
+            stale: Boolean(skill),
+            skill: Boolean(skill),
           };
         }
 
@@ -61,6 +73,7 @@ export const ContextDocumentAssignmentPicker: FC<{
             fileSize: known.fileSize,
             updatedAt: known.updatedAt,
             stale: true,
+            skill: Boolean(getContextDocumentSkillSlug(known.name)),
           };
         }
 
@@ -151,7 +164,7 @@ export const ContextDocumentAssignmentPicker: FC<{
         </Link>
       </div>
 
-      {!library.length && !selectedIds.length ? (
+      {!pipelineDocuments.length && !selectedIds.length ? (
         <div className="rounded-[8px] border border-newBorder bg-newBgColor px-[14px] py-[12px] text-[13px] opacity-80">
           {t(
             'pipeline_context_documents_empty',
@@ -209,7 +222,9 @@ export const ContextDocumentAssignmentPicker: FC<{
                       )}
                       {row.stale && (
                         <span className="text-[11px] px-[6px] py-[1px] rounded-full border border-amber-500/40 text-amber-500">
-                          {t('context_document_stale_badge', 'Unavailable')}
+                          {row.skill
+                            ? t('agent_skill_badge', 'Skill')
+                            : t('context_document_stale_badge', 'Unavailable')}
                         </span>
                       )}
                     </div>
@@ -227,8 +242,12 @@ export const ContextDocumentAssignmentPicker: FC<{
                     {row.stale && (
                       <div className="text-[12px] text-amber-500">
                         {t(
-                          'context_document_stale_hint',
-                          'This document was removed from the library. Deselect it before saving.'
+                          row.skill
+                            ? 'context_document_skill_stale_hint'
+                            : 'context_document_stale_hint',
+                          row.skill
+                            ? 'Skills cannot be attached to Pipelines. Deselect this skill before saving.'
+                            : 'This document was removed from the library. Deselect it before saving.'
                         )}
                       </div>
                     )}

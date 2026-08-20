@@ -9,21 +9,27 @@ import { ContextDocumentContent } from '@gitroom/frontend/components/context-doc
 export const contextDocumentContentKey = (id: string) =>
   `/context-documents/${id}`;
 
-export const useContextDocumentContent = (id: string) => {
+export const contextDocumentSkillContentKey = (slug: string) =>
+  `/context-documents/skills/${slug}`;
+
+export const useContextDocumentContent = (id: string, skillSlug?: string) => {
   const fetch = useFetch();
+  const key = skillSlug
+    ? contextDocumentSkillContentKey(skillSlug)
+    : contextDocumentContentKey(id);
 
   const load = useCallback(async () => {
-    const response = await fetch(contextDocumentContentKey(id));
+    const response = await fetch(key);
 
     if (!response.ok) {
       throw new Error(await parseApiError(response));
     }
 
     return response.json() as Promise<ContextDocumentContent>;
-  }, [fetch, id]);
+  }, [fetch, key]);
 
   return useSWR<ContextDocumentContent>(
-    id ? contextDocumentContentKey(id) : null,
+    id ? key : null,
     load,
     {
       revalidateOnFocus: false,
