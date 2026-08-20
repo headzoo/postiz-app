@@ -1,0 +1,93 @@
+name: Docs Pages
+
+# Deploy the VitePress documentation site to GitHub Pages.
+#
+# Repository: https://github.com/headzoo/postplusplus
+#
+# Automatically deploys when documentation changes land on main.
+# Manual dispatch remains available so docs can be published from any branch/ref
+# without merging to main first. Provide `source_ref` with the branch, tag, or SHA
+# whose content should be deployed.
+#
+# Required repository setup:
+#   1. Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+#   2. Optional custom domain configured in Pages settings
+#
+# Run from the repo root once this workflow exists on a dispatchable ref:
+#
+#   gh workflow run docs-pages.yml --ref main -f source_ref=main
+#
+# Deployed site entry point:
+#   https://headzoo.github.io/postplusplus/
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - README.md
+      - docs/**
+      - scripts/build-docs-nav.mjs
+      - scripts/docs-nav.config.mjs
+      - scripts/docs-slugger.mjs
+      - scripts/docs-link-rewriter.mjs
+      - scripts/docs-site.config.mjs
+      - scripts/assert-docs-slugs.mjs
+      - scripts/watch-docs-nav.mjs
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/docs-pages.yml
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Branch, tag, or SHA to build docs from'
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs site
+        run: pnpm docs:build
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/.vitepress/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

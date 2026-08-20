@@ -21,21 +21,27 @@ export const syncedPages = [];
  */
 export const docsNav = [
   { kind: 'overview', title: 'Internal Overview' },
+  { kind: 'page', slug: 'features', title: 'Features', maxDepth: 3 },
   { kind: 'page', slug: 'architecture', title: 'Architecture', maxDepth: 3 },
   { kind: 'page', slug: 'backend-api', title: 'Backend API', maxDepth: 3 },
   { kind: 'page', slug: 'public-api', title: 'Public API', maxDepth: 3 },
   { kind: 'page', slug: 'workflows', title: 'Temporal Workflows', maxDepth: 3 },
   { kind: 'page', slug: 'database', title: 'Database', maxDepth: 3 },
-  { kind: 'page', slug: 'frontend-api', title: 'Frontend API Clients', maxDepth: 3 },
+  {
+    kind: 'page',
+    slug: 'frontend-api',
+    title: 'Frontend API Clients',
+    maxDepth: 3,
+  },
   { kind: 'page', slug: 'operations', title: 'Operations', maxDepth: 3 },
 ];
 
 /** Slugs of canonical overview pages committed under docs/<slug>/index.md. */
 export const groupOverviewSlugs = new Set(
-  docsNav.filter((entry) => entry.kind === 'group').map((entry) => entry.slug),
+  docsNav.filter((entry) => entry.kind === 'group').map((entry) => entry.slug)
 );
 
 /** Slugs of canonical guide pages committed as docs/<slug>.md. */
 export const canonicalPageSlugs = new Set(
-  docsNav.filter((entry) => entry.kind === 'page').map((entry) => entry.slug),
+  docsNav.filter((entry) => entry.kind === 'page').map((entry) => entry.slug)
 );

@@ -11,20 +11,20 @@
   display: inline-block;
 }
 
-/* Brand mark: full width of the sidebar column (see SidebarBrand.vue) */
+/* Brand mark: native-size mark above the sidebar nav (see SidebarBrand.vue) */
 .docs-sidebar-brand {
   display: block;
-  margin: 0 -32px 20px;
+  margin: 0 0 20px;
   padding: 0 0 20px;
   border-bottom: 1px solid var(--vp-c-divider);
   box-sizing: border-box;
-  width: calc(100% + 64px);
+  width: auto;
 }
 
 .docs-sidebar-brand img {
   display: block;
-  width: 95%;
-  height: auto;
+  width: 120px;
+  height: 120px;
 }
 
 /*

@@ -11,6 +11,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["**/*.ts", "**/*.vue", "env.d.ts"],
+  "include": ["**/*.ts", "**/*.mts", "**/*.vue", "env.d.ts"],
   "exclude": [".temp", "cache", "dist"]
 }

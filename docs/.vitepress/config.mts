@@ -82,7 +82,7 @@ export default defineConfig({
   },
   themeConfig: {
     logo: {
-      src: 'https://github.com/user-attachments/assets/f0d30d70-dddb-4142-8876-e9aa6ed1cb99',
+      src: '/images/logo.png',
       alt: 'Post++ Internal Docs',
     },
     siteTitle: false,

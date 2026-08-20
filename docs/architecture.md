@@ -10,7 +10,7 @@ Key boundaries:
 
 - `apps/backend` is the NestJS API process. It wires controllers, authentication middleware, guards, and provider managers.
 - `apps/orchestrator` is the Temporal worker process. It registers workflows and activities using `getTemporalModule`.
-- `apps/frontend` is the Vite React application. It calls backend routes through SWR hooks and the shared `useFetch` helper.
+- `apps/frontend` is the Next.js React application. It calls backend routes through SWR hooks and the shared `useFetch` helper.
 - `libraries/nestjs-libraries` is the server domain library. It owns Prisma services/repositories, DTOs, integrations, upload adapters, Temporal registration helpers, and reusable services.
 - `libraries/helpers` is a cross-runtime helper package. The frontend fetch wrapper lives here and should remain generic.
 

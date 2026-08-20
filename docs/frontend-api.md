@@ -1,6 +1,6 @@
 # Frontend API Clients
 
-The frontend is a Vite React app under `apps/frontend`. API calls should use SWR and the shared `useFetch` hook from `libraries/helpers/src/utils/custom.fetch.tsx`.
+The frontend is a Next.js React app under `apps/frontend`. API calls should use SWR and the shared `useFetch` hook from `libraries/helpers/src/utils/custom.fetch.tsx`.
 
 ## Fetch Wrapper
 

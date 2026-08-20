@@ -6,6 +6,7 @@ These docs are for maintainers working inside the Post++ monorepo. They focus on
 
 Use this site as a map before editing code:
 
+- [Features](/features) describes the app's capabilities from a non-technical perspective.
 - [Architecture](/architecture) explains the monorepo shape and ownership boundaries.
 - [Backend API](/backend-api) covers authenticated NestJS controllers and the DTO/service/repository flow.
 - [Public API](/public-api) covers the token-auth `/public/v1` API surface.
@@ -20,7 +21,7 @@ Post++ is a PNPM monorepo:
 
 - `apps/backend` contains the NestJS HTTP API.
 - `apps/orchestrator` contains Temporal workers, workflows, and activities.
-- `apps/frontend` contains the Vite React app.
+- `apps/frontend` contains the Next.js React app.
 - `libraries/nestjs-libraries` contains shared server-side services, Prisma repositories, integrations, uploads, Temporal registration, and DTOs.
 - `libraries/helpers` contains shared helpers used by frontend and server packages.
 
