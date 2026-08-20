@@ -85,7 +85,10 @@ const createService = ({
         }),
       },
     } as any,
-    {} as any
+    {} as any,
+    {
+      isLikerSyncPausedForIntegration: jest.fn().mockResolvedValue(false),
+    } as any
   );
 };
 

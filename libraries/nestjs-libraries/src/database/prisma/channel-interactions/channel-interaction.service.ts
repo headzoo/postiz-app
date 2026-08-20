@@ -68,6 +68,50 @@ const MAX_POST_CONTENT_LENGTH = 100000;
 // with a token that expires mid-flight.
 const AUTHORIZATION_REFRESH_SKEW_MS = 60 * 1000;
 const AUTHORIZATION_REFRESH_LOCK_SECONDS = 60;
+const LIKER_SYNC_PAUSE_FALLBACK_SECONDS = 15 * 60;
+const likerSyncPauseKey = (integrationId: string) =>
+  `channel-interaction-liker-sync:${integrationId}`;
+
+function getProviderErrorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+  const err = error as {
+    code?: unknown;
+    status?: unknown;
+    rateLimitError?: unknown;
+    response?: { status?: unknown };
+  };
+  const candidates = [err.code, err.status, err.response?.status];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate;
+    }
+  }
+  return err.rateLimitError === true ? 429 : undefined;
+}
+
+function getProviderRateLimitResetMs(error: unknown): number | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+  const reset = (error as { rateLimit?: { reset?: unknown } }).rateLimit?.reset;
+  if (typeof reset !== 'number' || !Number.isFinite(reset) || reset <= 0) {
+    return undefined;
+  }
+  // twitter-api-v2 exposes reset as unix seconds.
+  return reset > 1e12 ? reset : reset * 1000;
+}
+
+function formatProviderError(error: unknown): string {
+  const status = getProviderErrorStatus(error);
+  const message = error instanceof Error ? error.message : 'unknown error';
+  return status ? `${message} (${status})` : message;
+}
+
+function isProviderRateLimitError(error: unknown): boolean {
+  return getProviderErrorStatus(error) === 429;
+}
 
 const KIND_MAP: Record<ChannelInteractionKind, PrismaInteractionKind> = {
   like: PrismaInteractionKind.LIKE,
@@ -586,13 +630,22 @@ export class ChannelInteractionService {
     return { created, duplicates, membershipOnly };
   }
 
+  async isLikerSyncPausedForIntegration(integrationId: string) {
+    return this.isLikerSyncPaused(integrationId);
+  }
+
   async syncInboundLikesFromPosts(
     integration: Integration,
     postIds: string[],
     syncedAt = new Date()
-  ): Promise<{ created: number; duplicates: number; skipped: boolean }> {
+  ): Promise<{
+    created: number;
+    duplicates: number;
+    skipped: boolean;
+    rateLimited?: boolean;
+  }> {
     if (!this._integrationManager) {
-      return { created: 0, duplicates: 0, skipped: true };
+      return { created: 0, duplicates: 0, skipped: true, rateLimited: false };
     }
 
     let provider: SocialProvider;
@@ -601,11 +654,15 @@ export class ChannelInteractionService {
         integration.providerIdentifier
       );
     } catch {
-      return { created: 0, duplicates: 0, skipped: true };
+      return { created: 0, duplicates: 0, skipped: true, rateLimited: false };
     }
 
     if (!provider.postLikers) {
-      return { created: 0, duplicates: 0, skipped: true };
+      return { created: 0, duplicates: 0, skipped: true, rateLimited: false };
+    }
+
+    if (await this.isLikerSyncPaused(integration.id)) {
+      return { created: 0, duplicates: 0, skipped: true, rateLimited: true };
     }
 
     const uniquePostIds = [
@@ -622,6 +679,7 @@ export class ChannelInteractionService {
 
     let created = 0;
     let duplicates = 0;
+    let rateLimited = false;
     const dirtyExternalIds = new Set<string>();
 
     for (const postId of uniquePostIds) {
@@ -633,9 +691,19 @@ export class ChannelInteractionService {
           postId
         );
       } catch (error) {
+        if (isProviderRateLimitError(error)) {
+          const resetMs =
+            getProviderRateLimitResetMs(error) ??
+            Date.now() + LIKER_SYNC_PAUSE_FALLBACK_SECONDS * 1000;
+          await this.pauseLikerSync(integration.id, resetMs);
+          rateLimited = true;
+          console.log(
+            `Rate limited loading likers for ${integration.providerIdentifier}; paused until ${new Date(resetMs).toISOString()}`
+          );
+          break;
+        }
         console.log(
-          `Failed to load likers for ${integration.providerIdentifier} post ${postId}:`,
-          error
+          `Failed to load likers for ${integration.providerIdentifier} post ${postId}: ${formatProviderError(error)}`
         );
         continue;
       }
@@ -706,7 +774,26 @@ export class ChannelInteractionService {
       }
     }
 
-    return { created, duplicates, skipped: false };
+    return {
+      created,
+      duplicates,
+      skipped: false,
+      ...(rateLimited ? { rateLimited: true } : {}),
+    };
+  }
+
+  private async isLikerSyncPaused(integrationId: string) {
+    return !!(await ioRedis.get(likerSyncPauseKey(integrationId)));
+  }
+
+  private async pauseLikerSync(integrationId: string, resetMs: number) {
+    const ttlSeconds = Math.max(1, Math.ceil((resetMs - Date.now()) / 1000));
+    await ioRedis.set(
+      likerSyncPauseKey(integrationId),
+      '1',
+      'EX',
+      ttlSeconds
+    );
   }
 
   private async refreshRelationshipGradeProjections(

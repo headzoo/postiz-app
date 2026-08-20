@@ -48,6 +48,7 @@ import { timer } from '@gitroom/helpers/utils/timer';
 import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import { RefreshToken } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
+import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
 import { stripLinks } from '@gitroom/helpers/utils/strip.links';
 import { validate } from 'class-validator';
@@ -71,7 +72,8 @@ export class PostsService {
     private _shortLinkService: ShortLinkService,
     private _openaiService: OpenaiService,
     private _temporalService: TemporalService,
-    private _refreshIntegrationService: RefreshIntegrationService
+    private _refreshIntegrationService: RefreshIntegrationService,
+    private _channelInteractionService: ChannelInteractionService
   ) { }
 
   searchForMissingThreeHoursPosts() {
@@ -319,6 +321,19 @@ export class PostsService {
     const getIntegration = post.integration!;
 
     if (
+      await this._channelInteractionService.isLikerSyncPausedForIntegration(
+        getIntegration.id
+      )
+    ) {
+      return {
+        supported: true,
+        users: [],
+        error:
+          'Liker sync is temporarily paused due to provider rate limits',
+      };
+    }
+
+    if (
       dayjs(getIntegration?.tokenExpiration).isBefore(dayjs()) ||
       forceRefresh
     ) {
@@ -359,7 +374,10 @@ export class PostsService {
       );
       return { supported: true, users };
     } catch (e) {
-      console.log(e);
+      console.log(
+        `Failed to load likers for ${getIntegration.providerIdentifier} post ${post.releaseId}: ${e instanceof Error ? e.message : 'unknown error'
+        }`
+      );
       if (e instanceof RefreshToken) {
         return this.getPostLikers(orgId, postId, true);
       }

@@ -16,6 +16,7 @@ jest.mock(
 
 jest.mock('@gitroom/nestjs-libraries/redis/redis.service', () => ({
   ioRedis: {
+    get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue('OK'),
     del: jest.fn().mockResolvedValue(1),
   },
@@ -180,7 +181,7 @@ describe('ChannelInteractionService', () => {
         } as any,
         ['tweet-1']
       )
-    ).resolves.toEqual({ created: 0, duplicates: 0, skipped: true });
+    ).resolves.toEqual({ created: 0, duplicates: 0, skipped: true, rateLimited: false });
 
     expect(repository.recordPolledInboundLike).not.toHaveBeenCalled();
   });
@@ -254,6 +255,191 @@ describe('ChannelInteractionService', () => {
       },
       syncedAt
     );
+  });
+
+  it('keeps syncing inbound likes after a non-rate-limit liker error', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation();
+    try {
+      const repository = createRepository();
+      const postLikers = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('not found'))
+        .mockResolvedValueOnce([{ id: 'person-2', name: 'Two' }]);
+      const manager = {
+        getSocialIntegration: jest.fn().mockReturnValue({ postLikers }),
+      };
+      const service = new ChannelInteractionService(
+        repository as any,
+        manager as any
+      );
+
+      await expect(
+        service.syncInboundLikesFromPosts(
+          {
+            id: 'integration',
+            organizationId: 'org',
+            providerIdentifier: 'x',
+            token: 'token',
+          } as any,
+          ['tweet-1', 'tweet-2']
+        )
+      ).resolves.toEqual({ created: 1, duplicates: 0, skipped: false });
+
+      expect(postLikers).toHaveBeenCalledTimes(2);
+      expect(log).toHaveBeenCalledWith(
+        'Failed to load likers for x post tweet-1: not found'
+      );
+      expect(log.mock.calls.every((call) => call.length === 1)).toBe(true);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it('stops inbound like sync after a rate-limit error', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation();
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000_000);
+    try {
+      const repository = createRepository();
+      const resetUnixSeconds = 1_000_000_900;
+      const rateLimit = Object.assign(new Error('Request failed with code 429'), {
+        code: 429,
+        rateLimit: { limit: 75, remaining: 0, reset: resetUnixSeconds },
+      });
+      const postLikers = jest
+        .fn()
+        .mockRejectedValueOnce(rateLimit)
+        .mockResolvedValueOnce([{ id: 'person-2', name: 'Two' }]);
+      const manager = {
+        getSocialIntegration: jest.fn().mockReturnValue({ postLikers }),
+      };
+      const service = new ChannelInteractionService(
+        repository as any,
+        manager as any
+      );
+
+      await expect(
+        service.syncInboundLikesFromPosts(
+          {
+            id: 'integration',
+            organizationId: 'org',
+            providerIdentifier: 'x',
+            token: 'token',
+          } as any,
+          ['tweet-1', 'tweet-2', 'tweet-3']
+        )
+      ).resolves.toEqual({
+        created: 0,
+        duplicates: 0,
+        skipped: false,
+        rateLimited: true,
+      });
+
+      expect(postLikers).toHaveBeenCalledTimes(1);
+      expect(repository.recordPolledInboundLike).not.toHaveBeenCalled();
+      expect(ioRedis.set).toHaveBeenCalledWith(
+        'channel-interaction-liker-sync:integration',
+        '1',
+        'EX',
+        900
+      );
+      expect(log).toHaveBeenCalledWith(
+        `Rate limited loading likers for x; paused until ${new Date(
+          resetUnixSeconds * 1000
+        ).toISOString()}`
+      );
+      expect(log.mock.calls.flat()).not.toContain(rateLimit);
+    } finally {
+      nowSpy.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it('skips inbound like sync while a rate-limit pause is active', async () => {
+    (ioRedis.get as jest.Mock).mockResolvedValueOnce('1');
+    const repository = createRepository();
+    const postLikers = jest.fn().mockResolvedValue([{ id: 'person-1' }]);
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({ postLikers }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any
+    );
+
+    await expect(
+      service.syncInboundLikesFromPosts(
+        {
+          id: 'integration',
+          organizationId: 'org',
+          providerIdentifier: 'x',
+          token: 'token',
+        } as any,
+        ['tweet-1']
+      )
+    ).resolves.toEqual({
+      created: 0,
+      duplicates: 0,
+      skipped: true,
+      rateLimited: true,
+    });
+
+    expect(postLikers).not.toHaveBeenCalled();
+    expect(repository.recordPolledInboundLike).not.toHaveBeenCalled();
+  });
+
+  it('skips a second inbound like sync after a rate-limit pause is set', async () => {
+    const log = jest.spyOn(console, 'log').mockImplementation();
+    try {
+      const repository = createRepository();
+      const rateLimit = Object.assign(new Error('Request failed with code 429'), {
+        code: 429,
+        rateLimit: { limit: 75, remaining: 0, reset: 1_787_237_965 },
+      });
+      const postLikers = jest.fn().mockRejectedValueOnce(rateLimit);
+      const manager = {
+        getSocialIntegration: jest.fn().mockReturnValue({ postLikers }),
+      };
+      const service = new ChannelInteractionService(
+        repository as any,
+        manager as any
+      );
+      const integration = {
+        id: 'integration',
+        organizationId: 'org',
+        providerIdentifier: 'x',
+        token: 'token',
+      } as any;
+
+      await expect(
+        service.syncInboundLikesFromPosts(integration, ['tweet-1'])
+      ).resolves.toEqual({
+        created: 0,
+        duplicates: 0,
+        skipped: false,
+        rateLimited: true,
+      });
+
+      (ioRedis.get as jest.Mock).mockResolvedValueOnce('1');
+
+      await expect(
+        service.syncInboundLikesFromPosts(integration, ['tweet-2'])
+      ).resolves.toEqual({
+        created: 0,
+        duplicates: 0,
+        skipped: true,
+        rateLimited: true,
+      });
+
+      expect(postLikers).toHaveBeenCalledTimes(1);
+      expect(ioRedis.set).toHaveBeenCalledWith(
+        'channel-interaction-liker-sync:integration',
+        '1',
+        'EX',
+        expect.any(Number)
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('applies a personal grade as a half-star offset around a 3-star neutral', () => {

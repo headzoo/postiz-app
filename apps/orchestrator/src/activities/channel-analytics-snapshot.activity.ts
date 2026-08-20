@@ -109,15 +109,21 @@ export class ChannelAnalyticsSnapshotActivity {
             integration,
             provider
           );
-          await this._channelInteractionService.syncInboundLikesFromPosts(
-            liveIntegration,
-            tweetIds,
-            snapshotAt
-          );
+          const result =
+            await this._channelInteractionService.syncInboundLikesFromPosts(
+              liveIntegration,
+              tweetIds,
+              snapshotAt
+            );
+          if (result.rateLimited) {
+            console.log(
+              `Liker sync rate-limited for integration ${request.candidate.id}; analytics capture continues`
+            );
+          }
         } catch (error) {
           console.log(
-            `Failed to sync inbound likes for integration ${request.candidate.id}:`,
-            error
+            `Failed to sync inbound likes for integration ${request.candidate.id}: ${error instanceof Error ? error.message : 'unknown error'
+            }`
           );
         }
       }
