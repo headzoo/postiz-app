@@ -105,19 +105,16 @@ Post++ supports automation through API access and integrations. Users can connec
 
 This makes Post++ useful not only as a web app, but also as part of a larger content operations system.
 
-### Self-Hosted And Hosted Usage
-
-Post++ supports self-hosted deployments as well as hosted usage. That gives teams flexibility over infrastructure, data ownership, and operating model while keeping the core scheduling and automation workflow consistent.
-
 ## Development
+
+````bash
+docker compose -f docker-compose.dev.yaml up -d --build
+```
 
 ```bash
 pnpm install
-pnpm test
-pnpm docs:serve
-pnpm docs:build
-SCREENSHOT_AUTH_TOKEN=<token> pnpm docs:screenshots
-```
+pnpm dev
+````
 
 ## License
 
