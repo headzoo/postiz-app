@@ -27,7 +27,7 @@ jest.mock('@gitroom/react/translation/get.transation.service.client', () => ({
   },
 }));
 
-const history: FollowerRelationshipSnapshot[] = [
+const v1History: FollowerRelationshipSnapshot[] = [
   {
     snapshotAt: '2026-01-01T00:00:00.000Z',
     windowStartedAt: '2025-12-02T00:00:00.000Z',
@@ -57,7 +57,7 @@ const history: FollowerRelationshipSnapshot[] = [
 ];
 
 const mixedHistory: FollowerRelationshipSnapshot[] = [
-  ...history,
+  ...v1History,
   {
     snapshotAt: '2026-03-01T00:00:00.000Z',
     windowStartedAt: '2026-01-30T00:00:00.000Z',
@@ -74,32 +74,30 @@ const mixedHistory: FollowerRelationshipSnapshot[] = [
 ];
 
 describe('FollowerRelationshipChart', () => {
-  it('renders accessible grade history for every snapshot', () => {
-    render(<FollowerRelationshipChart history={history} />);
+  it('renders nothing when history is only formula v1', () => {
+    const { container } = render(
+      <FollowerRelationshipChart history={v1History} />
+    );
+
+    expect(container.firstChild).toBeNull();
+    expect(
+      screen.queryByRole('table', { name: 'Relationship history' })
+    ).toBeNull();
+  });
+
+  it('renders only formula v2 snapshots from mixed history', () => {
+    render(<FollowerRelationshipChart history={mixedHistory} />);
 
     const table = screen.getByRole('table', { name: 'Relationship history' });
     const rows = within(table).getAllByRole('row');
 
-    expect(rows).toHaveLength(3);
-
-    expect(
-      screen.getByText('No grade (not enough tracked activity)')
-    ).toBeTruthy();
-    expect(screen.getByText('3.5')).toBeTruthy();
-    expect(screen.getAllByText('Reciprocity (v1)')).toHaveLength(2);
-    expect(screen.getByText('10')).toBeTruthy();
-    expect(screen.getByText('5')).toBeTruthy();
-    expect(screen.getByText('50%')).toBeTruthy();
-    expect(screen.getByText('—')).toBeTruthy();
-    expect(screen.queryByText(/out of 5/i)).toBeNull();
-  });
-
-  it('labels mixed formula versions separately in the history table', () => {
-    render(<FollowerRelationshipChart history={mixedHistory} />);
-
-    expect(screen.getAllByText('Reciprocity (v1)')).toHaveLength(2);
+    expect(rows).toHaveLength(2);
+    expect(screen.queryByText('Reciprocity (v1)')).toBeNull();
     expect(screen.getByText('Priority (v2)')).toBeTruthy();
     expect(screen.getByText('4')).toBeTruthy();
+    expect(screen.getByText('8')).toBeTruthy();
+    expect(screen.getByText('12')).toBeTruthy();
+    expect(screen.getByText('67%')).toBeTruthy();
   });
 
   it('renders nothing when history is empty', () => {

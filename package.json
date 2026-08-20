@@ -42,7 +42,11 @@
     "docker-build": "./var/docker/docker-build.sh",
     "docker-create": "./var/docker/docker-create.sh",
     "postinstall": "pnpm run prisma-generate",
-    "test": "jest --coverage --detectOpenHandles --reporters=default --reporters=jest-junit"
+    "test": "jest --coverage --detectOpenHandles --reporters=default --reporters=jest-junit",
+    "docs:build": "pnpm docs:build:nav && vitepress build docs",
+    "docs:build:nav": "node scripts/build-docs-nav.mjs && node scripts/assert-docs-slugs.mjs",
+    "docs:preview": "pnpm docs:build && vitepress preview docs",
+    "docs:serve": "pnpm docs:build:nav && concurrently --kill-others --prefixColors=auto -n nav,vp \"node scripts/watch-docs-nav.mjs\" \"vitepress dev docs\""
   },
   "dependencies": {
     "@ag-ui/mastra": "^1.0.1",
@@ -295,6 +299,7 @@
     "@vitest/ui": "1.6.0",
     "autoprefixer": "^10.4.17",
     "babel-jest": "29.7.0",
+    "concurrently": "^10.0.5",
     "cross-env": "^10.0.0",
     "eslint": "8.57.0",
     "eslint-config-next": "16.2.6",
@@ -321,6 +326,7 @@
     "typescript": "5.5.4",
     "vite": "^6.3.5",
     "vite-tsconfig-paths": "^5.1.4",
+    "vitepress": "^1.6.4",
     "vitest": "3.1.4"
   },
   "volta": {

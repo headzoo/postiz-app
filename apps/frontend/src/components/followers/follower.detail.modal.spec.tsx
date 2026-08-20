@@ -110,7 +110,7 @@ const detail: FollowerMemberDetail = {
   relationship: {
     windowDays: 30,
     cadenceDays: 3,
-    formulaVersion: 1,
+    formulaVersion: 2,
     current: {
       snapshotAt: '2026-02-01T00:00:00.000Z',
       windowStartedAt: '2026-01-02T00:00:00.000Z',
@@ -122,7 +122,7 @@ const detail: FollowerMemberDetail = {
       effortStars: 2,
       reciprocationStars: 1.5,
       triage: 'over_invested',
-      formulaVersion: 1,
+      formulaVersion: 2,
     },
     history: [
       {
@@ -136,7 +136,7 @@ const detail: FollowerMemberDetail = {
         effortStars: 1,
         reciprocationStars: 1,
         triage: 'quiet',
-        formulaVersion: 1,
+        formulaVersion: 2,
       },
       {
         snapshotAt: '2026-02-01T00:00:00.000Z',
@@ -149,7 +149,7 @@ const detail: FollowerMemberDetail = {
         effortStars: 2,
         reciprocationStars: 1.5,
         triage: 'over_invested',
-        formulaVersion: 1,
+        formulaVersion: 2,
       },
     ],
   },
@@ -325,7 +325,7 @@ describe('FollowerDetailModal', () => {
 
     expect(
       notesHeading.compareDocumentPosition(interactionsHeading) &
-        Node.DOCUMENT_POSITION_FOLLOWING
+      Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(screen.getByTestId('custom-scroll-area').getAttribute('data-max-height')).toBe(
       '300px'

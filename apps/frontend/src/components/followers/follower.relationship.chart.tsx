@@ -1,6 +1,6 @@
 'use client';
 
-import { FC, useEffect, useRef } from 'react';
+import { FC, useEffect, useMemo, useRef } from 'react';
 import DrawChart from 'chart.js/auto';
 import { newDayjs } from '@gitroom/frontend/components/layout/set.timezone';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
@@ -43,56 +43,21 @@ export const FollowerRelationshipChart: FC<{
   const ref = useRef<HTMLCanvasElement | null>(null);
   const chart = useRef<DrawChart | null>(null);
 
-  const hasV1History = history.some((snapshot) => snapshot.formulaVersion === 1);
-  const hasV2History = history.some((snapshot) => snapshot.formulaVersion === 2);
-  const reciprocityLabel = t(
-    'followers_formula_reciprocity_v1',
-    'Reciprocity (v1)'
+  const visibleHistory = useMemo(
+    () => history.filter((snapshot) => snapshot.formulaVersion !== 1),
+    [history]
   );
   const priorityLabel = t('followers_formula_priority_v2', 'Priority (v2)');
 
   useEffect(() => {
-    if (!ref.current || !history.length) {
+    if (!ref.current || !visibleHistory.length) {
       return;
     }
 
-    const labels = history.map((snapshot) =>
+    const labels = visibleHistory.map((snapshot) =>
       newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')
     );
-    const v1Grades = history.map((snapshot) =>
-      snapshot.formulaVersion === 1 ? snapshot.grade : null
-    );
-    const v2Grades = history.map((snapshot) =>
-      snapshot.formulaVersion === 2 ? snapshot.grade : null
-    );
-
-    const datasets = [];
-    if (hasV1History) {
-      datasets.push({
-        label: reciprocityLabel,
-        data: v1Grades,
-        borderColor: '#8b5cf6',
-        backgroundColor: 'rgba(139, 92, 246, 0.15)',
-        pointBackgroundColor: '#8b5cf6',
-        pointRadius: 4,
-        tension: 0.2,
-        fill: false,
-        spanGaps: false,
-      });
-    }
-    if (hasV2History) {
-      datasets.push({
-        label: priorityLabel,
-        data: v2Grades,
-        borderColor: '#2563eb',
-        backgroundColor: 'rgba(37, 99, 235, 0.15)',
-        pointBackgroundColor: '#2563eb',
-        pointRadius: 4,
-        tension: 0.2,
-        fill: false,
-        spanGaps: false,
-      });
-    }
+    const grades = visibleHistory.map((snapshot) => snapshot.grade);
 
     chart.current = new DrawChart(ref.current, {
       type: 'line',
@@ -125,12 +90,12 @@ export const FollowerRelationshipChart: FC<{
         },
         plugins: {
           legend: {
-            display: datasets.length > 1,
+            display: false,
           },
           tooltip: {
             callbacks: {
               label: (context) => {
-                const snapshot = history[context.dataIndex];
+                const snapshot = visibleHistory[context.dataIndex];
                 if (!snapshot) {
                   return '';
                 }
@@ -163,7 +128,19 @@ export const FollowerRelationshipChart: FC<{
       },
       data: {
         labels,
-        datasets,
+        datasets: [
+          {
+            label: priorityLabel,
+            data: grades,
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.15)',
+            pointBackgroundColor: '#2563eb',
+            pointRadius: 4,
+            tension: 0.2,
+            fill: false,
+            spanGaps: false,
+          },
+        ],
       },
     });
 
@@ -171,9 +148,9 @@ export const FollowerRelationshipChart: FC<{
       chart.current?.destroy();
       chart.current = null;
     };
-  }, [hasV1History, hasV2History, history, priorityLabel, reciprocityLabel, t]);
+  }, [priorityLabel, t, visibleHistory]);
 
-  if (!history.length) {
+  if (!visibleHistory.length) {
     return null;
   }
 
@@ -212,7 +189,7 @@ export const FollowerRelationshipChart: FC<{
           </tr>
         </thead>
         <tbody>
-          {history.map((snapshot) => (
+          {visibleHistory.map((snapshot) => (
             <tr
               key={snapshot.snapshotAt}
               className="border-b border-newTableBorder"
