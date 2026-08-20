@@ -107,14 +107,14 @@ This makes Post++ useful not only as a web app, but also as part of a larger con
 
 ## Development
 
-````bash
+```bash
 docker compose -f docker-compose.dev.yaml up -d --build
 ```
 
 ```bash
 pnpm install
 pnpm dev
-````
+```
 
 ## License
 
