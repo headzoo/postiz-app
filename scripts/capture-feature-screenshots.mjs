@@ -7,7 +7,7 @@
  *
  * Optional:
  *   SCREENSHOT_BASE_URL    Default http://localhost:4200
- *   SCREENSHOT_OUTPUT_DIR  Default docs/.vitepress/static/images/features
+ *   SCREENSHOT_OUTPUT_DIR  Default images/features
  */
 import { access, mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -24,7 +24,7 @@ const baseUrl = (
 const authToken = process.env.SCREENSHOT_AUTH_TOKEN;
 const outputDir = path.resolve(
   repoDir,
-  process.env.SCREENSHOT_OUTPUT_DIR || 'docs/.vitepress/static/images/features'
+  process.env.SCREENSHOT_OUTPUT_DIR || 'images/features'
 );
 
 const VIEWPORT = { width: 1440, height: 900 };

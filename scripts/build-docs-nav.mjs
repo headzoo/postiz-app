@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rewriteMarkdownLinks } from './docs-link-rewriter.mjs';
@@ -8,7 +8,15 @@ import { getHeadings, normalizeHeadingText } from './docs-slugger.mjs';
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoDir = path.resolve(scriptDir, '..');
 const docsDir = path.join(repoDir, 'docs');
-const sidebarGeneratedPath = path.join(repoDir, 'docs/.vitepress/sidebar.generated.ts');
+const sidebarGeneratedPath = path.join(
+  repoDir,
+  'docs/.vitepress/sidebar.generated.ts'
+);
+const featureScreenshotsSourceDir = path.join(repoDir, 'images/features');
+const featureScreenshotsTargetDir = path.join(
+  repoDir,
+  'docs/.vitepress/static/images/features'
+);
 
 /**
  * Builds a VitePress page link for a section slug and optional anchor.
@@ -48,7 +56,7 @@ const buildPageSidebarItems = (slug, headings, maxSectionDepth = 4) => {
   let currentSubSection;
 
   for (const heading of headings.filter(
-    (item) => item.level >= 2 && item.level <= maxSectionDepth,
+    (item) => item.level >= 2 && item.level <= maxSectionDepth
   )) {
     if (heading.level === 2) {
       const node = {
@@ -62,7 +70,11 @@ const buildPageSidebarItems = (slug, headings, maxSectionDepth = 4) => {
       continue;
     }
 
-    if (heading.level === 3 && currentSection?.level === 2 && maxSectionDepth >= 3) {
+    if (
+      heading.level === 3 &&
+      currentSection?.level === 2 &&
+      maxSectionDepth >= 3
+    ) {
       const child = {
         text: toSidebarText(heading.title),
         link: buildPageLink('', slug, heading.anchor),
@@ -130,7 +142,8 @@ const buildVitePressSidebar = async (nav) => {
   const bottomItems = [];
 
   for (const entry of nav) {
-    const target = 'pinnedBottom' in entry && entry.pinnedBottom ? bottomItems : mainItems;
+    const target =
+      'pinnedBottom' in entry && entry.pinnedBottom ? bottomItems : mainItems;
 
     if (entry.kind === 'overview') {
       target.push({ text: entry.title, link: '/' });
@@ -153,7 +166,11 @@ const buildVitePressSidebar = async (nav) => {
     const pagePath = path.join(docsDir, `${entry.slug}.md`);
     const markdown = await readFile(pagePath, 'utf8');
     const headings = getHeadings(markdown);
-    const subItems = buildPageSidebarItems(entry.slug, headings, entry.maxDepth ?? 3);
+    const subItems = buildPageSidebarItems(
+      entry.slug,
+      headings,
+      entry.maxDepth ?? 3
+    );
     const node = {
       text: entry.title,
       link: `/${entry.slug}`,
@@ -211,13 +228,22 @@ const syncMarkdownPage = async (sourcePath, targetPath) => {
   const sourceDir = path.posix.dirname(sourcePath.replace(/\\/g, '/'));
 
   await ensureDir(path.dirname(absoluteTarget));
-  await writeFile(absoluteTarget, rewriteMarkdownLinks(markdown, { sourceDir }));
+  await writeFile(
+    absoluteTarget,
+    rewriteMarkdownLinks(markdown, { sourceDir })
+  );
 };
 
 const sidebar = await buildVitePressSidebar(docsNav);
 
 await ensureDir(path.join(repoDir, 'docs/.vitepress'));
 await writeFile(sidebarGeneratedPath, buildVitePressSidebarFile(sidebar));
+
+await ensureDir(featureScreenshotsTargetDir);
+await cp(featureScreenshotsSourceDir, featureScreenshotsTargetDir, {
+  recursive: true,
+  force: true,
+});
 
 let syncedCount = 0;
 
@@ -229,5 +255,6 @@ for (const page of syncedPages) {
 
 console.log(
   `Updated ${path.relative(repoDir, sidebarGeneratedPath)}` +
-    (syncedCount > 0 ? ` and synced ${syncedCount} markdown page(s)` : ''),
+    `, synced feature screenshots` +
+    (syncedCount > 0 ? `, and synced ${syncedCount} markdown page(s)` : '')
 );
