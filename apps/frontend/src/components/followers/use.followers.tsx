@@ -129,6 +129,11 @@ export type Follower = {
   relationshipSnapshotAt?: string | null;
   myGrade?: number | null;
   adjustedGrade?: number | null;
+  botGrade?: number | null;
+  isBot?: boolean | null;
+  botConfidence?: number | null;
+  botFormulaVersion?: number | null;
+  botGradedAt?: string | null;
   listIds?: string[];
   isLead?: boolean;
   engagedNotYet?: boolean;
@@ -276,6 +281,7 @@ export type UseFollowersParams = {
   triage?: FollowerTriageFilter;
   audience?: 'lead' | 'ignored';
   listId?: string;
+  isBot?: boolean;
 };
 
 export const buildFollowersUrl = ({
@@ -289,6 +295,7 @@ export const buildFollowersUrl = ({
   triage,
   audience,
   listId,
+  isBot,
 }: UseFollowersParams & { integrationId: string }) => {
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) {
@@ -314,6 +321,9 @@ export const buildFollowersUrl = ({
   }
   if (listId) {
     params.set('listId', listId);
+  }
+  if (isBot !== undefined) {
+    params.set('isBot', String(isBot));
   }
   return `/followers/${integrationId}?${params.toString()}`;
 };
@@ -389,6 +399,7 @@ export const useFollowers = ({
   triage,
   audience,
   listId,
+  isBot,
 }: UseFollowersParams) => {
   const fetch = useFetch();
 
@@ -407,18 +418,20 @@ export const useFollowers = ({
       triage,
       audience,
       listId,
+      isBot,
     });
   }, [
-    integrationId,
-    cursor,
-    limit,
-    sort,
-    direction,
-    window,
-    search,
-    triage,
     audience,
+    cursor,
+    direction,
+    integrationId,
+    isBot,
+    limit,
     listId,
+    search,
+    sort,
+    triage,
+    window,
   ]);
 
   const load = useCallback(

@@ -8,13 +8,19 @@ describe('InfiniteWorkflowRegister', () => {
       getHandle: jest.Mock;
       start: jest.Mock;
     },
-    scheduleService = { install: jest.fn().mockResolvedValue(undefined) }
+    relationshipGradeScheduleService = {
+      install: jest.fn().mockResolvedValue(undefined),
+    },
+    followerBotScoreScheduleService = {
+      install: jest.fn().mockResolvedValue(undefined),
+    }
   ) =>
     new InfiniteWorkflowRegister(
       {
         client: { getRawClient: () => ({ workflow }) },
       } as any,
-      scheduleService as any
+      relationshipGradeScheduleService as any,
+      followerBotScoreScheduleService as any
     );
 
   const steadyStateWorkflow = () => ({
@@ -37,15 +43,25 @@ describe('InfiniteWorkflowRegister', () => {
     }
   });
 
-  it('installs the relationship grade Temporal schedule when cron execution is enabled', async () => {
+  it('installs the relationship grade and bot score Temporal schedules when cron execution is enabled', async () => {
     const workflow = steadyStateWorkflow();
-    const scheduleService = { install: jest.fn().mockResolvedValue(undefined) };
-    const register = createRegister(workflow, scheduleService);
+    const relationshipGradeScheduleService = {
+      install: jest.fn().mockResolvedValue(undefined),
+    };
+    const followerBotScoreScheduleService = {
+      install: jest.fn().mockResolvedValue(undefined),
+    };
+    const register = createRegister(
+      workflow,
+      relationshipGradeScheduleService,
+      followerBotScoreScheduleService
+    );
     process.env.RUN_CRON = '1';
 
     await register.onModuleInit();
 
-    expect(scheduleService.install).toHaveBeenCalled();
+    expect(relationshipGradeScheduleService.install).toHaveBeenCalled();
+    expect(followerBotScoreScheduleService.install).toHaveBeenCalled();
     expect(workflow.start).not.toHaveBeenCalledWith(
       'channelRelationshipGradeWorkflowV1',
       expect.anything()

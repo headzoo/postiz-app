@@ -65,6 +65,15 @@ describe('buildFollowersUrl', () => {
     ).toBe('/followers/channel-1?limit=24&listId=list-1');
   });
 
+  it('serializes the likely-bot filter into the follower endpoint URL', () => {
+    expect(
+      buildFollowersUrl({
+        ...baseParams,
+        isBot: true,
+      })
+    ).toBe('/followers/channel-1?limit=24&isBot=true');
+  });
+
   it('omits triage when the filter is cleared', () => {
     expect(buildFollowersUrl(baseParams)).toBe('/followers/channel-1?limit=24');
   });

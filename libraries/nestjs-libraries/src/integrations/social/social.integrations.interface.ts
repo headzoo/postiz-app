@@ -328,6 +328,11 @@ export type Follower = {
   relationshipSnapshotAt?: string | null;
   myGrade?: number | null;
   adjustedGrade?: number | null;
+  botGrade?: number | null;
+  isBot?: boolean | null;
+  botConfidence?: number | null;
+  botFormulaVersion?: number | null;
+  botGradedAt?: string | null;
   listIds?: string[];
   isLead?: boolean;
   engagedNotYet?: boolean;
@@ -359,6 +364,7 @@ export type FollowerQuery = {
   triage?: FollowerTriageFilter;
   audience?: FollowerAudience;
   listId?: string;
+  isBot?: boolean;
 };
 
 export type FollowerTriageFilter = FollowerTriageFilterValue;

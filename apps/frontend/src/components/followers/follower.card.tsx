@@ -9,7 +9,7 @@ import { useDecisionModal } from '@gitroom/frontend/components/layout/new-modal'
 import { Follower, FollowerList, DismissibleTriage } from '@gitroom/frontend/components/followers/use.followers';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import { FollowerListDropdown } from '@gitroom/frontend/components/followers/follower.list.dropdown';
-import { TimelineIcon } from '@gitroom/frontend/components/ui/icons';
+import { TimelineIcon, RobotIcon } from '@gitroom/frontend/components/ui/icons';
 
 const TRIAGE_LABELS: Record<
   DismissibleTriage,
@@ -293,6 +293,34 @@ export const FollowerCard: FC<{
                   <h3 className="text-[15px] font-[600] text-newTextColor truncate">
                     {follower.name}
                   </h3>
+                  {follower.isBot === true && (
+                    <span
+                      role="img"
+                      className="inline-flex shrink-0 text-textItemBlur"
+                      title={t(
+                        'followers_bot_tooltip',
+                        'Likely bot · grade {{grade}} of 5',
+                        {
+                          grade:
+                            follower.botGrade != null
+                              ? String(follower.botGrade)
+                              : '?',
+                        }
+                      )}
+                      aria-label={t(
+                        'followers_bot_aria',
+                        'Likely bot, grade {{grade}} of 5',
+                        {
+                          grade:
+                            follower.botGrade != null
+                              ? String(follower.botGrade)
+                              : 'unknown',
+                        }
+                      )}
+                    >
+                      <RobotIcon size={14} />
+                    </span>
+                  )}
                   {follower.isLead && (
                     <RelationshipTriageBadge
                       triage="lead"

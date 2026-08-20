@@ -15,7 +15,7 @@ import { FollowerRelationshipChart } from '@gitroom/frontend/components/follower
 import { RelationshipTriageBadge } from '@gitroom/frontend/components/followers/follower.card';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
-import { ResetIcon, TimelineIcon } from '@gitroom/frontend/components/ui/icons';
+import { ResetIcon, TimelineIcon, RobotIcon } from '@gitroom/frontend/components/ui/icons';
 import {
   ChannelInteractionKind,
   FollowerMemberDetail,
@@ -467,6 +467,34 @@ const FollowerDetailContent: FC<{
               <h3 className="text-[15px] font-[600] text-newTextColor truncate">
                 {follower.name}
               </h3>
+              {follower.isBot === true && (
+                <span
+                  role="img"
+                  className="inline-flex shrink-0 text-textItemBlur"
+                  title={t(
+                    'followers_bot_tooltip',
+                    'Likely bot · grade {{grade}} of 5',
+                    {
+                      grade:
+                        follower.botGrade != null
+                          ? String(follower.botGrade)
+                          : '?',
+                    }
+                  )}
+                  aria-label={t(
+                    'followers_bot_aria',
+                    'Likely bot, grade {{grade}} of 5',
+                    {
+                      grade:
+                        follower.botGrade != null
+                          ? String(follower.botGrade)
+                          : 'unknown',
+                    }
+                  )}
+                >
+                  <RobotIcon size={14} />
+                </span>
+              )}
               {follower.isLead && (
                 <RelationshipTriageBadge
                   triage="lead"
@@ -551,6 +579,37 @@ const FollowerDetailContent: FC<{
           </Link>
         )}
       </div>
+
+      {(follower.botGrade != null ||
+        follower.isBot != null ||
+        follower.botConfidence != null) && (
+        <section className="flex flex-col gap-[8px] text-[13px] text-textItemBlur">
+          <h4 className="text-[16px] font-[600] text-newTextColor">
+            {t('followers_bot_classification', 'Bot classification')}
+          </h4>
+          <p>
+            {follower.isBot === true
+              ? t('followers_bot_status_likely', 'Likely bot')
+              : follower.isBot === false
+                ? t('followers_bot_status_unlikely', 'Likely human')
+                : t('followers_bot_status_uncertain', 'Not enough data')}
+            {follower.botGrade != null
+              ? ` · ${t('followers_bot_grade_label', 'Grade {{grade}} of 5', {
+                  grade: String(follower.botGrade),
+                })}`
+              : ''}
+            {follower.botConfidence != null
+              ? ` · ${t(
+                  'followers_bot_confidence_label',
+                  'Confidence {{pct}}%',
+                  {
+                    pct: String(Math.round(follower.botConfidence * 100)),
+                  }
+                )}`
+              : ''}
+          </p>
+        </section>
+      )}
 
       <section className="flex flex-col gap-[12px]">
         <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-3">

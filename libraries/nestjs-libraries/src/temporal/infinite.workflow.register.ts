@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { TemporalService } from 'nestjs-temporal-core';
 import { RelationshipGradeScheduleService } from './relationship-grade.schedule.service';
+import { FollowerBotScoreScheduleService } from './follower-bot-score.schedule.service';
 
 @Injectable()
 export class InfiniteWorkflowRegister implements OnModuleInit {
@@ -14,7 +15,8 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
 
   constructor(
     private _temporalService: TemporalService,
-    private _relationshipGradeScheduleService: RelationshipGradeScheduleService
+    private _relationshipGradeScheduleService: RelationshipGradeScheduleService,
+    private _followerBotScoreScheduleService: FollowerBotScoreScheduleService
   ) { }
 
   async onModuleInit(): Promise<void> {
@@ -30,6 +32,7 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
       await this.handoffPipelineScheduler();
       await this.startChannelInteractionMaintenance();
       await this.startChannelRelationshipGrade();
+      await this.startChannelFollowerBotScore();
       await this.startChannelAnalyticsSnapshot();
     }
   }
@@ -113,6 +116,10 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
     await this._relationshipGradeScheduleService.install();
   }
 
+  private async startChannelFollowerBotScore() {
+    await this._followerBotScoreScheduleService.install();
+  }
+
   private async startChannelAnalyticsSnapshot() {
     const workflow = this._temporalService.client?.getRawClient()?.workflow;
     if (!workflow) {
@@ -182,7 +189,11 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
 @Module({
   imports: [],
   controllers: [],
-  providers: [InfiniteWorkflowRegister, RelationshipGradeScheduleService],
+  providers: [
+    InfiniteWorkflowRegister,
+    RelationshipGradeScheduleService,
+    FollowerBotScoreScheduleService,
+  ],
   get exports() {
     return this.providers;
   },

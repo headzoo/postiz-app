@@ -883,6 +883,38 @@ export const TimelineIcon: FC<IconProps> = ({
   </svg>
 );
 
+export const RobotIcon: FC<IconProps> = ({
+  size = 16,
+  className,
+  ...props
+}) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    className={className}
+    aria-hidden="true"
+    {...props}
+  >
+    <path
+      d="M8 1.5V3.5M4.5 6.5H11.5C12.3284 6.5 13 7.17157 13 8V12C13 12.8284 12.3284 13.5 11.5 13.5H4.5C3.67157 13.5 3 12.8284 3 12V8C3 7.17157 3.67157 6.5 4.5 6.5Z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M6 9.25H6.01M10 9.25H10.01M5.75 11.25H10.25"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 export const NoMediaIcon: FC = () => {
   const [mode, setMode] = useCookie('mode', 'dark');
 

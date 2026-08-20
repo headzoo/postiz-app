@@ -34,6 +34,7 @@ import {
   FOLLOWER_DATABASE_INTERACTIONS_SORT,
   FOLLOWER_DATABASE_LIKES_SORT,
   FOLLOWER_DATABASE_MY_GRADE_SORT,
+  FOLLOWER_DATABASE_BOT_GRADE_SORT,
   FOLLOWER_DATABASE_NOTES_SORT,
   FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT,
   FOLLOWER_DATABASE_THEIR_EFFORT_SORT,
@@ -629,7 +630,7 @@ export class IntegrationService {
       );
     }
 
-    if (search || query.triage || query.listId) {
+    if (search || query.triage || query.listId || query.isBot !== undefined) {
       return this.getAudienceFollowerPage(
         org.id,
         actorUserId,
@@ -1295,6 +1296,11 @@ export class IntegrationService {
     relationshipTriage?: string | null;
     relationshipFormulaVersion?: number | null;
     relationshipSnapshotAt?: Date | null;
+    botGrade?: number | null;
+    isBot?: boolean | null;
+    botConfidence?: number | null;
+    botFormulaVersion?: number | null;
+    botGradedAt?: Date | null;
     myGrade?: number | null;
     personalGrades?: Array<{ grade: number }>;
     listMemberships?: Array<{ listId: string }>;
@@ -1329,6 +1335,7 @@ export class IntegrationService {
         ? { likesCount: member.likesCount }
         : {}),
       ...this.followerGradeFields(member),
+      ...this.followerBotFields(member),
       ...this.followerRelationshipFields(member),
       ...(() => {
         const listIds = member.listIds
@@ -1351,6 +1358,40 @@ export class IntegrationService {
       relationshipGrade,
       myGrade,
       adjustedGrade: applyPersonalRelationshipGrade(relationshipGrade, myGrade),
+    };
+  }
+
+  private followerBotFields(member?: {
+    botGrade?: number | null;
+    isBot?: boolean | null;
+    botConfidence?: number | null;
+    botFormulaVersion?: number | null;
+    botGradedAt?: Date | string | null;
+  }) {
+    return {
+      ...(member?.botGrade === null || Number.isSafeInteger(member?.botGrade)
+        ? { botGrade: member?.botGrade ?? null }
+        : {}),
+      ...(member?.isBot === null || typeof member?.isBot === 'boolean'
+        ? { isBot: member?.isBot ?? null }
+        : {}),
+      ...(member?.botConfidence === null || Number.isFinite(member?.botConfidence)
+        ? { botConfidence: member?.botConfidence ?? null }
+        : {}),
+      ...(member?.botFormulaVersion === null ||
+        Number.isSafeInteger(member?.botFormulaVersion)
+        ? { botFormulaVersion: member?.botFormulaVersion ?? null }
+        : {}),
+      ...(member?.botGradedAt == null
+        ? member?.botGradedAt === null
+          ? { botGradedAt: null }
+          : {}
+        : {
+          botGradedAt:
+            member.botGradedAt instanceof Date
+              ? member.botGradedAt.toISOString()
+              : String(member.botGradedAt),
+        }),
     };
   }
 
@@ -1564,7 +1605,8 @@ export class IntegrationService {
       search,
       query.triage,
       undefined,
-      query.listId
+      query.listId,
+      query.isBot
     );
     if (query.cursor?.startsWith('follower-lead:v1:')) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -1580,7 +1622,8 @@ export class IntegrationService {
       !!query.cursor?.startsWith('follower-projection:v1:');
     const isGradeCursor =
       !!query.cursor?.startsWith('follower-relationship-grade:v1:') ||
-      !!query.cursor?.startsWith('follower-my-grade:v1:');
+      !!query.cursor?.startsWith('follower-my-grade:v1:') ||
+      !!query.cursor?.startsWith('follower-bot-grade:v1:');
 
     if (isAudienceCursor && !search && !query.triage && !query.listId) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -1661,6 +1704,15 @@ export class IntegrationService {
       }
       return this.getMyGradeFollowerPage(organizationId, userId, integration, query, sort);
     }
+    if (sort.key === FOLLOWER_DATABASE_BOT_GRADE_SORT.key) {
+      return this.getBotGradeFollowerPage(
+        organizationId,
+        userId,
+        integration,
+        query,
+        sort
+      );
+    }
     if (
       sort.key === FOLLOWER_DATABASE_THEIR_EFFORT_SORT.key ||
       sort.key === FOLLOWER_DATABASE_NET_GAP_SORT.key
@@ -1695,6 +1747,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
       ignoredVisibility: 'exclude',
     });
     if (cursor && ranked.rollup?.activeGeneration !== cursor.generation) {
@@ -1740,6 +1793,7 @@ export class IntegrationService {
         noteCount: audienceCounts.get(row.counterpartyExternalId)?.noteCount ?? 0,
         likesCount: audienceCounts.get(row.counterpartyExternalId)?.likesCount ?? 0,
         ...this.followerGradeFields(audienceCounts.get(row.counterpartyExternalId)),
+        ...this.followerBotFields(audienceCounts.get(row.counterpartyExternalId)),
         ...this.followerRelationshipFields(
           audienceCounts.get(row.counterpartyExternalId)
         ),
@@ -1760,6 +1814,7 @@ export class IntegrationService {
             search: query.search,
             triage: query.triage,
             listId: query.listId,
+            isBot: query.isBot,
             interactionCount: last.interactionCount!,
             interactionScore: last.interactionScore!,
             lastInteractionAt: last.lastInteractionAt || null,
@@ -1909,7 +1964,8 @@ export class IntegrationService {
         search,
         query.triage,
         sortField,
-        query.listId
+        query.listId,
+        query.isBot
       )
       : undefined;
     const ranked = await this._channelInteractionRepository.getAudienceFollowers({
@@ -1919,6 +1975,7 @@ export class IntegrationService {
       ...(search ? { search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
       ignoredVisibility: 'exclude',
       sortField,
       direction,
@@ -1940,6 +1997,7 @@ export class IntegrationService {
             search,
             triage: query.triage,
             listId: query.listId,
+            isBot: query.isBot,
             sortField,
             sortValue: this.audienceCursorSortValue(last, sortField),
             externalId: last.externalId,
@@ -1983,6 +2041,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
       ignoredVisibility: 'exclude',
     });
 
@@ -2000,6 +2059,7 @@ export class IntegrationService {
             search: query.search,
             triage: query.triage,
             listId: query.listId,
+            isBot: query.isBot,
             noteCount: last.noteCount!,
             externalId: last.id,
           }),
@@ -2034,6 +2094,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
       ignoredVisibility: 'exclude',
     });
 
@@ -2051,6 +2112,7 @@ export class IntegrationService {
             search: query.search,
             triage: query.triage,
             listId: query.listId,
+            isBot: query.isBot,
             likesCount: last.likesCount!,
             externalId: last.id,
           }),
@@ -2087,6 +2149,7 @@ export class IntegrationService {
         ...(query.search ? { search: query.search } : {}),
         ...(query.triage ? { triage: query.triage } : {}),
         ...(query.listId ? { listId: query.listId } : {}),
+        ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
         ignoredVisibility: 'exclude',
       });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -2105,10 +2168,64 @@ export class IntegrationService {
               search: query.search,
               triage: query.triage,
               listId: query.listId,
+              isBot: query.isBot,
               grade: last.relationshipGrade ?? null,
               externalId: last.externalId,
             }
           ),
+        }
+        : {}),
+    };
+  }
+
+  private async getBotGradeFollowerPage(
+    organizationId: string,
+    userId: string | undefined,
+    integration: Integration,
+    query: FollowerQuery,
+    sort: FollowerSort
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? sort.defaultDirection;
+    const cursor = query.cursor
+      ? this.decodeGradeFollowerCursor(
+        query.cursor,
+        'follower-bot-grade:v1:',
+        organizationId,
+        integration.id,
+        direction
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getFollowersByBotGrade({
+      organizationId,
+      integrationId: integration.id,
+      userId,
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+      ...(query.search ? { search: query.search } : {}),
+      ...(query.triage ? { triage: query.triage } : {}),
+      ...(query.listId ? { listId: query.listId } : {}),
+      ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
+      ignoredVisibility: 'exclude',
+    });
+    const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
+    const last = ranked.items.at(-1);
+    return {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeGradeFollowerCursor('follower-bot-grade:v1:', {
+            organizationId,
+            integrationId: integration.id,
+            direction,
+            search: query.search,
+            triage: query.triage,
+            listId: query.listId,
+            isBot: query.isBot,
+            grade: last.botGrade ?? null,
+            externalId: last.externalId,
+          }),
         }
         : {}),
     };
@@ -2148,6 +2265,7 @@ export class IntegrationService {
         ...(query.search ? { search: query.search } : {}),
         ...(query.triage ? { triage: query.triage } : {}),
         ...(query.listId ? { listId: query.listId } : {}),
+        ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
         ignoredVisibility: 'exclude',
       });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -2166,6 +2284,7 @@ export class IntegrationService {
             search: query.search,
             triage: query.triage,
             listId: query.listId,
+            isBot: query.isBot,
             value,
             externalId: last.externalId,
           }),
@@ -2201,6 +2320,7 @@ export class IntegrationService {
       ...(query.search ? { search: query.search } : {}),
       ...(query.triage ? { triage: query.triage } : {}),
       ...(query.listId ? { listId: query.listId } : {}),
+      ...(query.isBot !== undefined ? { isBot: query.isBot } : {}),
       ignoredVisibility: 'exclude',
     });
     const items = ranked.items.map((row) => this.mapAudienceMemberProfile(row));
@@ -2217,6 +2337,7 @@ export class IntegrationService {
             search: query.search,
             triage: query.triage,
             listId: query.listId,
+            isBot: query.isBot,
             grade: last.personalGrades[0]?.grade ?? null,
             externalId: last.externalId,
           }),
@@ -2394,6 +2515,7 @@ export class IntegrationService {
     search?: string;
     triage?: FollowerQuery['triage'];
     listId?: string;
+    isBot?: boolean;
   } & RankedFollowerCursor) {
     return `follower-rank:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -2443,6 +2565,7 @@ export class IntegrationService {
     search?: string;
     triage?: FollowerQuery['triage'];
     listId?: string;
+    isBot?: boolean;
   } & NoteCountFollowerCursor) {
     return `follower-notes:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -2589,6 +2712,7 @@ export class IntegrationService {
     search?: string;
     triage?: FollowerQuery['triage'];
     listId?: string;
+    isBot?: boolean;
   } & LikesCountFollowerCursor) {
     return `follower-likes:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -2630,7 +2754,10 @@ export class IntegrationService {
   }
 
   private encodeGradeFollowerCursor(
-    prefix: 'follower-relationship-grade:v1:' | 'follower-my-grade:v1:',
+    prefix:
+      | 'follower-relationship-grade:v1:'
+      | 'follower-my-grade:v1:'
+      | 'follower-bot-grade:v1:',
     cursor: {
       organizationId: string;
       integrationId: string;
@@ -2638,6 +2765,7 @@ export class IntegrationService {
       search?: string;
       triage?: FollowerQuery['triage'];
       listId?: string;
+      isBot?: boolean;
     } & GradeFollowerCursor
   ) {
     return `${prefix}${Buffer.from(
@@ -2653,6 +2781,7 @@ export class IntegrationService {
     search?: string;
     triage?: FollowerQuery['triage'];
     listId?: string;
+    isBot?: boolean;
   } & ProjectedFollowerCursor) {
     return `follower-projection:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
@@ -2698,7 +2827,10 @@ export class IntegrationService {
 
   private decodeGradeFollowerCursor(
     value: string,
-    prefix: 'follower-relationship-grade:v1:' | 'follower-my-grade:v1:',
+    prefix:
+      | 'follower-relationship-grade:v1:'
+      | 'follower-my-grade:v1:'
+      | 'follower-bot-grade:v1:',
     organizationId: string,
     integrationId: string,
     direction: 'asc' | 'desc'
@@ -2736,6 +2868,7 @@ export class IntegrationService {
     search?: string;
     triage?: FollowerQuery['triage'];
     listId?: string;
+    isBot?: boolean;
     sortField: AudienceFollowerSortField;
   } & AudienceFollowerCursor) {
     return `follower-audience:v1:${Buffer.from(
@@ -2752,7 +2885,8 @@ export class IntegrationService {
     search: string | undefined,
     triage: FollowerQuery['triage'] | undefined,
     sortField: AudienceFollowerSortField,
-    listId?: string
+    listId?: string,
+    isBot?: boolean
   ): AudienceFollowerCursor {
     try {
       if (!value.startsWith('follower-audience:v1:')) throw new Error();
@@ -2771,6 +2905,7 @@ export class IntegrationService {
         cursor.search !== search ||
         cursor.triage !== triage ||
         cursor.listId !== listId ||
+        cursor.isBot !== isBot ||
         cursor.sortField !== sortField ||
         typeof cursor.externalId !== 'string' ||
         !this.isAudienceCursorSortValue(cursor.sortField, cursor.sortValue)
@@ -2792,7 +2927,8 @@ export class IntegrationService {
     search: string | undefined,
     triage: FollowerQuery['triage'] | undefined,
     audience?: FollowerQuery['audience'],
-    listId?: string
+    listId?: string,
+    isBot?: boolean
   ) {
     const internalPrefixes = [
       'follower-audience:v1:',
@@ -2801,6 +2937,7 @@ export class IntegrationService {
       'follower-likes:v1:',
       'follower-relationship-grade:v1:',
       'follower-my-grade:v1:',
+      'follower-bot-grade:v1:',
       'follower-projection:v1:',
       'follower-lead:v1:',
       'follower-ignored:v1:',
@@ -2817,7 +2954,8 @@ export class IntegrationService {
         cursor.search !== search ||
         cursor.triage !== triage ||
         cursor.audience !== audience ||
-        cursor.listId !== listId
+        cursor.listId !== listId ||
+        cursor.isBot !== isBot
       ) {
         throw new Error();
       }
@@ -3285,6 +3423,22 @@ export class IntegrationService {
         typeof follower.relationshipSnapshotAt === 'string'
         ? { relationshipSnapshotAt: follower.relationshipSnapshotAt }
         : {}),
+      ...(follower.botGrade === null || Number.isSafeInteger(follower.botGrade)
+        ? { botGrade: follower.botGrade }
+        : {}),
+      ...(follower.isBot === null || typeof follower.isBot === 'boolean'
+        ? { isBot: follower.isBot }
+        : {}),
+      ...(follower.botConfidence === null || Number.isFinite(follower.botConfidence)
+        ? { botConfidence: follower.botConfidence }
+        : {}),
+      ...(follower.botFormulaVersion === null ||
+        Number.isSafeInteger(follower.botFormulaVersion)
+        ? { botFormulaVersion: follower.botFormulaVersion }
+        : {}),
+      ...(follower.botGradedAt === null || typeof follower.botGradedAt === 'string'
+        ? { botGradedAt: follower.botGradedAt }
+        : {}),
       ...(Array.isArray(follower.listIds)
         ? {
           listIds: follower.listIds.filter(
@@ -3325,6 +3479,9 @@ export class IntegrationService {
     }
     if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_MY_GRADE_SORT.key)) {
       sorts.push(FOLLOWER_DATABASE_MY_GRADE_SORT);
+    }
+    if (!sorts.some((sort) => sort.key === FOLLOWER_DATABASE_BOT_GRADE_SORT.key)) {
+      sorts.push(FOLLOWER_DATABASE_BOT_GRADE_SORT);
     }
     if (
       !sorts.some((sort) => sort.key === FOLLOWER_DATABASE_THEIR_EFFORT_SORT.key)

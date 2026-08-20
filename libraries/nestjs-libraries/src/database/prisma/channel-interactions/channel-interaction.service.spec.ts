@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import {
   applyPersonalRelationshipGrade,
+  calculateBotGrade,
   calculateRelationshipGrade,
   ChannelInteractionService,
   getChannelInteractionScore,
@@ -45,6 +46,11 @@ const createRepository = () => ({
   applyFollowerSyncPage: jest.fn().mockResolvedValue(true),
   completeFollowerSync: jest.fn().mockResolvedValue(true),
   failFollowerSync: jest.fn().mockResolvedValue(true),
+  getAudienceBotScoreInputs: jest.fn().mockResolvedValue(new Map()),
+  getDueBotScoreBatch: jest.fn().mockResolvedValue({ members: [] }),
+  updateBotScoreProjections: jest.fn().mockResolvedValue({ count: 0 }),
+  hasDueBotScoreMembers: jest.fn().mockResolvedValue(false),
+  listDueBotScoreCandidates: jest.fn().mockResolvedValue({ candidates: [] }),
   rebuildWindowSummary: jest.fn().mockResolvedValue({ itemCount: 0 }),
   getActiveIntegrationsForAccount: jest.fn().mockResolvedValue([]),
   getActiveIntegrationsForProvider: jest.fn().mockResolvedValue([]),
@@ -661,6 +667,58 @@ describe('ChannelInteractionService', () => {
     await expect(
       service.completeFollowerSync('org', 'integration', 'stale')
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('scores new followers with zero engagement so first sync matches stored zeros', async () => {
+    const repository = createRepository();
+    repository.getAudienceBotScoreInputs.mockResolvedValue(new Map());
+    const service = new ChannelInteractionService(repository as any);
+
+    await service.applyFollowerSync('org', 'integration', 'generation-1', [
+      {
+        id: 'person-1',
+        name: 'Ada Lovelace',
+        username: 'ada',
+        picture: 'https://example.com/ada.jpg',
+        bio: 'Mathematician and writer with a long public history.',
+        followersCount: 12000,
+        followingCount: 400,
+      },
+    ] as any);
+
+    expect(repository.applyFollowerSyncPage).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      'generation-1',
+      [
+        expect.objectContaining({
+          externalId: 'person-1',
+          botGrade: expect.any(Number),
+          isBot: expect.anything(),
+          botConfidence: expect.any(Number),
+          botFormulaVersion: expect.any(Number),
+          botGradedAt: expect.any(Date),
+        }),
+      ]
+    );
+    const [scored] = repository.applyFollowerSyncPage.mock.calls[0][3];
+    const expected = calculateBotGrade({
+      name: 'Ada Lovelace',
+      username: 'ada',
+      picture: 'https://example.com/ada.jpg',
+      bio: 'Mathematician and writer with a long public history.',
+      followersCount: 12000,
+      followingCount: 400,
+      inboundInteractionCount: 0,
+      noteCount: 0,
+      likesCount: 0,
+      relationshipEffortScore: null,
+      relationshipReciprocationScore: null,
+      now: scored.botGradedAt,
+    });
+    expect(scored.botGrade).toBe(expected.botGrade);
+    expect(scored.isBot).toBe(expected.isBot);
+    expect(scored.botConfidence).toBe(expected.botConfidence);
   });
 
   it('uses exact inclusive UTC-instant cutoffs for all rolling windows', async () => {

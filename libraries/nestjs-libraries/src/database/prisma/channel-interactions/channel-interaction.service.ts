@@ -42,6 +42,8 @@ import {
 } from './channel-interaction.repository';
 import {
   applyPersonalRelationshipGrade,
+  BOT_FORMULA_VERSION,
+  calculateBotGrade,
   calculateRelationshipGrade,
   getChannelInteractionScore,
   isPersonalRelationshipGrade,
@@ -50,6 +52,7 @@ import { RelationshipGradeScheduleConfig } from '@gitroom/nestjs-libraries/tempo
 
 export {
   applyPersonalRelationshipGrade,
+  calculateBotGrade,
   calculateRelationshipGrade,
   getChannelInteractionScore,
   getRelationshipTriage,
@@ -852,16 +855,52 @@ export class ChannelInteractionService {
       );
     }
     const profiles = followers.map((follower) => this.validateFollower(follower));
+    const engagementById =
+      await this._repository.getAudienceBotScoreInputs(
+        organizationId,
+        integrationId,
+        profiles.map((profile) => profile.externalId)
+      );
+    const gradedAt = new Date();
+    const scoredProfiles = profiles.map((profile) => {
+      const existing = engagementById.get(profile.externalId);
+      const score = calculateBotGrade({
+        name: profile.name,
+        username: profile.username,
+        picture: profile.picture,
+        bio: profile.bio,
+        followersCount: profile.followersCount,
+        followingCount: profile.followingCount,
+        accountCreatedAt: profile.accountCreatedAt,
+        // Missing members and existing zero-count rows must score the same on
+        // first sync: treat absent engagement projections as zero, not unknown.
+        inboundInteractionCount: existing?.inboundInteractionCount ?? 0,
+        noteCount: existing?.noteCount ?? 0,
+        likesCount: existing?.likesCount ?? 0,
+        relationshipEffortScore: existing?.relationshipEffortScore ?? null,
+        relationshipReciprocationScore:
+          existing?.relationshipReciprocationScore ?? null,
+        now: gradedAt,
+      });
+      return {
+        ...profile,
+        botGrade: score.botGrade,
+        isBot: score.isBot,
+        botConfidence: score.botConfidence,
+        botFormulaVersion: score.botFormulaVersion,
+        botGradedAt: gradedAt,
+      };
+    });
     const applied = await this._repository.applyFollowerSyncPage(
       organizationId,
       integrationId,
       generation,
-      profiles
+      scoredProfiles
     );
     if (!applied) {
       throw new ConflictException('Follower sync generation is no longer active');
     }
-    return { applied: profiles.length };
+    return { applied: scoredProfiles.length };
   }
 
   async completeFollowerSync(
@@ -961,6 +1000,52 @@ export class ChannelInteractionService {
         integrationId,
         snapshotAt,
         cadence
+      ),
+    };
+  }
+
+  async buildBotScoreBatch(organizationId: string, integrationId: string) {
+    const gradedAt = new Date();
+    const batch = await this._repository.getDueBotScoreBatch(
+      organizationId,
+      integrationId
+    );
+    const projections = batch.members.map((member) => {
+      const score = calculateBotGrade({
+        name: member.name,
+        username: member.username,
+        picture: member.picture,
+        bio: member.bio,
+        followersCount: member.followersCount,
+        followingCount: member.followingCount,
+        accountCreatedAt: member.accountCreatedAt,
+        inboundInteractionCount: member.inboundInteractionCount,
+        noteCount: member.noteCount,
+        likesCount: member.likesCount,
+        relationshipEffortScore: member.relationshipEffortScore,
+        relationshipReciprocationScore: member.relationshipReciprocationScore,
+        now: gradedAt,
+      });
+      return {
+        externalId: member.externalId,
+        botGrade: score.botGrade,
+        isBot: score.isBot,
+        botConfidence: score.botConfidence,
+        botFormulaVersion: score.botFormulaVersion,
+      };
+    });
+    await this._repository.updateBotScoreProjections(
+      organizationId,
+      integrationId,
+      gradedAt,
+      projections
+    );
+    return {
+      gradedAt,
+      processed: projections.length,
+      hasMore: await this._repository.hasDueBotScoreMembers(
+        organizationId,
+        integrationId
       ),
     };
   }

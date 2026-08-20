@@ -1,5 +1,6 @@
 import {
   compareFollowers,
+  FOLLOWER_DATABASE_BOT_GRADE_SORT,
   FOLLOWER_DATABASE_MY_GRADE_SORT,
   FOLLOWER_DATABASE_NET_GAP_SORT,
   FOLLOWER_DATABASE_RELATIONSHIP_GRADE_SORT,
@@ -82,5 +83,10 @@ describe('follower.sorts', () => {
       'Priority grade'
     );
     expect(FOLLOWER_DATABASE_MY_GRADE_SORT.label).toBe('Your grade');
+    expect(FOLLOWER_DATABASE_BOT_GRADE_SORT).toMatchObject({
+      key: 'bot_grade',
+      label: 'Bot grade',
+      scope: 'database',
+    });
   });
 });

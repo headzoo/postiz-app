@@ -199,6 +199,14 @@ export const FOLLOWER_DATABASE_MY_GRADE_SORT: FollowerSort = {
   scope: 'database',
 };
 
+export const FOLLOWER_DATABASE_BOT_GRADE_SORT: FollowerSort = {
+  key: 'bot_grade',
+  label: 'Bot grade',
+  directions: ['asc', 'desc'],
+  defaultDirection: 'desc',
+  scope: 'database',
+};
+
 export const FOLLOWER_DATABASE_THEIR_EFFORT_SORT: FollowerSort = {
   key: 'their_effort',
   label: 'Their effort',

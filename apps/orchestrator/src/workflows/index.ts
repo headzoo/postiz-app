@@ -22,5 +22,6 @@ export * from './channel-interaction-maintenance.workflow.v1';
 export * from './channel-interaction-maintenance.workflow.v2';
 export * from './channel-relationship-grade.workflow.v1';
 export * from './channel-relationship-grade.workflow.v2';
+export * from './channel-follower-bot-score.workflow.v1';
 export * from './channel-analytics-snapshot.workflow.v1';
 export * from './channel-analytics-snapshot.workflow.v2';

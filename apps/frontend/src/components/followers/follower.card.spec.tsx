@@ -272,6 +272,47 @@ describe('FollowerCard', () => {
     expect(screen.getByText('Hot')).toBeTruthy();
   });
 
+  it('shows a robot icon after the display name and before triage badges', () => {
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          isBot: true,
+          botGrade: 4,
+          relationshipTriage: 'hot_lead',
+        }}
+      />
+    );
+
+    const name = screen.getByRole('heading', { name: 'Alex Example' });
+    const bot = screen.getByRole('img', {
+      name: 'Likely bot, grade 4 of 5',
+    });
+    const triage = screen.getByText('Hot');
+    expect(
+      name.compareDocumentPosition(bot) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      bot.compareDocumentPosition(triage) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it('hides the robot icon when the follower is not classified as a bot', () => {
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          isBot: false,
+          botGrade: 1,
+        }}
+      />
+    );
+
+    expect(
+      screen.queryByRole('img', { name: /Likely bot/i })
+    ).toBeNull();
+  });
+
   it('does not open the detail modal when adding a follower to a custom list', async () => {
     const onOpen = jest.fn();
     const onToggleList = jest.fn();

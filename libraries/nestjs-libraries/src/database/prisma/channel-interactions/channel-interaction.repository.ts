@@ -22,6 +22,7 @@ import {
   PrismaTransaction,
 } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
 import {
+  BOT_FORMULA_VERSION,
   getChannelInteractionScore,
   getRelationshipTriage,
   isEngagedNotYet,
@@ -32,6 +33,7 @@ import {
   RelationshipGradeScheduleConfig,
   relationshipGradeDueCutoff,
 } from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule';
+import { FOLLOWER_BOT_SCORE_SCHEDULE_INTERVAL_HOURS } from '@gitroom/nestjs-libraries/temporal/follower-bot-score.schedule';
 
 export type AudienceProfile = {
   externalId: string;
@@ -44,6 +46,11 @@ export type AudienceProfile = {
   followingCount?: number;
   followedAt?: Date;
   accountCreatedAt?: Date;
+  botGrade?: number | null;
+  isBot?: boolean | null;
+  botConfidence?: number | null;
+  botFormulaVersion?: number | null;
+  botGradedAt?: Date | null;
 };
 
 export type PersistedInteraction = {
@@ -83,6 +90,7 @@ export type RankedFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  isBot?: boolean;
   ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
@@ -101,6 +109,7 @@ export type NoteCountFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  isBot?: boolean;
   ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
@@ -119,6 +128,7 @@ export type LikesCountFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  isBot?: boolean;
   ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
@@ -149,6 +159,11 @@ export type FollowerAudienceCounts = {
   relationshipTriage: string | null;
   relationshipFormulaVersion: number | null;
   relationshipSnapshotAt: Date | null;
+  botGrade: number | null;
+  isBot: boolean | null;
+  botConfidence: number | null;
+  botFormulaVersion: number | null;
+  botGradedAt: Date | null;
   listIds: string[];
   ignoredTriages: string[];
   ignoredAt: Date | null;
@@ -167,6 +182,7 @@ export type AudienceFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  isBot?: boolean;
   sortField: AudienceFollowerSortField;
   direction: 'asc' | 'desc';
   limit: number;
@@ -203,13 +219,14 @@ export type GradeFollowerCursor = {
 export type GradeFollowersQuery = {
   organizationId: string;
   integrationId: string;
-  userId: string;
+  userId?: string;
   direction: 'asc' | 'desc';
   limit: number;
   cursor?: GradeFollowerCursor;
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  isBot?: boolean;
   ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
@@ -229,6 +246,7 @@ export type ProjectedFollowersQuery = {
   search?: string;
   triage?: FollowerTriageFilter;
   listId?: string;
+  isBot?: boolean;
   ignoredVisibility?: AudienceIgnoredVisibility;
 };
 
@@ -241,6 +259,21 @@ export type FollowerInteractionMetrics = {
 const TRANSACTION_ATTEMPTS = 3;
 const RELATIONSHIP_BATCH_SIZE = 100;
 const RELATIONSHIP_REFRESH_MAX_MEMBERS = 500;
+const BOT_SCORE_BATCH_SIZE = 100;
+const BOT_SCORE_STALE_MS =
+  FOLLOWER_BOT_SCORE_SCHEDULE_INTERVAL_HOURS * 60 * 60 * 1000;
+
+function botScoreDueWhere(now = new Date()): Prisma.ChannelAudienceMemberWhereInput {
+  const dueCutoff = new Date(now.getTime() - BOT_SCORE_STALE_MS);
+  return {
+    OR: [
+      { botFormulaVersion: null },
+      { botFormulaVersion: { lt: BOT_FORMULA_VERSION } },
+      { botGradedAt: null },
+      { botGradedAt: { lte: dueCutoff } },
+    ],
+  };
+}
 
 export type RelationshipGradeBatchMember = {
   externalId: string;
@@ -1104,6 +1137,7 @@ export class ChannelInteractionRepository {
               ...this.audienceSearchFilter(query.search),
               ...this.triageFilter(query.triage),
               ...this.listMembershipFilter(query.listId),
+              ...this.isBotFilter(query.isBot),
               ...this.ignoredVisibilityFilter(query.ignoredVisibility),
             },
           },
@@ -1379,6 +1413,171 @@ export class ChannelInteractionRepository {
             snapshotAt: { gt: this.relationshipDueCutoff(snapshotAt, cadence) },
           },
         },
+      },
+      select: { id: true },
+    });
+    return !!member;
+  }
+
+  async getAudienceBotScoreInputs(
+    organizationId: string,
+    integrationId: string,
+    externalIds: string[]
+  ) {
+    const uniqueIds = [...new Set(externalIds.filter(Boolean))];
+    const results = new Map<
+      string,
+      {
+        inboundInteractionCount: number;
+        noteCount: number;
+        likesCount: number;
+        relationshipEffortScore: number | null;
+        relationshipReciprocationScore: number | null;
+      }
+    >();
+    if (!uniqueIds.length) {
+      return results;
+    }
+    const rows = await this._dailyAggregate.model.channelAudienceMember.findMany({
+      where: {
+        organizationId,
+        integrationId,
+        externalId: { in: uniqueIds },
+      },
+      select: {
+        externalId: true,
+        inboundInteractionCount: true,
+        noteCount: true,
+        likesCount: true,
+        relationshipEffortScore: true,
+        relationshipReciprocationScore: true,
+      },
+    });
+    for (const row of rows) {
+      results.set(row.externalId, {
+        inboundInteractionCount: row.inboundInteractionCount,
+        noteCount: row.noteCount,
+        likesCount: row.likesCount,
+        relationshipEffortScore: row.relationshipEffortScore,
+        relationshipReciprocationScore: row.relationshipReciprocationScore,
+      });
+    }
+    return results;
+  }
+
+  async listDueBotScoreCandidates(after?: string, take = 1) {
+    const integrations = await this._integration.model.integration.findMany({
+      where: {
+        type: 'social',
+        disabled: false,
+        deletedAt: null,
+        channelFollowerSyncState: {
+          is: {
+            status: ChannelFollowerSyncStatus.COMPLETE,
+            completedAt: { not: null },
+          },
+        },
+        channelAudienceMembers: {
+          some: {
+            membershipState: ChannelAudienceMembership.FOLLOWER,
+            ...botScoreDueWhere(),
+          },
+        },
+        ...(after ? { id: { gt: after } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take: take + 1,
+      select: { id: true, organizationId: true },
+    });
+    return {
+      candidates: integrations.slice(0, take),
+      next: integrations.length > take ? integrations[take - 1]?.id : undefined,
+    };
+  }
+
+  async getDueBotScoreBatch(
+    organizationId: string,
+    integrationId: string,
+    take = BOT_SCORE_BATCH_SIZE
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const members = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId,
+          integrationId,
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          ...botScoreDueWhere(),
+        },
+        orderBy: { id: 'asc' },
+        take,
+        select: {
+          externalId: true,
+          name: true,
+          username: true,
+          picture: true,
+          bio: true,
+          followersCount: true,
+          followingCount: true,
+          accountCreatedAt: true,
+          inboundInteractionCount: true,
+          noteCount: true,
+          likesCount: true,
+          relationshipEffortScore: true,
+          relationshipReciprocationScore: true,
+        },
+      });
+      return { members };
+    });
+  }
+
+  async updateBotScoreProjections(
+    organizationId: string,
+    integrationId: string,
+    gradedAt: Date,
+    projections: Array<{
+      externalId: string;
+      botGrade: number | null;
+      isBot: boolean | null;
+      botConfidence: number;
+      botFormulaVersion: number;
+    }>
+  ) {
+    if (!projections.length) {
+      return { count: 0 };
+    }
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      await Promise.all(
+        projections.map((projection) =>
+          tx.channelAudienceMember.updateMany({
+            where: {
+              organizationId,
+              integrationId,
+              externalId: projection.externalId,
+              OR: [{ botGradedAt: null }, { botGradedAt: { lte: gradedAt } }],
+            },
+            data: {
+              botGrade: projection.botGrade,
+              isBot: projection.isBot,
+              botConfidence: projection.botConfidence,
+              botFormulaVersion: projection.botFormulaVersion,
+              botGradedAt: gradedAt,
+            },
+          })
+        )
+      );
+      return { count: projections.length };
+    });
+  }
+
+  async hasDueBotScoreMembers(organizationId: string, integrationId: string) {
+    const member = await this._dailyAggregate.model.channelAudienceMember.findFirst({
+      where: {
+        organizationId,
+        integrationId,
+        membershipState: ChannelAudienceMembership.FOLLOWER,
+        ...botScoreDueWhere(),
       },
       select: { id: true },
     });
@@ -1957,6 +2156,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.isBotFilter(query.isBot),
             this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.noteCountFollowerKeyset(query.cursor, query.direction)
           ),
@@ -1993,6 +2193,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.isBotFilter(query.isBot),
             this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.likesCountFollowerKeyset(query.cursor, query.direction)
           ),
@@ -2074,6 +2275,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.isBotFilter(query.isBot),
             this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.audienceFollowerKeyset(query.cursor, query.direction)
           ),
@@ -2144,6 +2346,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.isBotFilter(query.isBot),
             this.ignoredVisibilityFilter(query.ignoredVisibility),
             { relationshipFormulaVersion: RELATIONSHIP_FORMULA_VERSION },
             this.nullableGradeFollowerKeyset(
@@ -2185,6 +2388,7 @@ export class ChannelInteractionRepository {
             this.audienceSearchFilter(query.search),
             this.triageFilter(query.triage),
             this.listMembershipFilter(query.listId),
+            this.isBotFilter(query.isBot),
             this.ignoredVisibilityFilter(query.ignoredVisibility),
             this.nullableProjectedFollowerKeyset(
               query.cursor,
@@ -2254,6 +2458,7 @@ export class ChannelInteractionRepository {
                 ...this.audienceSearchFilter(query.search),
                 ...this.triageFilter(query.triage),
                 ...this.listMembershipFilter(query.listId),
+                ...this.isBotFilter(query.isBot),
                 ...this.ignoredVisibilityFilter(query.ignoredVisibility),
               },
             },
@@ -2290,6 +2495,7 @@ export class ChannelInteractionRepository {
               this.audienceSearchFilter(query.search),
               this.triageFilter(query.triage),
               this.listMembershipFilter(query.listId),
+              this.isBotFilter(query.isBot),
               this.ignoredVisibilityFilter(query.ignoredVisibility),
               this.myGradeUngradedKeyset(
                 query.cursor,
@@ -2308,6 +2514,48 @@ export class ChannelInteractionRepository {
       return {
         items: items.slice(0, query.limit),
         hasMore: items.length > query.limit,
+      };
+    });
+  }
+
+  async getFollowersByBotGrade(query: GradeFollowersQuery) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+
+      const rows = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          ...this.audienceListFilters(
+            this.audienceSearchFilter(query.search),
+            this.triageFilter(query.triage),
+            this.listMembershipFilter(query.listId),
+            this.isBotFilter(query.isBot),
+            this.ignoredVisibilityFilter(query.ignoredVisibility),
+            { botFormulaVersion: BOT_FORMULA_VERSION },
+            this.nullableGradeFollowerKeyset(
+              query.cursor,
+              query.direction,
+              'botGrade'
+            )
+          ),
+        },
+        orderBy: [
+          { botGrade: { sort: query.direction, nulls: 'last' } },
+          { externalId: query.direction },
+        ],
+        take: query.limit + 1,
+        select: this.audienceMemberListSelect(query.userId),
+      });
+
+      return {
+        items: rows.slice(0, query.limit),
+        hasMore: rows.length > query.limit,
       };
     });
   }
@@ -2346,6 +2594,11 @@ export class ChannelInteractionRepository {
           relationshipTriage: row.relationshipTriage,
           relationshipFormulaVersion: row.relationshipFormulaVersion,
           relationshipSnapshotAt: row.relationshipSnapshotAt,
+          botGrade: row.botGrade,
+          isBot: row.isBot,
+          botConfidence: row.botConfidence,
+          botFormulaVersion: row.botFormulaVersion,
+          botGradedAt: row.botGradedAt,
           listIds: (row.listMemberships ?? []).map((membership) => membership.listId),
           ignoredTriages: (row.triageIgnores ?? []).map((ignore) => ignore.triage),
           ignoredAt: row.ignoredAt ?? null,
@@ -2434,6 +2687,15 @@ export class ChannelInteractionRepository {
       relationshipTriage: triage,
       triageIgnores: { none: { triage } },
     };
+  }
+
+  private isBotFilter(
+    isBot?: boolean
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    if (isBot === undefined) {
+      return {};
+    }
+    return { isBot };
   }
 
   private storedAudienceCategoryFilter(
@@ -2598,6 +2860,11 @@ export class ChannelInteractionRepository {
       relationshipTriage: true,
       relationshipFormulaVersion: true,
       relationshipSnapshotAt: true,
+      botGrade: true,
+      isBot: true,
+      botConfidence: true,
+      botFormulaVersion: true,
+      botGradedAt: true,
       ignoredAt: true,
       ...(userId
         ? {
@@ -2690,7 +2957,7 @@ export class ChannelInteractionRepository {
   private nullableGradeFollowerKeyset(
     cursor: GradeFollowerCursor | undefined,
     direction: 'asc' | 'desc',
-    field: 'relationshipGrade'
+    field: 'relationshipGrade' | 'botGrade'
   ): Prisma.ChannelAudienceMemberWhereInput {
     if (!cursor) {
       return {};
@@ -2986,6 +3253,17 @@ export class ChannelInteractionRepository {
       ...(profile.followedAt !== undefined ? { followedAt: profile.followedAt } : {}),
       ...(profile.accountCreatedAt !== undefined
         ? { accountCreatedAt: profile.accountCreatedAt }
+        : {}),
+      ...(profile.botGrade !== undefined ? { botGrade: profile.botGrade } : {}),
+      ...(profile.isBot !== undefined ? { isBot: profile.isBot } : {}),
+      ...(profile.botConfidence !== undefined
+        ? { botConfidence: profile.botConfidence }
+        : {}),
+      ...(profile.botFormulaVersion !== undefined
+        ? { botFormulaVersion: profile.botFormulaVersion }
+        : {}),
+      ...(profile.botGradedAt !== undefined
+        ? { botGradedAt: profile.botGradedAt }
         : {}),
     };
     return tx.channelAudienceMember.upsert({

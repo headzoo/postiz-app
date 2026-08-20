@@ -170,3 +170,249 @@ export function applyPersonalRelationshipGrade(
   const base = grade == null ? 3 : grade;
   return Math.min(5, Math.max(1, Math.round((base + (myGrade - 3)) * 2) / 2));
 }
+
+export const BOT_FORMULA_VERSION = 1;
+export const BOT_CONFIDENCE_THRESHOLD = 0.55;
+export const BOT_GRADE_VALUES = [1, 2, 3, 4, 5] as const;
+export type BotGrade = (typeof BOT_GRADE_VALUES)[number];
+
+export type BotScoreInput = {
+  name?: string | null;
+  username?: string | null;
+  picture?: string | null;
+  bio?: string | null;
+  followersCount?: number | null;
+  followingCount?: number | null;
+  accountCreatedAt?: Date | string | null;
+  inboundInteractionCount?: number | null;
+  noteCount?: number | null;
+  likesCount?: number | null;
+  relationshipEffortScore?: number | null;
+  relationshipReciprocationScore?: number | null;
+  now?: Date;
+};
+
+export type BotScoreResult = {
+  botGrade: BotGrade | null;
+  isBot: boolean | null;
+  botConfidence: number;
+  botFormulaVersion: number;
+};
+
+const BOT_SIGNAL_WEIGHTS = {
+  sparseProfile: 0.2,
+  highFollowRatio: 0.25,
+  zeroFollowersMassFollowing: 0.2,
+  youngAccountMassFollowing: 0.15,
+  usernamePattern: 0.15,
+  trackedEngagement: -0.35,
+} as const;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function clamp01(value: number) {
+  return Math.min(1, Math.max(0, value));
+}
+
+function hasText(value: string | null | undefined, minLength = 1) {
+  return typeof value === 'string' && value.trim().length >= minLength;
+}
+
+function parseAccountCreatedAt(value: Date | string | null | undefined) {
+  if (value == null) {
+    return null;
+  }
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function usernameLooksAutomated(username: string | null | undefined) {
+  if (!username) {
+    return false;
+  }
+  const normalized = username.trim().toLowerCase().replace(/^@/, '');
+  if (!normalized) {
+    return false;
+  }
+  if (/user\d{4,}/.test(normalized)) {
+    return true;
+  }
+  if (/\d{8,}/.test(normalized)) {
+    return true;
+  }
+  return /[a-z]{2,}\d{6,}$/.test(normalized);
+}
+
+function sparseProfileSignal(input: BotScoreInput) {
+  const hasIdentityContext =
+    input.name != null ||
+    input.username != null ||
+    input.picture != null ||
+    input.bio != null;
+  if (!hasIdentityContext) {
+    return null;
+  }
+  const hasPicture = hasText(input.picture);
+  const hasBio = hasText(input.bio, 10);
+  const name = input.name?.trim().toLowerCase() ?? '';
+  const username = input.username?.trim().toLowerCase().replace(/^@/, '') ?? '';
+  const nameLooksGeneric =
+    !name || (username.length > 0 && name === username);
+  return !hasPicture && !hasBio && nameLooksGeneric ? 1 : 0;
+}
+
+function followRatioContribution(input: BotScoreInput): {
+  highFollowRatio: number | null;
+  zeroFollowersMassFollowing: number | null;
+} {
+  if (
+    !Number.isSafeInteger(input.followersCount) ||
+    !Number.isSafeInteger(input.followingCount) ||
+    input.followersCount! < 0 ||
+    input.followingCount! < 0
+  ) {
+    return { highFollowRatio: null, zeroFollowersMassFollowing: null };
+  }
+  const followers = input.followersCount!;
+  const following = input.followingCount!;
+  const ratio = following / Math.max(followers, 1);
+  return {
+    highFollowRatio: ratio >= 10 ? 1 : ratio >= 5 ? 0.5 : 0,
+    zeroFollowersMassFollowing: followers === 0 && following >= 100 ? 1 : 0,
+  };
+}
+
+function youngAccountMassFollowingSignal(input: BotScoreInput) {
+  if (!Number.isSafeInteger(input.followingCount) || input.followingCount! < 0) {
+    return null;
+  }
+  const createdAt = parseAccountCreatedAt(input.accountCreatedAt);
+  if (!createdAt) {
+    return null;
+  }
+  const now = input.now ?? new Date();
+  const ageMs = now.getTime() - createdAt.getTime();
+  if (ageMs < 0) {
+    return null;
+  }
+  return ageMs <= 30 * DAY_MS && input.followingCount! >= 200 ? 1 : 0;
+}
+
+function engagementSignal(input: BotScoreInput) {
+  const fieldsPresent =
+    input.inboundInteractionCount != null ||
+    input.noteCount != null ||
+    input.likesCount != null ||
+    input.relationshipEffortScore != null ||
+    input.relationshipReciprocationScore != null;
+  if (!fieldsPresent) {
+    return null;
+  }
+  const hasInbound =
+    Number.isSafeInteger(input.inboundInteractionCount) &&
+    input.inboundInteractionCount! > 0;
+  const hasNotes =
+    Number.isSafeInteger(input.noteCount) && input.noteCount! > 0;
+  const hasLikes =
+    Number.isSafeInteger(input.likesCount) && input.likesCount! > 0;
+  const hasRelationship =
+    (Number.isSafeInteger(input.relationshipEffortScore) &&
+      input.relationshipEffortScore! >=
+        RELATIONSHIP_MEANINGFUL_ACTIVITY_THRESHOLD) ||
+    (Number.isSafeInteger(input.relationshipReciprocationScore) &&
+      input.relationshipReciprocationScore! >=
+        RELATIONSHIP_MEANINGFUL_ACTIVITY_THRESHOLD);
+  return hasInbound || hasNotes || hasLikes || hasRelationship ? 1 : 0;
+}
+
+function scoreToBotGrade(rawScore: number): BotGrade {
+  return Math.min(5, Math.max(1, Math.ceil(rawScore * 5))) as BotGrade;
+}
+
+export function calculateBotGrade(input: BotScoreInput): BotScoreResult {
+  const contributions: Array<{ weight: number; value: number }> = [];
+
+  const sparse = sparseProfileSignal(input);
+  if (sparse != null) {
+    contributions.push({
+      weight: BOT_SIGNAL_WEIGHTS.sparseProfile,
+      value: sparse,
+    });
+  }
+
+  const followSignals = followRatioContribution(input);
+  if (followSignals.highFollowRatio != null) {
+    contributions.push({
+      weight: BOT_SIGNAL_WEIGHTS.highFollowRatio,
+      value: followSignals.highFollowRatio,
+    });
+  }
+  if (followSignals.zeroFollowersMassFollowing != null) {
+    contributions.push({
+      weight: BOT_SIGNAL_WEIGHTS.zeroFollowersMassFollowing,
+      value: followSignals.zeroFollowersMassFollowing,
+    });
+  }
+
+  const young = youngAccountMassFollowingSignal(input);
+  if (young != null) {
+    contributions.push({
+      weight: BOT_SIGNAL_WEIGHTS.youngAccountMassFollowing,
+      value: young,
+    });
+  }
+
+  if (input.username != null || input.name != null) {
+    contributions.push({
+      weight: BOT_SIGNAL_WEIGHTS.usernamePattern,
+      value: usernameLooksAutomated(input.username) ? 1 : 0,
+    });
+  }
+
+  const engagement = engagementSignal(input);
+  if (engagement != null) {
+    contributions.push({
+      weight: BOT_SIGNAL_WEIGHTS.trackedEngagement,
+      value: engagement,
+    });
+  }
+
+  if (!contributions.length) {
+    return {
+      botGrade: null,
+      isBot: null,
+      botConfidence: 0,
+      botFormulaVersion: BOT_FORMULA_VERSION,
+    };
+  }
+
+  const weightMagnitude = contributions.reduce(
+    (sum, item) => sum + Math.abs(item.weight),
+    0
+  );
+  const weightedSum = contributions.reduce(
+    (sum, item) => sum + item.weight * item.value,
+    0
+  );
+  const maxPositiveWeight = Object.values(BOT_SIGNAL_WEIGHTS)
+    .filter((weight) => weight > 0)
+    .reduce((sum, weight) => sum + weight, 0);
+  const confidence = clamp01(weightMagnitude / maxPositiveWeight);
+  const rawScore = clamp01(weightedSum / weightMagnitude);
+  const botGrade = scoreToBotGrade(rawScore);
+  const isBot =
+    confidence < BOT_CONFIDENCE_THRESHOLD
+      ? null
+      : botGrade >= 4
+        ? true
+        : botGrade <= 2
+          ? false
+          : null;
+
+  return {
+    botGrade,
+    isBot,
+    botConfidence: Math.round(confidence * 1000) / 1000,
+    botFormulaVersion: BOT_FORMULA_VERSION,
+  };
+}
