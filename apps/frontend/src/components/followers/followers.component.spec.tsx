@@ -332,6 +332,13 @@ describe('follower page href helpers', () => {
       audience: undefined,
       isBot: undefined,
     });
+    expect(parseFollowerPath('/followers/cultivate')).toEqual({
+      type: 'list',
+      slug: 'cultivate',
+      triage: undefined,
+      audience: 'cultivate',
+      isBot: undefined,
+    });
     expect(parseFollowerPath('/followers/bots')).toEqual({
       type: 'list',
       slug: 'bots',

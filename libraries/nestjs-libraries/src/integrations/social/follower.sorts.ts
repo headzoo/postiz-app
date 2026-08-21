@@ -27,7 +27,7 @@ export const FOLLOWER_TRIAGE_FILTERS = [
 export type FollowerTriageFilterValue =
   (typeof FOLLOWER_TRIAGE_FILTERS)[number];
 
-export const FOLLOWER_AUDIENCES = ['lead', 'ignored'] as const;
+export const FOLLOWER_AUDIENCES = ['lead', 'ignored', 'cultivate'] as const;
 export type FollowerAudience = (typeof FOLLOWER_AUDIENCES)[number];
 
 export const FOLLOWER_CATEGORY_DESCRIPTIONS = {
@@ -38,6 +38,8 @@ export const FOLLOWER_CATEGORY_DESCRIPTIONS = {
   engaged_not_yet: "They engaged, but the channel has not reciprocated.",
   lead: 'An interacting non-follower.',
   ignored: 'An organization-managed visibility state, not a relationship score.',
+  cultivate:
+    'A warm relationship that has not received outbound attention recently.',
 } as const;
 
 export type FollowerPageKind = 'list' | 'detail' | 'timeline';

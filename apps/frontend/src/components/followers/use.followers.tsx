@@ -49,7 +49,8 @@ export type RelationshipTriage =
 export type DismissibleTriage =
   | RelationshipTriage
   | 'lead'
-  | 'engaged_not_yet';
+  | 'engaged_not_yet'
+  | 'cultivate';
 
 export type FollowerTriageFilter =
   | 'engaged_not_yet'
@@ -138,6 +139,15 @@ export type Follower = {
   isLead?: boolean;
   engagedNotYet?: boolean;
   isIgnored?: boolean;
+  leadBridgeScore?: number | null;
+  leadBridges?: Array<{
+    externalId: string;
+    username?: string;
+    grade?: number;
+  }>;
+  isCultivate?: boolean;
+  cultivateReason?: string;
+  suggestedAction?: string;
 };
 
 export type FollowerList = {
@@ -279,7 +289,7 @@ export type UseFollowersParams = {
   window?: ChannelInteractionWindow;
   search?: string;
   triage?: FollowerTriageFilter;
-  audience?: 'lead' | 'ignored';
+  audience?: 'lead' | 'ignored' | 'cultivate';
   listId?: string;
   isBot?: boolean;
 };
@@ -699,6 +709,41 @@ export const applyRelationshipSnapshotToFollowerPage = (
   };
 };
 
+export const applyRelationshipSnapshotToFollowerDetail = (
+  detail: FollowerMemberDetail | undefined,
+  current: unknown
+): FollowerMemberDetail | undefined => {
+  if (!detail || !isRelationshipSnapshot(current)) {
+    return detail;
+  }
+  const snapshot = current as FollowerRelationshipSnapshot;
+  const historyWithoutDuplicate = detail.relationship.history.filter(
+    (entry) => entry.snapshotAt !== snapshot.snapshotAt
+  );
+  return {
+    ...detail,
+    follower: {
+      ...detail.follower,
+      effortScore: snapshot.effortScore,
+      reciprocationScore: snapshot.reciprocationScore,
+      netGap: snapshot.reciprocationScore - snapshot.effortScore,
+      effortStars: snapshot.effortStars,
+      reciprocationStars: snapshot.reciprocationStars,
+      relationshipGrade: snapshot.grade,
+      relationshipTriage: snapshot.triage,
+      relationshipFormulaVersion: snapshot.formulaVersion,
+      relationshipSnapshotAt: snapshot.snapshotAt,
+      adjustedGrade: snapshot.adjustedGrade,
+    },
+    relationship: {
+      ...detail.relationship,
+      formulaVersion: snapshot.formulaVersion,
+      current: snapshot,
+      history: [...historyWithoutDuplicate, snapshot],
+    },
+  };
+};
+
 export const useFollowerRelationshipScoreMutation = (
   integrationId: string,
   externalId: string,
@@ -720,8 +765,16 @@ export const useFollowerRelationshipScoreMutation = (
         throw new Error('Failed to refresh relationship score');
       }
       const current = (await response.json()) as FollowerRelationshipSnapshot;
+      const detailKey = buildFollowerDetailUrl(integrationId, { externalId });
       await Promise.all([
-        revalidateDetail(),
+        detailKey
+          ? mutateCache(
+            detailKey,
+            (detail: FollowerMemberDetail | undefined) =>
+              applyRelationshipSnapshotToFollowerDetail(detail, current),
+            { revalidate: false }
+          )
+          : Promise.resolve(),
         mutateCache(
           (key) => isFollowerListCacheKey(integrationId, key),
           (page: FollowerPage | undefined) =>
@@ -729,6 +782,7 @@ export const useFollowerRelationshipScoreMutation = (
           { revalidate: true }
         ),
       ]);
+      await revalidateDetail();
     },
     [externalId, fetch, integrationId, mutateCache, revalidateDetail]
   );

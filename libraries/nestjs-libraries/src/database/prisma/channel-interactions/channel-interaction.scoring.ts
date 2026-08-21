@@ -6,16 +6,20 @@ export type ChannelInteractionScoreKind =
   | 'follow';
 export type ChannelInteractionScoreDirection = 'inbound' | 'outbound';
 
-export const RELATIONSHIP_FORMULA_VERSION = 2;
+export const RELATIONSHIP_FORMULA_VERSION = 3;
 export const RELATIONSHIP_SCORE_CAP = 40;
 export const RELATIONSHIP_MEANINGFUL_ACTIVITY_THRESHOLD = 8;
 export const RELATIONSHIP_DIRECTIONAL_RATIO = 1.5;
+export const RELATIONSHIP_TOUCHED_DIRECTIONAL_RATIO = 2;
 export const RELATIONSHIP_WINDOW_DAYS = 30;
 export const RELATIONSHIP_CADENCE_DAYS = 3;
+export const RELATIONSHIP_HOT_SNOOZE_DAYS = 3;
 export const RELATIONSHIP_WINDOW_MS =
   RELATIONSHIP_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 export const RELATIONSHIP_CADENCE_MS =
   RELATIONSHIP_CADENCE_DAYS * 24 * 60 * 60 * 1000;
+export const RELATIONSHIP_HOT_SNOOZE_MS =
+  RELATIONSHIP_HOT_SNOOZE_DAYS * 24 * 60 * 60 * 1000;
 
 export type RelationshipTriage =
   | 'quiet'
@@ -83,10 +87,13 @@ export function getRelationshipTriage(
   ) {
     return 'quiet';
   }
+  const hotRatio =
+    effortScore > 0
+      ? RELATIONSHIP_TOUCHED_DIRECTIONAL_RATIO
+      : RELATIONSHIP_DIRECTIONAL_RATIO;
   if (
     reciprocationScore >= RELATIONSHIP_MEANINGFUL_ACTIVITY_THRESHOLD &&
-    (effortScore === 0 ||
-      reciprocationScore >= RELATIONSHIP_DIRECTIONAL_RATIO * effortScore)
+    (effortScore === 0 || reciprocationScore >= hotRatio * effortScore)
   ) {
     return 'hot_lead';
   }

@@ -82,6 +82,7 @@ import { PipelinePlugService } from '@gitroom/nestjs-libraries/database/prisma/p
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 import {
   AudienceFollowerCursor,
+  AudienceCultivateCursor,
   AudienceLeadCursor,
   ChannelInteractionRepository,
   GradeFollowerCursor,
@@ -615,6 +616,24 @@ export class IntegrationService {
         org.id,
         actorUserId,
         integration,
+        normalizedQuery
+      );
+    }
+    if (normalizedQuery.audience === 'cultivate') {
+      if (normalizedQuery.cursor && this.isHttpUrl(normalizedQuery.cursor)) {
+        throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+      }
+      this.assertFollowerCursorQueryIdentity(
+        normalizedQuery.cursor,
+        search,
+        undefined,
+        'cultivate'
+      );
+      return this.getCultivateAudiencePage(
+        org.id,
+        actorUserId,
+        integration,
+        provider,
         normalizedQuery
       );
     }
@@ -1225,8 +1244,17 @@ export class IntegrationService {
     provider: SocialProvider
   ): FollowerMemberDetail {
     const myGrade = details.myGrade ?? null;
+    const now = Date.now();
     const ignoredTriages = new Set(
-      (details.member.triageIgnores ?? []).map((ignore) => ignore.triage)
+      (details.member.triageIgnores ?? [])
+        .filter(
+          (ignore: { triage: string; expiresAt?: Date | null }) =>
+            ignore.expiresAt == null ||
+            (ignore.expiresAt instanceof Date
+              ? ignore.expiresAt.getTime() > now
+              : new Date(ignore.expiresAt).getTime() > now)
+        )
+        .map((ignore: { triage: string }) => ignore.triage)
     );
     const history = details.snapshots.map((snapshot) =>
       this.mapFollowerRelationshipSnapshot(snapshot, myGrade)
@@ -1402,7 +1430,7 @@ export class IntegrationService {
     relationshipTriage?: string | null;
     relationshipFormulaVersion?: number | null;
     relationshipSnapshotAt?: Date | null;
-    triageIgnores?: Array<{ triage: string }>;
+    triageIgnores?: Array<{ triage: string; expiresAt?: Date | null }>;
     ignoredTriages?: string[];
   }) {
     const effortScore = member?.relationshipEffortScore ?? null;
@@ -1418,9 +1446,18 @@ export class IntegrationService {
     const computedTriage = this.isRelationshipTriage(member?.relationshipTriage)
       ? member!.relationshipTriage
       : getRelationshipTriage(effortScore!, reciprocationScore!);
+    const now = Date.now();
     const ignored = new Set([
       ...(member?.ignoredTriages ?? []),
-      ...(member?.triageIgnores?.map((ignore) => ignore.triage) ?? []),
+      ...(member?.triageIgnores
+        ?.filter(
+          (ignore) =>
+            ignore.expiresAt == null ||
+            (ignore.expiresAt instanceof Date
+              ? ignore.expiresAt.getTime() > now
+              : new Date(ignore.expiresAt).getTime() > now)
+        )
+        .map((ignore) => ignore.triage) ?? []),
     ]);
     const engagedNotYet =
       isEngagedNotYet(effortScore!, reciprocationScore!) &&
@@ -1608,7 +1645,11 @@ export class IntegrationService {
       query.listId,
       query.isBot
     );
-    if (query.cursor?.startsWith('follower-lead:v1:')) {
+    if (
+      query.cursor?.startsWith('follower-lead:v1:') ||
+      query.cursor?.startsWith('follower-lead:v2:') ||
+      query.cursor?.startsWith('follower-cultivate:v1:')
+    ) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
     }
     if (query.cursor?.startsWith('follower-ignored:v1:')) {
@@ -1857,6 +1898,10 @@ export class IntegrationService {
       ...this.mapAudienceMemberProfile(row),
       isLead: true,
       interactionCount: row.inboundInteractionCount,
+      ...(row.leadBridgeScore != null
+        ? { leadBridgeScore: row.leadBridgeScore }
+        : {}),
+      ...this.mapLeadBridges(row.leadBridgesAsLead),
       ...(row.lastInboundAt
         ? { lastInteractionAt: row.lastInboundAt.toISOString() }
         : {}),
@@ -1873,6 +1918,7 @@ export class IntegrationService {
             direction,
             search: query.search,
             audience: 'lead',
+            leadBridgeScore: last.leadBridgeScore ?? null,
             lastInboundAt: last.lastInboundAt
               ? last.lastInboundAt.toISOString()
               : null,
@@ -1880,6 +1926,90 @@ export class IntegrationService {
           }),
         }
         : {}),
+    };
+  }
+
+  private async getCultivateAudiencePage(
+    organizationId: string,
+    userId: string | undefined,
+    integration: Integration,
+    provider: SocialProvider,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
+    const direction = query.direction ?? 'asc';
+    const cursor = query.cursor
+      ? this.decodeCultivateAudienceCursor(
+        query.cursor,
+        organizationId,
+        integration.id,
+        direction,
+        query.search
+      )
+      : undefined;
+    const ranked = await this._channelInteractionRepository.getAudienceCultivate({
+      organizationId,
+      integrationId: integration.id,
+      userId,
+      direction,
+      limit: query.limit,
+      ...(cursor ? { cursor } : {}),
+      ...(query.search ? { search: query.search } : {}),
+    });
+    const items = ranked.items.map((row) => ({
+      ...this.mapAudienceMemberProfile(row),
+      isCultivate: true,
+      ...(row.cultivateReason ? { cultivateReason: row.cultivateReason } : {}),
+      ...(row.suggestedAction ? { suggestedAction: row.suggestedAction } : {}),
+    }));
+    const last = ranked.items.at(-1);
+    const page: FollowerPage = {
+      items,
+      hasMore: ranked.hasMore,
+      ...(ranked.hasMore && last
+        ? {
+          nextCursor: this.encodeCultivateAudienceCursor({
+            organizationId,
+            integrationId: integration.id,
+            direction,
+            search: query.search,
+            audience: 'cultivate',
+            finalRank: last.finalRank,
+            externalId: last.externalId,
+          }),
+        }
+        : {}),
+    };
+    return this.enrichFollowerPageWithInteractionMetrics(
+      organizationId,
+      userId,
+      integration.id,
+      provider,
+      page
+    );
+  }
+
+  private mapLeadBridges(
+    bridges?: Array<{
+      bridgeExternalId: string;
+      bridgeRelationshipGrade: number | null;
+      bridgeMember?: { username: string | null; name: string | null } | null;
+    }>
+  ) {
+    if (!bridges?.length) {
+      return {};
+    }
+    return {
+      leadBridges: bridges.map((bridge) => ({
+        externalId: bridge.bridgeExternalId,
+        ...(bridge.bridgeMember?.username
+          ? { username: bridge.bridgeMember.username }
+          : bridge.bridgeMember?.name
+            ? { username: bridge.bridgeMember.name }
+            : {}),
+        ...(bridge.bridgeRelationshipGrade != null
+          ? { grade: bridge.bridgeRelationshipGrade }
+          : {}),
+      })),
     };
   }
 
@@ -2613,9 +2743,58 @@ export class IntegrationService {
     search?: string;
     audience: 'lead';
   } & AudienceLeadCursor) {
-    return `follower-lead:v1:${Buffer.from(
+    return `follower-lead:v2:${Buffer.from(
+      JSON.stringify({ version: 2, ...cursor })
+    ).toString('base64url')}`;
+  }
+
+  private encodeCultivateAudienceCursor(cursor: {
+    organizationId: string;
+    integrationId: string;
+    direction: 'asc' | 'desc';
+    search?: string;
+    audience: 'cultivate';
+  } & AudienceCultivateCursor) {
+    return `follower-cultivate:v1:${Buffer.from(
       JSON.stringify({ version: 1, ...cursor })
     ).toString('base64url')}`;
+  }
+
+  private decodeCultivateAudienceCursor(
+    value: string,
+    organizationId: string,
+    integrationId: string,
+    direction: 'asc' | 'desc',
+    search: string | undefined
+  ): AudienceCultivateCursor {
+    try {
+      if (!value.startsWith('follower-cultivate:v1:')) throw new Error();
+      const cursor = JSON.parse(
+        Buffer.from(
+          value.slice('follower-cultivate:v1:'.length),
+          'base64url'
+        ).toString('utf8')
+      );
+      if (
+        cursor?.version !== 1 ||
+        cursor.organizationId !== organizationId ||
+        cursor.integrationId !== integrationId ||
+        cursor.direction !== direction ||
+        cursor.search !== search ||
+        cursor.audience !== 'cultivate' ||
+        !Number.isSafeInteger(cursor.finalRank) ||
+        cursor.finalRank < 1 ||
+        typeof cursor.externalId !== 'string'
+      ) {
+        throw new Error();
+      }
+      return {
+        finalRank: cursor.finalRank,
+        externalId: cursor.externalId,
+      };
+    } catch {
+      throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
+    }
   }
 
   private encodeIgnoredAudienceCursor(cursor: {
@@ -2675,20 +2854,22 @@ export class IntegrationService {
     search: string | undefined
   ): AudienceLeadCursor {
     try {
-      if (!value.startsWith('follower-lead:v1:')) throw new Error();
+      if (!value.startsWith('follower-lead:v2:')) throw new Error();
       const cursor = JSON.parse(
         Buffer.from(
-          value.slice('follower-lead:v1:'.length),
+          value.slice('follower-lead:v2:'.length),
           'base64url'
         ).toString('utf8')
       );
       if (
-        cursor?.version !== 1 ||
+        cursor?.version !== 2 ||
         cursor.organizationId !== organizationId ||
         cursor.integrationId !== integrationId ||
         cursor.direction !== direction ||
         cursor.search !== search ||
         cursor.audience !== 'lead' ||
+        (cursor.leadBridgeScore !== null &&
+          typeof cursor.leadBridgeScore !== 'number') ||
         (cursor.lastInboundAt !== null &&
           (typeof cursor.lastInboundAt !== 'string' ||
             Number.isNaN(Date.parse(cursor.lastInboundAt)))) ||
@@ -2697,6 +2878,7 @@ export class IntegrationService {
         throw new Error();
       }
       return {
+        leadBridgeScore: cursor.leadBridgeScore,
         lastInboundAt: cursor.lastInboundAt,
         externalId: cursor.externalId,
       };
@@ -2940,6 +3122,8 @@ export class IntegrationService {
       'follower-bot-grade:v1:',
       'follower-projection:v1:',
       'follower-lead:v1:',
+      'follower-lead:v2:',
+      'follower-cultivate:v1:',
       'follower-ignored:v1:',
     ];
     if (!value || !internalPrefixes.some((prefix) => value.startsWith(prefix))) {

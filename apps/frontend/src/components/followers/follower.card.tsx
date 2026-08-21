@@ -39,6 +39,10 @@ const TRIAGE_LABELS: Record<
     key: 'followers_audience_lead',
     defaultLabel: 'Lead',
   },
+  cultivate: {
+    key: 'followers_audience_cultivate',
+    defaultLabel: 'Cultivate',
+  },
 };
 
 const TRIAGE_STYLES: Record<DismissibleTriage, string> = {
@@ -48,6 +52,7 @@ const TRIAGE_STYLES: Record<DismissibleTriage, string> = {
   over_invested: 'border-red-400/40 text-red-400',
   quiet: 'border-newTableBorder text-textItemBlur',
   lead: 'border-sky-500/40 text-sky-500',
+  cultivate: 'border-teal-500/40 text-teal-500',
 };
 
 export const RelationshipTriageBadge: FC<{
@@ -238,19 +243,19 @@ export const FollowerCard: FC<{
         )}
       >
         {timelineHref && (
-        <Link
-          href={timelineHref}
-          onClick={stopTimelineNavigation}
-          onKeyDown={stopTimelineKeyboard}
-          className={clsx(
-            'absolute top-[16px] right-[16px] z-[1]',
-            'inline-flex h-[20px] w-[20px] items-center justify-center rounded-full border',
-            'border-newTableBorder text-textItemBlur hover:border-newTextColor/40 hover:text-newTextColor'
-          )}
-          aria-label={t('followers_timeline_button', 'Timeline')}
-        >
-          <TimelineIcon size={14} />
-        </Link>
+          <Link
+            href={timelineHref}
+            onClick={stopTimelineNavigation}
+            onKeyDown={stopTimelineKeyboard}
+            className={clsx(
+              'absolute top-[16px] right-[16px] z-[1]',
+              'inline-flex h-[20px] w-[20px] items-center justify-center rounded-full border',
+              'border-newTableBorder text-textItemBlur hover:border-newTextColor/40 hover:text-newTextColor'
+            )}
+            aria-label={t('followers_timeline_button', 'Timeline')}
+          >
+            <TimelineIcon size={14} />
+          </Link>
         )}
         <div
           data-follower-card-layout=""
@@ -329,6 +334,51 @@ export const FollowerCard: FC<{
                     onRemove={onDismissTriage}
                   />
                 )}
+                {follower.isCultivate && (
+                  <RelationshipTriageBadge
+                    triage="cultivate"
+                    onRemove={onDismissTriage}
+                  />
+                )}
+                {follower.isCultivate && follower.cultivateReason && (
+                  <span
+                    className="inline-flex max-w-[240px] shrink truncate rounded-full border border-newTableBorder px-[8px] py-[2px] text-[11px] font-[500] text-textItemBlur"
+                    title={follower.cultivateReason}
+                  >
+                    {follower.cultivateReason}
+                  </span>
+                )}
+                {follower.isCultivate && follower.suggestedAction && (
+                  <span
+                    className="inline-flex max-w-[200px] shrink truncate rounded-full border border-newTableBorder px-[8px] py-[2px] text-[11px] font-[500] text-textItemBlur"
+                    title={follower.suggestedAction}
+                  >
+                    {follower.suggestedAction}
+                  </span>
+                )}
+                {(follower.leadBridges ?? []).slice(0, 1).map((bridge) => {
+                  const viaHandle = bridge.username
+                    ? `@${bridge.username.replace(/^@/, '')}`
+                    : null;
+                  if (!viaHandle) {
+                    return null;
+                  }
+                  return (
+                    <span
+                      key={bridge.externalId}
+                      className="inline-flex w-fit shrink-0 items-center rounded-full border border-newTableBorder px-[8px] py-[2px] text-[11px] font-[600] text-textItemBlur"
+                      title={t(
+                        'followers_lead_via_title',
+                        'Discovered via {{handle}}',
+                        { handle: viaHandle }
+                      )}
+                    >
+                      {t('followers_lead_via', 'Via {{handle}}', {
+                        handle: viaHandle,
+                      })}
+                    </span>
+                  );
+                })}
                 {follower.engagedNotYet && (
                   <RelationshipTriageBadge
                     triage="engaged_not_yet"
@@ -387,154 +437,154 @@ export const FollowerCard: FC<{
             <div className="col-span-2 flex min-w-0 flex-col gap-[12px] h-full md:col-auto md:flex-1">
               <div>
 
-              {accountCreatedAt && (
-                <div className="mt-[4px] min-w-0 overflow-hidden whitespace-nowrap text-[13px]">
-                  <span className="font-[700] text-newTextColor">
-                    {t('followers_joined_label', 'Joined')}
-                  </span>{' '}
-                  <span className="text-textItemBlur">{accountCreatedAt}</span>
-                </div>
-              )}
+                {accountCreatedAt && (
+                  <div className="mt-[4px] min-w-0 overflow-hidden whitespace-nowrap text-[13px]">
+                    <span className="font-[700] text-newTextColor">
+                      {t('followers_joined_label', 'Joined')}
+                    </span>{' '}
+                    <span className="text-textItemBlur">{accountCreatedAt}</span>
+                  </div>
+                )}
 
-              {hasSecondaryInteractionMetrics && (
-                <div className="mt-[6px] flex flex-wrap items-center gap-x-[16px] gap-y-[4px] text-[12px] text-textItemBlur">
-                  {Number.isFinite(follower.interactionScore) && (
-                    <span>
-                      {t('followers_activity_score', 'Activity score {{score}}', {
-                        score: follower.interactionScore!,
-                      })}
-                    </span>
-                  )}
-                  {lastInteractionAt && (
-                    <span>
-                      {t(
-                        'followers_last_interaction',
-                        'Last interaction {{date}}',
-                        { date: lastInteractionAt }
-                      )}
-                    </span>
-                  )}
-                </div>
-              )}
+                {hasSecondaryInteractionMetrics && (
+                  <div className="mt-[6px] flex flex-wrap items-center gap-x-[16px] gap-y-[4px] text-[12px] text-textItemBlur">
+                    {Number.isFinite(follower.interactionScore) && (
+                      <span>
+                        {t('followers_activity_score', 'Activity score {{score}}', {
+                          score: follower.interactionScore!,
+                        })}
+                      </span>
+                    )}
+                    {lastInteractionAt && (
+                      <span>
+                        {t(
+                          'followers_last_interaction',
+                          'Last interaction {{date}}',
+                          { date: lastInteractionAt }
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
 
-              {(hasRelationshipEffort || hasMetricsGrid) && (
-                <div
-                  data-follower-metrics-row=""
-                  className={clsx(
-                    'mt-[8px] grid gap-x-[16px] gap-y-[8px]',
-                    hasRelationshipEffort && hasMetricsGrid
-                      ? 'grid-cols-1 md:grid-cols-[max-content_minmax(0,1fr)]'
-                      : 'grid-cols-1'
-                  )}
-                >
-                  {hasRelationshipEffort && (
-                    <div className="grid grid-cols-[auto_auto] items-center gap-x-[8px] gap-y-[6px] text-[12px]">
-                      <span className="text-textItemBlur">
-                        {t('followers_card_grade', 'Grade')}
-                      </span>
-                      <RelationshipStars
-                        grade={follower.myGrade ?? null}
-                        compact={true}
-                      />
-                      <span className="text-textItemBlur">
-                        {t('followers_card_them', 'Them')}
-                      </span>
-                      <RelationshipStars
-                        grade={follower.reciprocationStars ?? null}
-                        compact={true}
-                      />
-                      <span className="text-textItemBlur">
-                        {t('followers_card_you', 'You')}
-                      </span>
-                      <RelationshipStars
-                        grade={follower.effortStars ?? null}
-                        compact={true}
-                      />
-                    </div>
-                  )}
-                  {hasMetricsGrid && (
-                    <div className="flex min-w-0 flex-wrap gap-x-[12px] gap-y-[6px] text-[13px]">
-                      {hasFollowingCount && (
-                        <span className="whitespace-nowrap">
-                          <span className="font-[700] text-newTextColor">
-                            {formatCompactCount(follower.followingCount!)}
-                          </span>{' '}
-                          <span className="text-textItemBlur">
-                            {t('followers_following_label', 'Following')}
-                          </span>
-                        </span>
-                      )}
-                      {hasFollowersCount && (
-                        <span className="whitespace-nowrap">
-                          <span className="font-[700] text-newTextColor">
-                            {formatCompactCount(follower.followersCount!)}
-                          </span>{' '}
-                          <span className="text-textItemBlur">
-                            {t('followers_followers_label', 'Followers')}
-                          </span>
-                        </span>
-                      )}
-                      {hasLikesCount && (
-                        <span className="whitespace-nowrap">
-                          <span className="font-[700] text-newTextColor">
-                            {formatCompactCount(follower.likesCount!)}
-                          </span>{' '}
-                          <span className="text-textItemBlur">
-                            {t('followers_like_count', 'likes')}
-                          </span>
-                        </span>
-                      )}
-                      {hasNoteCount && (
-                        <span className="whitespace-nowrap">
-                          <span className="font-[700] text-newTextColor">
-                            {formatCompactCount(follower.noteCount!)}
-                          </span>{' '}
-                          <span className="text-textItemBlur">
-                            {t('followers_note_count', 'notes')}
-                          </span>
-                        </span>
-                      )}
-                      {hasInteractionCount && (
-                        <span className="whitespace-nowrap">
-                          <span className="font-[700] text-newTextColor">
-                            {formatCompactCount(follower.interactionCount!)}
-                          </span>{' '}
-                          <span className="text-textItemBlur">
-                            {t('followers_interaction_count', 'interactions')}
-                          </span>
-                        </span>
-                      )}
-                      {hasInfluenceScore && (
+                {(hasRelationshipEffort || hasMetricsGrid) && (
+                  <div
+                    data-follower-metrics-row=""
+                    className={clsx(
+                      'mt-[8px] grid gap-x-[16px] gap-y-[8px]',
+                      hasRelationshipEffort && hasMetricsGrid
+                        ? 'grid-cols-1 md:grid-cols-[max-content_minmax(0,1fr)]'
+                        : 'grid-cols-1'
+                    )}
+                  >
+                    {hasRelationshipEffort && (
+                      <div className="grid grid-cols-[auto_auto] items-center gap-x-[8px] gap-y-[6px] text-[12px]">
                         <span className="text-textItemBlur">
-                          {t(
-                            'followers_recommendation_score',
-                            'Score {{score}}',
-                            {
-                              score: follower.influenceScore!,
-                            }
-                          )}
+                          {t('followers_card_grade', 'Grade')}
                         </span>
-                      )}
-                    </div>
-                  )}
+                        <RelationshipStars
+                          grade={follower.myGrade ?? null}
+                          compact={true}
+                        />
+                        <span className="text-textItemBlur">
+                          {t('followers_card_them', 'Them')}
+                        </span>
+                        <RelationshipStars
+                          grade={follower.reciprocationStars ?? null}
+                          compact={true}
+                        />
+                        <span className="text-textItemBlur">
+                          {t('followers_card_you', 'You')}
+                        </span>
+                        <RelationshipStars
+                          grade={follower.effortStars ?? null}
+                          compact={true}
+                        />
+                      </div>
+                    )}
+                    {hasMetricsGrid && (
+                      <div className="flex min-w-0 flex-wrap gap-x-[12px] gap-y-[6px] text-[13px]">
+                        {hasFollowingCount && (
+                          <span className="whitespace-nowrap">
+                            <span className="font-[700] text-newTextColor">
+                              {formatCompactCount(follower.followingCount!)}
+                            </span>{' '}
+                            <span className="text-textItemBlur">
+                              {t('followers_following_label', 'Following')}
+                            </span>
+                          </span>
+                        )}
+                        {hasFollowersCount && (
+                          <span className="whitespace-nowrap">
+                            <span className="font-[700] text-newTextColor">
+                              {formatCompactCount(follower.followersCount!)}
+                            </span>{' '}
+                            <span className="text-textItemBlur">
+                              {t('followers_followers_label', 'Followers')}
+                            </span>
+                          </span>
+                        )}
+                        {hasLikesCount && (
+                          <span className="whitespace-nowrap">
+                            <span className="font-[700] text-newTextColor">
+                              {formatCompactCount(follower.likesCount!)}
+                            </span>{' '}
+                            <span className="text-textItemBlur">
+                              {t('followers_like_count', 'likes')}
+                            </span>
+                          </span>
+                        )}
+                        {hasNoteCount && (
+                          <span className="whitespace-nowrap">
+                            <span className="font-[700] text-newTextColor">
+                              {formatCompactCount(follower.noteCount!)}
+                            </span>{' '}
+                            <span className="text-textItemBlur">
+                              {t('followers_note_count', 'notes')}
+                            </span>
+                          </span>
+                        )}
+                        {hasInteractionCount && (
+                          <span className="whitespace-nowrap">
+                            <span className="font-[700] text-newTextColor">
+                              {formatCompactCount(follower.interactionCount!)}
+                            </span>{' '}
+                            <span className="text-textItemBlur">
+                              {t('followers_interaction_count', 'interactions')}
+                            </span>
+                          </span>
+                        )}
+                        {hasInfluenceScore && (
+                          <span className="text-textItemBlur">
+                            {t(
+                              'followers_recommendation_score',
+                              'Score {{score}}',
+                              {
+                                score: follower.influenceScore!,
+                              }
+                            )}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {follower.bio && (
+                  <p className="mt-[8px] text-[13px] text-newTextColor line-clamp-3">
+                    {follower.bio}
+                  </p>
+                )}
+              </div>
+
+              {followedAt && (
+                <div className="mt-auto flex flex-col gap-[4px] text-[12px] text-textItemBlur">
+                  <span>
+                    {t('followers_followed_at', 'Followed {{date}}', {
+                      date: followedAt,
+                    })}
+                  </span>
                 </div>
               )}
-              {follower.bio && (
-                <p className="mt-[8px] text-[13px] text-newTextColor line-clamp-3">
-                  {follower.bio}
-                </p>
-              )}
-            </div>
-
-            {followedAt && (
-              <div className="mt-auto flex flex-col gap-[4px] text-[12px] text-textItemBlur">
-                <span>
-                  {t('followers_followed_at', 'Followed {{date}}', {
-                    date: followedAt,
-                  })}
-                </span>
-              </div>
-            )}
             </div>
           </div>
         </div>

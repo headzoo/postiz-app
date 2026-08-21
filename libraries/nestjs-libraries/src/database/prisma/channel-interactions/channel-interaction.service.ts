@@ -49,6 +49,18 @@ import {
   isPersonalRelationshipGrade,
 } from './channel-interaction.scoring';
 import { RelationshipGradeScheduleConfig } from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule';
+import {
+  LEAD_BRIDGE_DAILY_LIMIT,
+  LEAD_BRIDGE_PAGE_SIZE,
+  leadBridgeCursorKey,
+  leadBridgeDailyCountKey,
+  leadBridgeDailyTtlSeconds,
+  utcDayKey,
+} from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
+import {
+  CULTIVATE_CANDIDATE_POOL_SIZE,
+  CULTIVATE_DAILY_PICK_LIMIT,
+} from '@gitroom/nestjs-libraries/temporal/cultivate.schedule';
 
 export {
   applyPersonalRelationshipGrade,
@@ -1050,6 +1062,136 @@ export class ChannelInteractionService {
     };
   }
 
+  async crawlLeadBridgesForIntegration(integration: Integration) {
+    if (!this._integrationManager) {
+      return { skipped: true as const, processed: 0, applied: 0 };
+    }
+    let provider: SocialProvider;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      return { skipped: true as const, processed: 0, applied: 0 };
+    }
+    if (!provider.memberFollowers) {
+      return { skipped: true as const, processed: 0, applied: 0 };
+    }
+
+    const day = utcDayKey();
+    const countKey = leadBridgeDailyCountKey(integration.id, day);
+    const used = Number((await ioRedis.get(countKey)) || '0');
+    if (used >= LEAD_BRIDGE_DAILY_LIMIT) {
+      return { skipped: true as const, processed: 0, applied: 0, rateLimited: true };
+    }
+
+    const cursorKey = leadBridgeCursorKey(integration.id);
+    const afterExternalId = (await ioRedis.get(cursorKey)) || undefined;
+    const warm = await this._repository.getNextWarmFollowerForLeadBridge(
+      integration.organizationId,
+      integration.id,
+      afterExternalId || undefined
+    );
+    if (!warm) {
+      return { skipped: true as const, processed: 0, applied: 0 };
+    }
+
+    let page: Awaited<ReturnType<NonNullable<SocialProvider['memberFollowers']>>>;
+    try {
+      page = await provider.memberFollowers(
+        integration,
+        integration.token,
+        warm.externalId,
+        { limit: LEAD_BRIDGE_PAGE_SIZE }
+      );
+    } catch {
+      await ioRedis.set(cursorKey, warm.externalId);
+      return { skipped: false as const, processed: 0, applied: 0, failed: true };
+    }
+
+    const leads = (page.items || []).map((item) => ({
+      externalId: String(item.id).slice(0, MAX_ID_LENGTH),
+      ...(item.name ? { name: String(item.name).slice(0, MAX_PROFILE_TEXT_LENGTH) } : {}),
+      ...(item.username
+        ? { username: String(item.username).slice(0, MAX_PROFILE_TEXT_LENGTH) }
+        : {}),
+      ...(item.picture
+        ? { picture: String(item.picture).slice(0, MAX_PROFILE_TEXT_LENGTH) }
+        : {}),
+      ...(item.profileUrl
+        ? { profileUrl: String(item.profileUrl).slice(0, MAX_PROFILE_TEXT_LENGTH) }
+        : {}),
+      ...(item.bio ? { bio: String(item.bio).slice(0, MAX_PROFILE_TEXT_LENGTH) } : {}),
+      ...(Number.isSafeInteger(item.followersCount)
+        ? { followersCount: item.followersCount! }
+        : {}),
+      ...(Number.isSafeInteger(item.followingCount)
+        ? { followingCount: item.followingCount! }
+        : {}),
+      ...(item.accountCreatedAt
+        ? { accountCreatedAt: new Date(item.accountCreatedAt) }
+        : {}),
+    }));
+
+    const result = await this._repository.applyLeadBridgeDiscoveries({
+      organizationId: integration.organizationId,
+      integrationId: integration.id,
+      bridgeExternalId: warm.externalId,
+      bridgeRelationshipGrade: warm.relationshipGrade,
+      leads,
+    });
+
+    await ioRedis.set(cursorKey, warm.externalId);
+    const nextCount = await ioRedis.incr(countKey);
+    if (nextCount === 1) {
+      await ioRedis.expire(countKey, leadBridgeDailyTtlSeconds());
+    }
+
+    return {
+      skipped: false as const,
+      processed: 1,
+      applied: result.applied,
+      skippedLeads: result.skipped,
+      bridgeExternalId: warm.externalId,
+    };
+  }
+
+  async materializeCultivatePicksForIntegration(
+    organizationId: string,
+    integrationId: string,
+    now = new Date()
+  ) {
+    const day = utcDayKey(now);
+    const candidates = await this._repository.listCultivateCandidates({
+      organizationId,
+      integrationId,
+      now,
+      take: CULTIVATE_CANDIDATE_POOL_SIZE,
+    });
+    const ranked = this._repository
+      .rankCultivateCandidates(candidates, day, now)
+      .slice(0, CULTIVATE_DAILY_PICK_LIMIT);
+    // AI re-rank fields are schema-ready but intentionally unused here.
+    const picks = ranked.map((row) => ({
+      counterpartyExternalId: row.externalId,
+      rulesRank: row.rulesRank,
+      finalRank: row.finalRank,
+      rulesReason: row.rulesReason,
+      source: 'rules',
+    }));
+    const result = await this._repository.upsertCultivatePicks({
+      organizationId,
+      integrationId,
+      day,
+      picks,
+    });
+    return {
+      day,
+      candidateCount: candidates.length,
+      pickCount: result.count,
+    };
+  }
+
   async refreshFollowerRelationshipScore(
     organizationId: string,
     integrationId: string,
@@ -1105,7 +1247,8 @@ export class ChannelInteractionService {
       organizationId,
       integrationId,
       snapshotAt,
-      [snapshot]
+      [snapshot],
+      { force: true }
     );
     return {
       ...snapshot,
@@ -1358,6 +1501,7 @@ export class ChannelInteractionService {
         'mutual',
         'lead',
         'engaged_not_yet',
+        'cultivate',
       ].includes(triage)
     ) {
       throw new BadRequestException('Invalid triage value');

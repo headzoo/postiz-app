@@ -82,30 +82,68 @@ describe('InfiniteWorkflowRegister', () => {
         args: [{}],
       })
     );
+    expect(workflow.start).toHaveBeenCalledWith(
+      'channelLeadBridgeWorkflowV1',
+      expect.objectContaining({
+        workflowId: 'channel-lead-bridge-workflow-v1',
+        taskQueue: 'main',
+        args: [{}],
+      })
+    );
+    expect(workflow.start).toHaveBeenCalledWith(
+      'channelCultivateWorkflowV1',
+      expect.objectContaining({
+        workflowId: 'channel-cultivate-workflow-v1',
+        taskQueue: 'main',
+        args: [{}],
+      })
+    );
     expect(workflow.getHandle).toHaveBeenCalledWith(
       'channel-analytics-snapshot-workflow-v2'
     );
+    expect(workflow.getHandle).toHaveBeenCalledWith(
+      'channel-lead-bridge-workflow-v1'
+    );
+    expect(workflow.getHandle).toHaveBeenCalledWith(
+      'channel-cultivate-workflow-v1'
+    );
     expect(workflow.getHandle().signal).toHaveBeenCalledWith(
       'channelAnalyticsSnapshot'
+    );
+    expect(workflow.getHandle().signal).toHaveBeenCalledWith(
+      'channelLeadBridge'
+    );
+    expect(workflow.getHandle().signal).toHaveBeenCalledWith(
+      'channelCultivate'
     );
   });
 
   it('treats an already-started analytics workflow as steady state', async () => {
     const workflow = steadyStateWorkflow();
-    workflow.start
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(
-        Object.assign(new Error('workflow already started'), {
+    workflow.start.mockImplementation(async (type: string) => {
+      if (type === 'channelAnalyticsSnapshotWorkflowV2') {
+        throw Object.assign(new Error('workflow already started'), {
           name: 'WorkflowExecutionAlreadyStartedError',
-        })
-      );
+        });
+      }
+    });
     const register = createRegister(workflow);
     process.env.RUN_CRON = '1';
 
     await expect(register.onModuleInit()).resolves.toBeUndefined();
-    expect(workflow.start).toHaveBeenLastCalledWith(
+    expect(workflow.start).toHaveBeenCalledWith(
+      'channelLeadBridgeWorkflowV1',
+      expect.objectContaining({
+        workflowId: 'channel-lead-bridge-workflow-v1',
+      })
+    );
+    expect(workflow.start).toHaveBeenCalledWith(
+      'channelCultivateWorkflowV1',
+      expect.objectContaining({
+        workflowId: 'channel-cultivate-workflow-v1',
+      })
+    );
+    expect(workflow.start).toHaveBeenCalledWith(
       'channelAnalyticsSnapshotWorkflowV2',
       expect.objectContaining({
         workflowId: 'channel-analytics-snapshot-workflow-v2',

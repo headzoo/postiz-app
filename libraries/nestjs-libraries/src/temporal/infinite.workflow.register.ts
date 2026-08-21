@@ -9,6 +9,14 @@ import { TemporalService } from 'nestjs-temporal-core';
 import { RelationshipGradeScheduleService } from './relationship-grade.schedule.service';
 import { FollowerBotScoreScheduleService } from './follower-bot-score.schedule.service';
 import { AdminScheduleWorkflowService } from './admin-schedule.workflow.service';
+import {
+  LEAD_BRIDGE_WORKFLOW_ID,
+  LEAD_BRIDGE_WORKFLOW_TYPE,
+} from './lead-bridge.schedule';
+import {
+  CULTIVATE_WORKFLOW_ID,
+  CULTIVATE_WORKFLOW_TYPE,
+} from './cultivate.schedule';
 
 @Injectable()
 export class InfiniteWorkflowRegister implements OnModuleInit {
@@ -34,6 +42,8 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
       await this.startChannelInteractionMaintenance();
       await this.startChannelRelationshipGrade();
       await this.startChannelFollowerBotScore();
+      await this.startChannelLeadBridge();
+      await this.startChannelCultivate();
       await this.startChannelAnalyticsSnapshot();
     }
   }
@@ -119,6 +129,68 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
 
   private async startChannelFollowerBotScore() {
     await this._followerBotScoreScheduleService.install();
+  }
+
+  private async startChannelLeadBridge() {
+    const workflow = this._temporalService.client?.getRawClient()?.workflow;
+    if (!workflow) {
+      throw new Error(
+        'Temporal workflow client unavailable during lead bridge start'
+      );
+    }
+    try {
+      await workflow.start(LEAD_BRIDGE_WORKFLOW_TYPE, {
+        workflowId: LEAD_BRIDGE_WORKFLOW_ID,
+        taskQueue: 'main',
+        args: [{}],
+      });
+    } catch (error) {
+      if (!this.isAlreadyStarted(error)) {
+        this._logger.error('Failed to start Channel lead bridge crawl', error);
+        throw error;
+      }
+    }
+    try {
+      await workflow
+        .getHandle(LEAD_BRIDGE_WORKFLOW_ID)
+        .signal('channelLeadBridge');
+    } catch (error) {
+      this._logger.warn(
+        'Channel lead bridge crawl was not poked after start',
+        error
+      );
+    }
+  }
+
+  private async startChannelCultivate() {
+    const workflow = this._temporalService.client?.getRawClient()?.workflow;
+    if (!workflow) {
+      throw new Error(
+        'Temporal workflow client unavailable during cultivate start'
+      );
+    }
+    try {
+      await workflow.start(CULTIVATE_WORKFLOW_TYPE, {
+        workflowId: CULTIVATE_WORKFLOW_ID,
+        taskQueue: 'main',
+        args: [{}],
+      });
+    } catch (error) {
+      if (!this.isAlreadyStarted(error)) {
+        this._logger.error('Failed to start Channel cultivate daily picks', error);
+        throw error;
+      }
+    }
+    try {
+      await workflow
+        .getHandle(CULTIVATE_WORKFLOW_ID)
+        .signal('channelCultivate');
+    } catch (error) {
+      this._logger.warn(
+        'Channel cultivate daily picks were not poked after start',
+        error
+      );
+    }
   }
 
   private async startChannelAnalyticsSnapshot() {

@@ -339,6 +339,15 @@ export type Follower = {
   isLead?: boolean;
   engagedNotYet?: boolean;
   isIgnored?: boolean;
+  leadBridgeScore?: number | null;
+  leadBridges?: Array<{
+    externalId: string;
+    username?: string;
+    grade?: number;
+  }>;
+  isCultivate?: boolean;
+  cultivateReason?: string;
+  suggestedAction?: string;
 };
 
 export type FollowerSortDirection = FollowerSortDirectionValue;
@@ -727,6 +736,12 @@ export interface SocialProvider
   followers?(
     integration: Integration,
     accessToken: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage>;
+  memberFollowers?(
+    integration: Integration,
+    accessToken: string,
+    externalId: string,
     query: FollowerQuery
   ): Promise<FollowerPage>;
   memberPosts?(

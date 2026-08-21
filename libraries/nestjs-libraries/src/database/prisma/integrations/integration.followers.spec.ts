@@ -55,6 +55,7 @@ describe('IntegrationService followers', () => {
       getFollowersByProjectedField: jest.fn(),
       getAudienceFollowers: jest.fn(),
       getAudienceLeads: jest.fn(),
+      getAudienceCultivate: jest.fn(),
       getIgnoredAudienceFollowers: jest.fn(),
       getFollowerInteractionMetrics: jest.fn().mockResolvedValue(new Map()),
       getFollowerNoteCounts: jest.fn().mockResolvedValue(new Map()),
@@ -2498,6 +2499,14 @@ describe('IntegrationService followers', () => {
           accountCreatedAt: null,
           inboundInteractionCount: 2,
           lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
+          leadBridgeScore: 4.2,
+          leadBridgesAsLead: [
+            {
+              bridgeExternalId: 'warm-1',
+              bridgeRelationshipGrade: 4.2,
+              bridgeMember: { username: 'warmbridge', name: 'Warm' },
+            },
+          ],
         },
       ],
       hasMore: false,
@@ -2516,6 +2525,14 @@ describe('IntegrationService followers', () => {
           interactionCount: 2,
           lastInteractionAt: '2026-08-14T12:00:00.000Z',
           isLead: true,
+          leadBridgeScore: 4.2,
+          leadBridges: [
+            {
+              externalId: 'warm-1',
+              username: 'warmbridge',
+              grade: 4.2,
+            },
+          ],
         }),
       ],
       hasMore: false,
@@ -2535,6 +2552,74 @@ describe('IntegrationService followers', () => {
     expect(
       (service as any)._channelInteractionRepository.getAudienceFollowers
     ).not.toHaveBeenCalled();
+  });
+
+  it('returns cultivate followers from the cultivate audience page', async () => {
+    const service = createService([integration], {
+      supported: {
+        followers: jest.fn(),
+        followerSorts: [{
+          key: 'recent',
+          label: 'Recent',
+          directions: ['desc'],
+          defaultDirection: 'desc',
+        }],
+      },
+    });
+    (
+      service as any
+    )._channelInteractionRepository.getAudienceCultivate.mockResolvedValue({
+      items: [
+        {
+          externalId: 'warm-1',
+          name: 'Warm One',
+          username: 'warmone',
+          picture: null,
+          profileUrl: null,
+          bio: null,
+          followersCount: null,
+          followingCount: null,
+          followedAt: null,
+          accountCreatedAt: null,
+          finalRank: 1,
+          rulesRank: 1,
+          cultivateReason: 'No outbound attention in 20 days · mutual relationship',
+          suggestedAction: null,
+          cultivateSource: 'rules',
+        },
+      ],
+      hasMore: false,
+      source: 'picks',
+      day: '2026-08-21',
+    });
+
+    await expect(
+      service.getFollowers(org, user, 'channel-a', {
+        limit: 24,
+        audience: 'cultivate',
+      })
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          id: 'warm-1',
+          name: 'Warm One',
+          isCultivate: true,
+          cultivateReason:
+            'No outbound attention in 20 days · mutual relationship',
+        }),
+      ],
+      hasMore: false,
+    });
+    expect(
+      (service as any)._channelInteractionRepository.getAudienceCultivate
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org-a',
+        integrationId: 'channel-a',
+        direction: 'asc',
+        limit: 24,
+      })
+    );
   });
 
   it('returns ignored followers from the ignored audience page', async () => {
@@ -2623,12 +2708,13 @@ describe('IntegrationService followers', () => {
   });
 
   it('rejects replaying a lead cursor under a follower triage filter', async () => {
-    const cursor = `follower-lead:v1:${Buffer.from(JSON.stringify({
-      version: 1,
+    const cursor = `follower-lead:v2:${Buffer.from(JSON.stringify({
+      version: 2,
       organizationId: 'org-a',
       integrationId: 'channel-a',
       direction: 'desc',
       audience: 'lead',
+      leadBridgeScore: 4,
       lastInboundAt: '2026-08-14T12:00:00.000Z',
       externalId: 'lead-1',
     })).toString('base64url')}`;

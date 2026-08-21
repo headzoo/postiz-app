@@ -455,4 +455,32 @@ describe('FollowerCard', () => {
     await Promise.resolve();
     expect(onDismissTriage).toHaveBeenCalledWith('lead');
   });
+
+  it('renders cultivate reason and dismissible Cultivate badge', async () => {
+    const onDismissTriage = jest.fn();
+    decisionOpen.mockResolvedValue(true);
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          isCultivate: true,
+          cultivateReason: 'No outbound attention in 20 days · mutual relationship',
+          suggestedAction: 'Like their latest post',
+          relationshipTriage: 'mutual',
+        }}
+        onDismissTriage={onDismissTriage}
+      />
+    );
+
+    expect(screen.getByText('Cultivate')).toBeTruthy();
+    expect(
+      screen.getByText('No outbound attention in 20 days · mutual relationship')
+    ).toBeTruthy();
+    expect(screen.getByText('Like their latest post')).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove Cultivate badge' })
+    );
+    await Promise.resolve();
+    expect(onDismissTriage).toHaveBeenCalledWith('cultivate');
+  });
 });

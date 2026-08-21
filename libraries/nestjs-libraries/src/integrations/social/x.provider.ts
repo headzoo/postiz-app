@@ -1901,8 +1901,22 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     accessToken: string,
     query: FollowerQuery
   ): Promise<FollowerPage> {
+    return this.memberFollowers(
+      integration,
+      accessToken,
+      integration.internalId,
+      query
+    );
+  }
+
+  async memberFollowers(
+    _integration: Integration,
+    accessToken: string,
+    externalId: string,
+    query: FollowerQuery
+  ): Promise<FollowerPage> {
     const client = await this.getClient(accessToken);
-    const response = await client.v2.followers(integration.internalId, {
+    const response = await client.v2.followers(externalId, {
       max_results: query.limit,
       ...(query.cursor ? { pagination_token: query.cursor } : {}),
       'user.fields': [

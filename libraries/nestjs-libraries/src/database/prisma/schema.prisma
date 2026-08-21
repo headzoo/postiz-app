@@ -60,6 +60,8 @@ model Organization {
   channelAudienceMemberTriageIgnores  ChannelAudienceMemberTriageIgnore[]
   channelAudienceMemberGrades         ChannelAudienceMemberGrade[]
   channelRelationshipGradeSnapshots   ChannelRelationshipGradeSnapshot[]
+  channelAudienceLeadBridges          ChannelAudienceLeadBridge[]
+  channelAudienceCultivatePicks       ChannelAudienceCultivatePick[]
   channelAnalyticsDailyPoints         ChannelAnalyticsDailyPoint[]
   channelAnalyticsPostMetricSnapshots ChannelAnalyticsPostMetricSnapshot[]
   channelAnalyticsSyncStates          ChannelAnalyticsSyncState[]
@@ -450,6 +452,8 @@ model Integration {
   channelAudienceMemberTriageIgnores  ChannelAudienceMemberTriageIgnore[]
   channelAudienceMemberGrades         ChannelAudienceMemberGrade[]
   channelRelationshipGradeSnapshots   ChannelRelationshipGradeSnapshot[]
+  channelAudienceLeadBridges          ChannelAudienceLeadBridge[]
+  channelAudienceCultivatePicks       ChannelAudienceCultivatePick[]
   channelAnalyticsDailyPoints         ChannelAnalyticsDailyPoint[]
   channelAnalyticsPostMetricSnapshots ChannelAnalyticsPostMetricSnapshot[]
   channelAnalyticsSyncState           ChannelAnalyticsSyncState?
@@ -1297,6 +1301,8 @@ model ChannelAudienceMember {
   likesCount                     Int                                 @default(0)
   inboundInteractionCount        Int                                 @default(0)
   lastInboundAt                  DateTime?
+  lastOutboundAt                 DateTime?
+  leadBridgeScore                Float?
   relationshipGrade              Float?
   relationshipEffortScore        Int?
   relationshipReciprocationScore Int?
@@ -1322,6 +1328,9 @@ model ChannelAudienceMember {
   personalGrades                 ChannelAudienceMemberGrade[]        @relation("AudienceMemberPersonalGrades")
   gradeSnapshots                 ChannelRelationshipGradeSnapshot[]  @relation("AudienceMemberGradeSnapshots")
   triageIgnores                  ChannelAudienceMemberTriageIgnore[] @relation("AudienceMemberTriageIgnores")
+  leadBridgesAsLead              ChannelAudienceLeadBridge[]         @relation("AudienceLeadBridgesAsLead")
+  leadBridgesAsBridge            ChannelAudienceLeadBridge[]         @relation("AudienceLeadBridgesAsBridge")
+  cultivatePicks                 ChannelAudienceCultivatePick[]      @relation("AudienceMemberCultivatePicks")
 
   @@unique([integrationId, externalId])
   @@index([organizationId, integrationId, membershipState])
@@ -1330,6 +1339,7 @@ model ChannelAudienceMember {
   @@index([integrationId, membershipState, noteCount, externalId])
   @@index([integrationId, membershipState, likesCount, externalId])
   @@index([integrationId, membershipState, lastInboundAt, externalId], map: "ChannelAudienceMember_lead_inbound_keyset_idx")
+  @@index([integrationId, membershipState, leadBridgeScore, lastInboundAt, externalId], map: "ChannelAudienceMember_lead_bridge_keyset_idx")
   @@index([integrationId, membershipState, relationshipGrade, externalId])
   @@index([integrationId, membershipState, relationshipEffortScore, externalId], map: "ChannelAudienceMember_rel_effort_keyset_idx")
   @@index([integrationId, membershipState, relationshipReciprocationScore, externalId], map: "ChannelAudienceMember_rel_reciprocation_keyset_idx")
@@ -1340,6 +1350,7 @@ model ChannelAudienceMember {
   @@index([integrationId, membershipState, isBot, externalId], map: "ChannelAudienceMember_is_bot_keyset_idx")
   @@index([integrationId, membershipState, botFormulaVersion, botGradedAt], map: "ChannelAudienceMember_bot_formula_due_idx")
   @@index([integrationId, membershipState, ignoredAt, externalId], map: "ChannelAudienceMember_ignored_keyset_idx")
+  @@index([integrationId, membershipState, lastOutboundAt, externalId], map: "ChannelAudienceMember_last_outbound_keyset_idx")
   @@index([ignoredByUserId])
   @@index([integrationId])
   @@index([organizationId])
@@ -1674,6 +1685,7 @@ model ChannelAudienceMemberTriageIgnore {
   counterpartyExternalId String
   triage                 String
   createdAt              DateTime              @default(now())
+  expiresAt              DateTime?
   createdByUserId        String?
   organization           Organization          @relation(fields: [organizationId], references: [id])
   integration            Integration           @relation(fields: [integrationId], references: [id])
@@ -1684,6 +1696,50 @@ model ChannelAudienceMemberTriageIgnore {
   @@index([organizationId, integrationId, triage])
   @@index([integrationId, counterpartyExternalId])
   @@index([createdByUserId])
+  @@index([organizationId])
+  @@index([expiresAt])
+}
+
+model ChannelAudienceLeadBridge {
+  organizationId          String
+  integrationId           String
+  leadExternalId          String
+  bridgeExternalId        String
+  bridgeRelationshipGrade Float?
+  discoveredAt            DateTime              @default(now())
+  lastSeenAt              DateTime              @default(now())
+  organization            Organization          @relation(fields: [organizationId], references: [id])
+  integration             Integration           @relation(fields: [integrationId], references: [id])
+  leadMember              ChannelAudienceMember @relation("AudienceLeadBridgesAsLead", fields: [integrationId, leadExternalId], references: [integrationId, externalId])
+  bridgeMember            ChannelAudienceMember @relation("AudienceLeadBridgesAsBridge", fields: [integrationId, bridgeExternalId], references: [integrationId, externalId])
+
+  @@id([organizationId, integrationId, leadExternalId, bridgeExternalId])
+  @@index([integrationId, leadExternalId])
+  @@index([integrationId, bridgeExternalId])
+  @@index([organizationId])
+}
+
+model ChannelAudienceCultivatePick {
+  organizationId         String
+  integrationId          String
+  day                    String
+  counterpartyExternalId String
+  rulesRank              Int
+  finalRank              Int
+  rulesReason            String
+  aiRank                 Int?
+  aiReason               String?
+  suggestedAction        String?
+  source                 String                @default("rules")
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  organization           Organization          @relation(fields: [organizationId], references: [id])
+  integration            Integration           @relation(fields: [integrationId], references: [id])
+  audienceMember         ChannelAudienceMember @relation("AudienceMemberCultivatePicks", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
+
+  @@id([organizationId, integrationId, day, counterpartyExternalId])
+  @@index([integrationId, day, finalRank])
+  @@index([organizationId, integrationId, day])
   @@index([organizationId])
 }
 

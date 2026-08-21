@@ -83,6 +83,18 @@ const createHarness = () => {
     channelAudienceMemberTriageIgnore: {
       upsert: jest.fn(),
     },
+    channelAudienceLeadBridge: {
+      upsert: jest.fn(),
+      aggregate: jest.fn().mockResolvedValue({
+        _max: { bridgeRelationshipGrade: null },
+      }),
+    },
+    channelAudienceCultivatePick: {
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     channelAudienceMemberGrade: {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn(),
@@ -185,7 +197,8 @@ describe('ChannelInteractionRepository', () => {
       .mockResolvedValueOnce(4)
       .mockResolvedValueOnce(5)
       .mockResolvedValueOnce(6)
-      .mockResolvedValueOnce(7);
+      .mockResolvedValueOnce(7)
+      .mockResolvedValueOnce(8);
 
     const result = await repository.getStoredFollowerAudienceCounts(
       'org',
@@ -210,6 +223,7 @@ describe('ChannelInteractionRepository', () => {
       engaged_not_yet: 5,
       lead: 6,
       ignored: 7,
+      cultivate: 8,
     });
     expect(result.lists).toHaveLength(20);
     expect(result.lists[0]).toEqual({
@@ -218,7 +232,7 @@ describe('ChannelInteractionRepository', () => {
       total: 0,
     });
     expect(result.listsTruncated).toBe(true);
-    expect(tx.channelAudienceMember.count).toHaveBeenCalledTimes(27);
+    expect(tx.channelAudienceMember.count).toHaveBeenCalledTimes(28);
     expect(tx.channelAudienceMember.count).toHaveBeenCalledWith({
       where: expect.objectContaining({
         organizationId: 'org',
@@ -240,9 +254,32 @@ describe('ChannelInteractionRepository', () => {
             ChannelAudienceMembership.NOT_FOLLOWER,
           ],
         },
-        inboundInteractionCount: { gt: 0 },
+        OR: [
+          { inboundInteractionCount: { gt: 0 } },
+          { leadBridgesAsLead: { some: {} } },
+        ],
         ignoredAt: null,
-        triageIgnores: { none: { triage: 'lead' } },
+        triageIgnores: {
+          none: expect.objectContaining({
+            triage: 'lead',
+            OR: expect.any(Array),
+          }),
+        },
+      }),
+    });
+    expect(tx.channelAudienceMember.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        organizationId: 'org',
+        integrationId: 'integration',
+        membershipState: ChannelAudienceMembership.FOLLOWER,
+        ignoredAt: null,
+        NOT: { relationshipTriage: 'hot_lead' },
+        triageIgnores: {
+          none: expect.objectContaining({
+            triage: 'cultivate',
+            OR: expect.any(Array),
+          }),
+        },
       }),
     });
   });
@@ -1323,6 +1360,7 @@ describe('ChannelInteractionRepository', () => {
 
   it('does not increment inbound or likes counts for outbound likes', async () => {
     const { repository, tx } = createHarness();
+    const eventAt = new Date('2026-08-12T23:30:00.000Z');
 
     await repository.recordNormalizedEvent(
       'org',
@@ -1330,10 +1368,76 @@ describe('ChannelInteractionRepository', () => {
       event({
         providerEventKey: 'outbound-like',
         direction: ChannelInteractionDirection.OUTBOUND,
+        eventAt,
       })
     );
 
-    expect(tx.channelAudienceMember.updateMany).not.toHaveBeenCalled();
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+        OR: [
+          { lastOutboundAt: null },
+          { lastOutboundAt: { lt: eventAt } },
+        ],
+      },
+      data: { lastOutboundAt: eventAt },
+    });
+    expect(tx.channelAudienceMember.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          inboundInteractionCount: { increment: 1 },
+        }),
+      })
+    );
+    expect(tx.channelAudienceMemberTriageIgnore.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          triage: 'hot_lead',
+          expiresAt: expect.any(Date),
+        }),
+        update: expect.objectContaining({
+          expiresAt: expect.any(Date),
+        }),
+      })
+    );
+  });
+
+  it('forces current relationship projections when requested', async () => {
+    const { repository, tx } = createHarness();
+    const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
+
+    await expect(
+      repository.updateCurrentRelationshipProjections(
+        'org',
+        'integration',
+        snapshotAt,
+        [{
+          externalId: 'person-1',
+          effortScore: 4,
+          reciprocationScore: 12,
+          reciprocity: 1 / 3,
+          grade: 3,
+          formulaVersion: 3,
+        }],
+        { force: true }
+      )
+    ).resolves.toEqual({ count: 1 });
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalId: 'person-1',
+      },
+      data: expect.objectContaining({
+        relationshipEffortScore: 4,
+        relationshipReciprocationScore: 12,
+        relationshipTriage: 'hot_lead',
+        relationshipFormulaVersion: 3,
+        relationshipSnapshotAt: snapshotAt,
+      }),
+    });
   });
 
   it('does not increment inbound counts when a duplicate like is skipped', async () => {
@@ -1642,11 +1746,20 @@ describe('ChannelInteractionRepository', () => {
               ChannelAudienceMembership.NOT_FOLLOWER,
             ],
           },
-          inboundInteractionCount: { gt: 0 },
-          triageIgnores: { none: { triage: 'lead' } },
+          OR: [
+            { inboundInteractionCount: { gt: 0 } },
+            { leadBridgesAsLead: { some: {} } },
+          ],
+          triageIgnores: {
+            none: expect.objectContaining({
+              triage: 'lead',
+              OR: expect.any(Array),
+            }),
+          },
           AND: [{ ignoredAt: null }],
         },
         orderBy: [
+          { leadBridgeScore: { sort: 'desc', nulls: 'last' } },
           { lastInboundAt: { sort: 'desc', nulls: 'last' } },
           { externalId: 'desc' },
         ],
@@ -1679,8 +1792,16 @@ describe('ChannelInteractionRepository', () => {
               ChannelAudienceMembership.NOT_FOLLOWER,
             ],
           },
-          inboundInteractionCount: { gt: 0 },
-          triageIgnores: { none: { triage: 'lead' } },
+          OR: [
+            { inboundInteractionCount: { gt: 0 } },
+            { leadBridgesAsLead: { some: {} } },
+          ],
+          triageIgnores: {
+            none: expect.objectContaining({
+              triage: 'lead',
+              OR: expect.any(Array),
+            }),
+          },
           AND: expect.arrayContaining([
             {
               OR: [
@@ -1695,12 +1816,13 @@ describe('ChannelInteractionRepository', () => {
     );
   });
 
-  it('uses last inbound keyset pagination for leads', async () => {
+  it('uses bridge score and last inbound keyset pagination for leads', async () => {
     const { repository } = createHarness();
 
     expect(
-      (repository as any).leadInboundKeyset(
+      (repository as any).leadBridgeKeyset(
         {
+          leadBridgeScore: 4.5,
           lastInboundAt: '2026-08-14T12:00:00.000Z',
           externalId: 'lead-1',
         },
@@ -1708,13 +1830,155 @@ describe('ChannelInteractionRepository', () => {
       )
     ).toEqual({
       OR: [
-        { lastInboundAt: { lt: new Date('2026-08-14T12:00:00.000Z') } },
+        { leadBridgeScore: { lt: 4.5 } },
         {
-          lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
-          externalId: { lt: 'lead-1' },
+          AND: [
+            { leadBridgeScore: 4.5 },
+            {
+              OR: [
+                { lastInboundAt: { lt: new Date('2026-08-14T12:00:00.000Z') } },
+                {
+                  lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
+                  externalId: { lt: 'lead-1' },
+                },
+                { lastInboundAt: null },
+              ],
+            },
+          ],
         },
-        { lastInboundAt: null },
+        { leadBridgeScore: null },
       ],
+    });
+  });
+
+  it('lists cultivate candidates excluding hot, bots, ignored, and recent outbound', async () => {
+    const { repository, audienceMemberFindMany } = createHarness();
+    audienceMemberFindMany.mockResolvedValue([
+      {
+        externalId: 'warm-1',
+        username: 'warm',
+        name: 'Warm',
+        relationshipGrade: 4,
+        relationshipTriage: 'mutual',
+        lastOutboundAt: new Date('2026-07-01T00:00:00.000Z'),
+      },
+    ]);
+
+    await expect(
+      repository.listCultivateCandidates({
+        organizationId: 'org',
+        integrationId: 'integration',
+        now: new Date('2026-08-21T12:00:00.000Z'),
+        take: 50,
+      })
+    ).resolves.toEqual([
+      {
+        externalId: 'warm-1',
+        username: 'warm',
+        name: 'Warm',
+        relationshipGrade: 4,
+        relationshipTriage: 'mutual',
+        lastOutboundAt: new Date('2026-07-01T00:00:00.000Z'),
+      },
+    ]);
+
+    expect(audienceMemberFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: 'org',
+          integrationId: 'integration',
+          membershipState: ChannelAudienceMembership.FOLLOWER,
+          ignoredAt: null,
+          NOT: { relationshipTriage: 'hot_lead' },
+          triageIgnores: {
+            none: expect.objectContaining({
+              triage: 'cultivate',
+              OR: expect.any(Array),
+            }),
+          },
+        }),
+        take: 50,
+      })
+    );
+  });
+
+  it('ranks cultivate candidates by stale age then grade with day-seeded rotation', () => {
+    const { repository } = createHarness();
+    const now = new Date('2026-08-21T12:00:00.000Z');
+    const ranked = repository.rankCultivateCandidates(
+      [
+        {
+          externalId: 'fresh',
+          lastOutboundAt: new Date('2026-08-01T00:00:00.000Z'),
+          relationshipGrade: 5,
+          relationshipTriage: 'mutual',
+        },
+        {
+          externalId: 'stale',
+          lastOutboundAt: null,
+          relationshipGrade: 3.5,
+          relationshipTriage: 'mutual',
+        },
+      ],
+      '2026-08-21',
+      now
+    );
+
+    expect(ranked[0].externalId).toBe('stale');
+    expect(ranked[0].finalRank).toBe(1);
+    expect(ranked[0].rulesReason).toContain('No outbound attention yet');
+    expect(ranked[1].externalId).toBe('fresh');
+    expect(ranked[1].finalRank).toBe(2);
+  });
+
+  it('reads materialized cultivate picks when present for the day', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceCultivatePick.count.mockResolvedValue(1);
+    tx.channelAudienceCultivatePick.findMany.mockResolvedValue([
+      {
+        finalRank: 1,
+        rulesRank: 1,
+        rulesReason: 'No outbound attention in 20 days · mutual relationship',
+        aiReason: null,
+        suggestedAction: null,
+        source: 'rules',
+        counterpartyExternalId: 'warm-1',
+        audienceMember: {
+          externalId: 'warm-1',
+          name: 'Warm',
+          username: 'warm',
+          picture: null,
+          profileUrl: null,
+          bio: null,
+          followersCount: null,
+          followingCount: null,
+          followedAt: null,
+          accountCreatedAt: null,
+        },
+      },
+    ]);
+
+    await expect(
+      repository.getAudienceCultivate({
+        organizationId: 'org',
+        integrationId: 'integration',
+        day: '2026-08-21',
+        direction: 'asc',
+        limit: 24,
+      })
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          externalId: 'warm-1',
+          finalRank: 1,
+          cultivateReason:
+            'No outbound attention in 20 days · mutual relationship',
+          cultivateSource: 'rules',
+        }),
+      ],
+      hasMore: false,
+      source: 'picks',
+      day: '2026-08-21',
     });
   });
 
@@ -2058,7 +2322,12 @@ describe('ChannelInteractionRepository', () => {
             AND: expect.arrayContaining([
               {
                 relationshipTriage: triage,
-                triageIgnores: { none: { triage } },
+                triageIgnores: {
+                  none: expect.objectContaining({
+                    triage,
+                    OR: expect.any(Array),
+                  }),
+                },
               },
               { ignoredAt: null },
             ]),
@@ -2142,7 +2411,12 @@ describe('ChannelInteractionRepository', () => {
             {
               relationshipReciprocationScore: { gt: 0 },
               relationshipEffortScore: 0,
-              triageIgnores: { none: { triage: 'engaged_not_yet' } },
+              triageIgnores: {
+                none: expect.objectContaining({
+                  triage: 'engaged_not_yet',
+                  OR: expect.any(Array),
+                }),
+              },
             },
             { ignoredAt: null },
           ]),

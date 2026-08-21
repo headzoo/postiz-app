@@ -69,6 +69,9 @@ const createRepository = () => ({
     relationshipGrade: 4,
   }),
   addAudienceTriageIgnore: jest.fn().mockResolvedValue({ ok: true }),
+  listCultivateCandidates: jest.fn().mockResolvedValue([]),
+  rankCultivateCandidates: jest.fn().mockReturnValue([]),
+  upsertCultivatePicks: jest.fn().mockResolvedValue({ count: 0 }),
   getStoredFollowerAudienceCounts: jest.fn().mockResolvedValue({
     categories: {},
     lists: [],
@@ -149,7 +152,9 @@ describe('ChannelInteractionService', () => {
     [0, 0, 'quiet'],
     [7, 7, 'quiet'],
     [0, 8, 'hot_lead'],
-    [8, 12, 'hot_lead'],
+    [4, 12, 'hot_lead'],
+    [5, 9, 'mutual'],
+    [8, 12, 'mutual'],
     [8, 0, 'over_invested'],
     [12, 8, 'over_invested'],
     [8, 8, 'mutual'],
@@ -1437,6 +1442,23 @@ describe('ChannelInteractionService', () => {
       'lead',
       'user-a'
     );
+
+    await expect(
+      service.ignoreFollowerTriage(
+        'org',
+        'integration',
+        'follower-a',
+        'cultivate',
+        'user-a'
+      )
+    ).resolves.toBeUndefined();
+    expect(repository.addAudienceTriageIgnore).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      'follower-a',
+      'cultivate',
+      'user-a'
+    );
   });
 
   it('accepts engaged-not-yet triage ignores and rejects invalid values', async () => {
@@ -1519,7 +1541,8 @@ describe('ChannelInteractionService', () => {
         effortScore: 10,
         reciprocationScore: 30,
         ...calculateRelationshipGrade(10, 30),
-      }]
+      }],
+      { force: true }
     );
     expect(repository.createRelationshipGradeSnapshots).not.toHaveBeenCalled();
 
@@ -1695,5 +1718,56 @@ describe('ChannelInteractionService', () => {
       } as any)
     ).resolves.toBe('renewed-elsewhere');
     expect(authorization.refreshToken).not.toHaveBeenCalled();
+  });
+
+  it('materializes rules-only cultivate picks without calling AI', async () => {
+    const repository = createRepository();
+    repository.listCultivateCandidates.mockResolvedValue([
+      {
+        externalId: 'warm-1',
+        username: 'warm',
+        name: 'Warm',
+        relationshipGrade: 4,
+        relationshipTriage: 'mutual',
+        lastOutboundAt: null,
+      },
+    ]);
+    repository.rankCultivateCandidates.mockReturnValue([
+      {
+        externalId: 'warm-1',
+        username: 'warm',
+        name: 'Warm',
+        relationshipGrade: 4,
+        relationshipTriage: 'mutual',
+        lastOutboundAt: null,
+        rulesRank: 1,
+        finalRank: 1,
+        rulesReason: 'No outbound attention yet · mutual relationship',
+      },
+    ]);
+    repository.upsertCultivatePicks.mockResolvedValue({ count: 1 });
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.materializeCultivatePicksForIntegration('org', 'integration')
+    ).resolves.toEqual({
+      day: '2026-08-12',
+      candidateCount: 1,
+      pickCount: 1,
+    });
+    expect(repository.upsertCultivatePicks).toHaveBeenCalledWith({
+      organizationId: 'org',
+      integrationId: 'integration',
+      day: '2026-08-12',
+      picks: [
+        {
+          counterpartyExternalId: 'warm-1',
+          rulesRank: 1,
+          finalRank: 1,
+          rulesReason: 'No outbound attention yet · mutual relationship',
+          source: 'rules',
+        },
+      ],
+    });
   });
 });

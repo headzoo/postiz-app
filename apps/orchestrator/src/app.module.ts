@@ -10,6 +10,8 @@ import { PipelineActivity } from '@gitroom/orchestrator/activities/pipeline.acti
 import { ChannelInteractionActivity } from '@gitroom/orchestrator/activities/channel-interaction.activity';
 import { ChannelRelationshipGradeActivity } from '@gitroom/orchestrator/activities/channel-relationship-grade.activity';
 import { ChannelFollowerBotScoreActivity } from '@gitroom/orchestrator/activities/channel-follower-bot-score.activity';
+import { ChannelLeadBridgeActivity } from '@gitroom/orchestrator/activities/channel-lead-bridge.activity';
+import { ChannelCultivateActivity } from '@gitroom/orchestrator/activities/channel-cultivate.activity';
 import { ChannelAnalyticsSnapshotActivity } from '@gitroom/orchestrator/activities/channel-analytics-snapshot.activity';
 import { AutopostActivity } from '@gitroom/orchestrator/activities/autopost.activity';
 
@@ -22,6 +24,8 @@ const activities = [
   ChannelInteractionActivity,
   ChannelRelationshipGradeActivity,
   ChannelFollowerBotScoreActivity,
+  ChannelLeadBridgeActivity,
+  ChannelCultivateActivity,
   ChannelAnalyticsSnapshotActivity,
 ];
 @Module({
@@ -35,4 +39,4 @@ const activities = [
     return [...this.providers, ...this.imports];
   },
 })
-export class AppModule {}
+export class AppModule { }

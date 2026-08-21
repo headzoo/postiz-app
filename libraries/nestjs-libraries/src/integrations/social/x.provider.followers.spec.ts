@@ -49,6 +49,46 @@ describe('XProvider followers', () => {
     );
   });
 
+  it('loads another member follower page via memberFollowers', async () => {
+    const provider = new XProvider();
+    const followers = jest.fn().mockResolvedValue({
+      data: [
+        {
+          id: '9',
+          name: 'Prospect',
+          username: 'prospect',
+          public_metrics: { followers_count: 2, following_count: 1 },
+        },
+      ],
+      meta: {},
+    });
+    jest
+      .spyOn(provider as any, 'getClient')
+      .mockResolvedValue({ v2: { followers } });
+
+    await expect(
+      provider.memberFollowers({ internalId: '42' } as any, 'token:secret', 'warm-1', {
+        limit: 100,
+      })
+    ).resolves.toEqual({
+      items: [
+        {
+          id: '9',
+          name: 'Prospect',
+          username: 'prospect',
+          profileUrl: 'https://x.com/prospect',
+          followersCount: 2,
+          followingCount: 1,
+        },
+      ],
+      hasMore: false,
+    });
+    expect(followers).toHaveBeenCalledWith(
+      'warm-1',
+      expect.objectContaining({ max_results: 100 })
+    );
+  });
+
   it('normalizes member timeline posts from userTimeline', async () => {
     const provider = new XProvider();
     const userTimeline = jest.fn().mockResolvedValue({

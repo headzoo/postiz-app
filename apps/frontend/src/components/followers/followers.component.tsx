@@ -56,13 +56,14 @@ const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
 
 const FOLLOWER_VIEW_BY_SLUG: Record<
   string,
-  { triage?: FollowerTriageFilter; audience?: 'lead' | 'ignored'; isBot?: true }
+  { triage?: FollowerTriageFilter; audience?: 'lead' | 'ignored' | 'cultivate'; isBot?: true }
 > = {
   engaged: { triage: 'engaged_not_yet' },
   hot: { triage: 'hot_lead' },
   mutual: { triage: 'mutual' },
   costly: { triage: 'over_invested' },
   quiet: { triage: 'quiet' },
+  cultivate: { audience: 'cultivate' },
   lead: { audience: 'lead' },
   ignored: { audience: 'ignored' },
   bots: { isBot: true },
@@ -71,7 +72,7 @@ const FOLLOWER_VIEW_BY_SLUG: Record<
 const TRIAGE_FILTER_OPTIONS: {
   slug?: string;
   value?: FollowerTriageFilter;
-  audience?: 'lead';
+  audience?: 'lead' | 'cultivate';
   key: string;
   defaultLabel: string;
 }[] = [
@@ -95,6 +96,12 @@ const TRIAGE_FILTER_OPTIONS: {
       defaultLabel: 'Mutual',
     },
     {
+      slug: 'cultivate',
+      audience: 'cultivate' as const,
+      key: 'followers_audience_cultivate',
+      defaultLabel: 'Cultivate',
+    },
+    {
       slug: 'costly',
       value: 'over_invested',
       key: 'followers_triage_over_invested',
@@ -114,6 +121,16 @@ const TRIAGE_FILTER_OPTIONS: {
     },
   ];
 
+const TRIAGE_DEFAULT_SORTS: Partial<
+  Record<
+    FollowerTriageFilter,
+    { key: string; direction: FollowerSortDirection }
+  >
+> = {
+  hot_lead: { key: 'net_gap', direction: 'desc' },
+  engaged_not_yet: { key: 'their_effort', direction: 'desc' },
+};
+
 const decodeFollowerPathSegment = (value: string) => {
   try {
     return decodeURIComponent(value);
@@ -126,7 +143,7 @@ export type FollowerListPath = {
   type: 'list';
   slug?: string;
   triage?: FollowerTriageFilter;
-  audience?: 'lead' | 'ignored';
+  audience?: 'lead' | 'ignored' | 'cultivate';
   isBot?: true;
 };
 
@@ -551,7 +568,9 @@ export const FollowersComponent: FC = () => {
     [channels, selectedIntegrationId]
   );
 
-  const requestedSort = urlSort ?? sort;
+  const triageDefaultSort =
+    !urlSort && !sort && triage ? TRIAGE_DEFAULT_SORTS[triage] : undefined;
+  const requestedSort = urlSort ?? sort ?? triageDefaultSort?.key;
   const effectiveSort = selectedChannel?.sorts.some(
     (item) => item.key === requestedSort
   )
@@ -736,7 +755,8 @@ export const FollowersComponent: FC = () => {
   ]);
 
   const currentCursor = cursorHistory[cursorHistory.length - 1];
-  const requestedDirection = urlDirection ?? direction;
+  const requestedDirection =
+    urlDirection ?? direction ?? triageDefaultSort?.direction;
   const effectiveDirection = activeSort
     ? requestedDirection && activeSort.directions.includes(requestedDirection)
       ? requestedDirection
@@ -1126,7 +1146,26 @@ export const FollowersComponent: FC = () => {
           <p className="text-[14px] text-textItemBlur max-w-[520px]">
             {t(
               'followers_lead_empty_description',
-              'Leads are people who interacted with this channel but do not currently follow it.'
+              'Leads are people who interacted with this channel but do not currently follow it, plus prospects discovered through warm followers’ networks.'
+            )}
+          </p>
+        </div>
+      );
+    }
+
+    if (audience === 'cultivate') {
+      return (
+        <div className="flex flex-col items-center justify-center gap-[8px] rounded-[12px] border border-newTableBorder bg-newTableHeader p-[32px] text-center">
+          <p className="text-[18px] text-newTextColor">
+            {t(
+              'followers_cultivate_empty_title',
+              'No cultivate picks right now'
+            )}
+          </p>
+          <p className="text-[14px] text-textItemBlur max-w-[520px]">
+            {t(
+              'followers_cultivate_empty_description',
+              'Cultivate surfaces warm relationships that have not received outbound attention recently. These are people to nurture, not new leads.'
             )}
           </p>
         </div>
@@ -1601,7 +1640,8 @@ export const FollowersComponent: FC = () => {
                     await ignoreTriage(follower.id, triageValue);
                     const shouldRemoveFromPage =
                       triage === triageValue ||
-                      (audience === 'lead' && triageValue === 'lead');
+                      (audience === 'lead' && triageValue === 'lead') ||
+                      (audience === 'cultivate' && triageValue === 'cultivate');
                     if (shouldRemoveFromPage) {
                       await mutateFollowers(
                         (page) =>

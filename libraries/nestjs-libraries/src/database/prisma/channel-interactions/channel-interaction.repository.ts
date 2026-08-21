@@ -27,6 +27,7 @@ import {
   getRelationshipTriage,
   isEngagedNotYet,
   RELATIONSHIP_FORMULA_VERSION,
+  RELATIONSHIP_HOT_SNOOZE_MS,
   RELATIONSHIP_WINDOW_MS,
 } from './channel-interaction.scoring';
 import {
@@ -34,6 +35,14 @@ import {
   relationshipGradeDueCutoff,
 } from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule';
 import { FOLLOWER_BOT_SCORE_SCHEDULE_INTERVAL_HOURS } from '@gitroom/nestjs-libraries/temporal/follower-bot-score.schedule';
+import { LEAD_BRIDGE_WARM_GRADE_THRESHOLD } from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
+import {
+  CULTIVATE_CANDIDATE_POOL_SIZE,
+  CULTIVATE_DAILY_PICK_LIMIT,
+  CULTIVATE_STALE_MS,
+  CULTIVATE_WARM_GRADE_THRESHOLD,
+  utcDayKey,
+} from '@gitroom/nestjs-libraries/temporal/cultivate.schedule';
 
 export type AudienceProfile = {
   externalId: string;
@@ -133,6 +142,7 @@ export type LikesCountFollowersQuery = {
 };
 
 export type AudienceLeadCursor = {
+  leadBridgeScore: number | null;
   lastInboundAt: string | null;
   externalId: string;
 };
@@ -146,6 +156,42 @@ export type AudienceLeadsQuery = {
   cursor?: AudienceLeadCursor;
   search?: string;
   ignoredVisibility?: AudienceIgnoredVisibility;
+};
+
+export type AudienceCultivateCursor = {
+  finalRank: number;
+  externalId: string;
+};
+
+export type AudienceCultivateQuery = {
+  organizationId: string;
+  integrationId: string;
+  userId?: string;
+  day?: string;
+  direction: 'asc' | 'desc';
+  limit: number;
+  cursor?: AudienceCultivateCursor;
+  search?: string;
+};
+
+export type CultivateCandidate = {
+  externalId: string;
+  username: string | null;
+  name: string | null;
+  relationshipGrade: number | null;
+  relationshipTriage: string | null;
+  lastOutboundAt: Date | null;
+};
+
+export type CultivatePickInput = {
+  counterpartyExternalId: string;
+  rulesRank: number;
+  finalRank: number;
+  rulesReason: string;
+  aiRank?: number | null;
+  aiReason?: string | null;
+  suggestedAction?: string | null;
+  source?: string;
 };
 
 export type FollowerAudienceCounts = {
@@ -300,6 +346,8 @@ export class ChannelInteractionRepository {
       | 'channelAudienceNote'
       | 'channelAudienceList'
       | 'channelAudienceListMember'
+      | 'channelAudienceLeadBridge'
+      | 'channelAudienceCultivatePick'
       | 'channelRelationshipGradeSnapshot'
     >,
     private _integration: PrismaRepository<'integration'>,
@@ -401,6 +449,26 @@ export class ChannelInteractionRepository {
           },
           data: { lastInboundAt: event.eventAt },
         });
+      } else if (event.direction === ChannelInteractionDirection.OUTBOUND) {
+        await tx.channelAudienceMember.updateMany({
+          where: {
+            organizationId,
+            integrationId,
+            externalId: event.counterparty.externalId,
+            OR: [
+              { lastOutboundAt: null },
+              { lastOutboundAt: { lt: event.eventAt } },
+            ],
+          },
+          data: { lastOutboundAt: event.eventAt },
+        });
+        await this.upsertHotLeadSnooze(
+          tx,
+          organizationId,
+          integrationId,
+          event.counterparty.externalId,
+          event.eventAt
+        );
       }
 
       const day = new Date(Date.UTC(
@@ -1380,19 +1448,22 @@ export class ChannelInteractionRepository {
     organizationId: string,
     integrationId: string,
     snapshotAt: Date,
-    snapshots: RelationshipGradeSnapshotInput[]
+    snapshots: RelationshipGradeSnapshotInput[],
+    options?: { force?: boolean }
   ) {
     if (!snapshots.length) return { count: 0 };
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
-      await this.writeCurrentRelationshipProjections(
+      const results = await this.writeCurrentRelationshipProjections(
         tx,
         organizationId,
         integrationId,
         snapshotAt,
-        snapshots
+        snapshots,
+        options
       );
-      return { count: snapshots.length };
+      const count = results.reduce((sum, result) => sum + result.count, 0);
+      return { count };
     });
   }
 
@@ -1493,6 +1564,543 @@ export class ChannelInteractionRepository {
       candidates: integrations.slice(0, take),
       next: integrations.length > take ? integrations[take - 1]?.id : undefined,
     };
+  }
+
+  async listLeadBridgeCrawlCandidates(after?: string, take = 1) {
+    const integrations = await this._integration.model.integration.findMany({
+      where: {
+        type: 'social',
+        disabled: false,
+        deletedAt: null,
+        channelFollowerSyncState: {
+          is: {
+            status: ChannelFollowerSyncStatus.COMPLETE,
+            completedAt: { not: null },
+          },
+        },
+        channelAudienceMembers: {
+          some: this.warmFollowerWhere(),
+        },
+        ...(after ? { id: { gt: after } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take: take + 1,
+      select: {
+        id: true,
+        organizationId: true,
+        providerIdentifier: true,
+      },
+    });
+    return {
+      candidates: integrations.slice(0, take),
+      next: integrations.length > take ? integrations[take - 1]?.id : undefined,
+    };
+  }
+
+  async getNextWarmFollowerForLeadBridge(
+    organizationId: string,
+    integrationId: string,
+    afterExternalId?: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const member = await tx.channelAudienceMember.findFirst({
+        where: {
+          organizationId,
+          integrationId,
+          ...this.warmFollowerWhere(),
+          ...(afterExternalId
+            ? { externalId: { gt: afterExternalId } }
+            : {}),
+        },
+        orderBy: { externalId: 'asc' },
+        select: {
+          externalId: true,
+          username: true,
+          name: true,
+          relationshipGrade: true,
+          relationshipTriage: true,
+        },
+      });
+      if (member) {
+        return member;
+      }
+      if (!afterExternalId) {
+        return null;
+      }
+      return tx.channelAudienceMember.findFirst({
+        where: {
+          organizationId,
+          integrationId,
+          ...this.warmFollowerWhere(),
+        },
+        orderBy: { externalId: 'asc' },
+        select: {
+          externalId: true,
+          username: true,
+          name: true,
+          relationshipGrade: true,
+          relationshipTriage: true,
+        },
+      });
+    });
+  }
+
+  async applyLeadBridgeDiscoveries(params: {
+    organizationId: string;
+    integrationId: string;
+    bridgeExternalId: string;
+    bridgeRelationshipGrade: number | null;
+    leads: AudienceProfile[];
+    discoveredAt?: Date;
+  }) {
+    const discoveredAt = params.discoveredAt ?? new Date();
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        params.organizationId,
+        params.integrationId
+      );
+      const bridge = await tx.channelAudienceMember.findFirst({
+        where: {
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          externalId: params.bridgeExternalId,
+        },
+        select: { externalId: true },
+      });
+      if (!bridge) {
+        return { applied: 0, skipped: params.leads.length };
+      }
+      let applied = 0;
+      let skipped = 0;
+      for (const lead of params.leads) {
+        if (
+          !lead.externalId ||
+          lead.externalId === params.bridgeExternalId
+        ) {
+          skipped++;
+          continue;
+        }
+        const existing = await tx.channelAudienceMember.findFirst({
+          where: {
+            organizationId: params.organizationId,
+            integrationId: params.integrationId,
+            externalId: lead.externalId,
+          },
+          select: { membershipState: true },
+        });
+        if (existing?.membershipState === ChannelAudienceMembership.FOLLOWER) {
+          skipped++;
+          continue;
+        }
+        await this.upsertAudienceMember(
+          tx,
+          params.organizationId,
+          params.integrationId,
+          lead
+        );
+        await tx.channelAudienceLeadBridge.upsert({
+          where: {
+            organizationId_integrationId_leadExternalId_bridgeExternalId: {
+              organizationId: params.organizationId,
+              integrationId: params.integrationId,
+              leadExternalId: lead.externalId,
+              bridgeExternalId: params.bridgeExternalId,
+            },
+          },
+          create: {
+            organizationId: params.organizationId,
+            integrationId: params.integrationId,
+            leadExternalId: lead.externalId,
+            bridgeExternalId: params.bridgeExternalId,
+            bridgeRelationshipGrade: params.bridgeRelationshipGrade,
+            discoveredAt,
+            lastSeenAt: discoveredAt,
+          },
+          update: {
+            bridgeRelationshipGrade: params.bridgeRelationshipGrade,
+            lastSeenAt: discoveredAt,
+          },
+        });
+        const aggregate = await tx.channelAudienceLeadBridge.aggregate({
+          where: {
+            organizationId: params.organizationId,
+            integrationId: params.integrationId,
+            leadExternalId: lead.externalId,
+          },
+          _max: { bridgeRelationshipGrade: true },
+        });
+        await tx.channelAudienceMember.updateMany({
+          where: {
+            organizationId: params.organizationId,
+            integrationId: params.integrationId,
+            externalId: lead.externalId,
+          },
+          data: {
+            leadBridgeScore: aggregate._max.bridgeRelationshipGrade,
+          },
+        });
+        applied++;
+      }
+      return { applied, skipped };
+    });
+  }
+
+  private warmFollowerWhere(): Prisma.ChannelAudienceMemberWhereInput {
+    return {
+      membershipState: ChannelAudienceMembership.FOLLOWER,
+      ignoredAt: null,
+      OR: [{ isBot: null }, { isBot: false }],
+      AND: [
+        {
+          OR: [
+            { relationshipTriage: 'mutual' },
+            { relationshipGrade: { gte: LEAD_BRIDGE_WARM_GRADE_THRESHOLD } },
+          ],
+        },
+      ],
+    };
+  }
+
+  private cultivateEligibilityWhere(
+    now = new Date()
+  ): Prisma.ChannelAudienceMemberWhereInput {
+    const staleBefore = new Date(now.getTime() - CULTIVATE_STALE_MS);
+    return {
+      membershipState: ChannelAudienceMembership.FOLLOWER,
+      ignoredAt: null,
+      OR: [{ isBot: null }, { isBot: false }],
+      NOT: { relationshipTriage: 'hot_lead' },
+      triageIgnores: { none: this.activeTriageIgnoreWhere('cultivate') },
+      AND: [
+        {
+          OR: [
+            { relationshipTriage: 'mutual' },
+            { relationshipGrade: { gte: CULTIVATE_WARM_GRADE_THRESHOLD } },
+          ],
+        },
+        {
+          OR: [
+            { lastOutboundAt: null },
+            { lastOutboundAt: { lt: staleBefore } },
+          ],
+        },
+      ],
+    };
+  }
+
+  async listCultivateMaterializeCandidates(after?: string, take = 1) {
+    const day = utcDayKey();
+    const integrations = await this._integration.model.integration.findMany({
+      where: {
+        type: 'social',
+        disabled: false,
+        deletedAt: null,
+        channelFollowerSyncState: {
+          is: {
+            status: ChannelFollowerSyncStatus.COMPLETE,
+            completedAt: { not: null },
+          },
+        },
+        channelAudienceMembers: {
+          some: this.cultivateEligibilityWhere(),
+        },
+        channelAudienceCultivatePicks: {
+          none: { day },
+        },
+        ...(after ? { id: { gt: after } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take: take + 1,
+      select: {
+        id: true,
+        organizationId: true,
+        providerIdentifier: true,
+      },
+    });
+    return {
+      candidates: integrations.slice(0, take),
+      next: integrations.length > take ? integrations[take - 1]?.id : undefined,
+    };
+  }
+
+  async listCultivateCandidates(params: {
+    organizationId: string;
+    integrationId: string;
+    now?: Date;
+    take?: number;
+  }): Promise<CultivateCandidate[]> {
+    const now = params.now ?? new Date();
+    const take = params.take ?? CULTIVATE_CANDIDATE_POOL_SIZE;
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        params.organizationId,
+        params.integrationId
+      );
+      return tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          ...this.cultivateEligibilityWhere(now),
+        },
+        orderBy: [{ lastOutboundAt: { sort: 'asc', nulls: 'first' } }, { externalId: 'asc' }],
+        take,
+        select: {
+          externalId: true,
+          username: true,
+          name: true,
+          relationshipGrade: true,
+          relationshipTriage: true,
+          lastOutboundAt: true,
+        },
+      });
+    });
+  }
+
+  async upsertCultivatePicks(params: {
+    organizationId: string;
+    integrationId: string;
+    day: string;
+    picks: CultivatePickInput[];
+  }) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        params.organizationId,
+        params.integrationId
+      );
+      await tx.channelAudienceCultivatePick.deleteMany({
+        where: {
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          day: params.day,
+        },
+      });
+      if (!params.picks.length) {
+        return { count: 0 };
+      }
+      await tx.channelAudienceCultivatePick.createMany({
+        data: params.picks.map((pick) => ({
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          day: params.day,
+          counterpartyExternalId: pick.counterpartyExternalId,
+          rulesRank: pick.rulesRank,
+          finalRank: pick.finalRank,
+          rulesReason: pick.rulesReason,
+          aiRank: pick.aiRank ?? null,
+          aiReason: pick.aiReason ?? null,
+          suggestedAction: pick.suggestedAction ?? null,
+          source: pick.source ?? 'rules',
+        })),
+      });
+      return { count: params.picks.length };
+    });
+  }
+
+  async getAudienceCultivate(query: AudienceCultivateQuery) {
+    const day = query.day ?? utcDayKey();
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        query.organizationId,
+        query.integrationId
+      );
+
+      const pickCount = await tx.channelAudienceCultivatePick.count({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          day,
+        },
+      });
+
+      if (pickCount > 0) {
+        const comparison = query.direction === 'desc' ? 'lt' : 'gt';
+        const rows = await tx.channelAudienceCultivatePick.findMany({
+          where: {
+            organizationId: query.organizationId,
+            integrationId: query.integrationId,
+            day,
+            ...(query.cursor
+              ? {
+                OR: [
+                  { finalRank: { [comparison]: query.cursor.finalRank } },
+                  {
+                    finalRank: query.cursor.finalRank,
+                    counterpartyExternalId: {
+                      [comparison]: query.cursor.externalId,
+                    },
+                  },
+                ],
+              }
+              : {}),
+            ...(query.search
+              ? {
+                audienceMember: this.audienceSearchFilter(query.search),
+              }
+              : {}),
+          },
+          orderBy: [
+            { finalRank: query.direction },
+            { counterpartyExternalId: query.direction },
+          ],
+          take: query.limit + 1,
+          select: {
+            finalRank: true,
+            rulesRank: true,
+            rulesReason: true,
+            aiReason: true,
+            suggestedAction: true,
+            source: true,
+            counterpartyExternalId: true,
+            audienceMember: {
+              select: this.audienceMemberListSelect(query.userId),
+            },
+          },
+        });
+        const items = rows.slice(0, query.limit).map((row) => ({
+          ...row.audienceMember,
+          finalRank: row.finalRank,
+          rulesRank: row.rulesRank,
+          cultivateReason: row.aiReason || row.rulesReason,
+          suggestedAction: row.suggestedAction,
+          cultivateSource: row.source,
+        }));
+        return {
+          items,
+          hasMore: rows.length > query.limit,
+          source: 'picks' as const,
+          day,
+        };
+      }
+
+      // Rules-only live fallback when today's picks have not been materialized.
+      const candidates = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: query.organizationId,
+          integrationId: query.integrationId,
+          ...this.audienceListFilters(
+            this.cultivateEligibilityWhere(),
+            this.audienceSearchFilter(query.search)
+          ),
+        },
+        orderBy: [
+          { lastOutboundAt: { sort: 'asc', nulls: 'first' } },
+          { relationshipGrade: { sort: 'desc', nulls: 'last' } },
+          { externalId: 'asc' },
+        ],
+        take: CULTIVATE_CANDIDATE_POOL_SIZE,
+        select: {
+          ...this.audienceMemberListSelect(query.userId),
+          lastOutboundAt: true,
+          relationshipGrade: true,
+          relationshipTriage: true,
+        },
+      });
+      const ranked = this.rankCultivateCandidates(candidates, day).slice(
+        0,
+        CULTIVATE_DAILY_PICK_LIMIT
+      );
+      const startIndex = query.cursor
+        ? ranked.findIndex(
+          (row) =>
+            row.finalRank === query.cursor!.finalRank &&
+            row.externalId === query.cursor!.externalId
+        ) + 1
+        : 0;
+      const page = ranked.slice(
+        Math.max(0, startIndex),
+        Math.max(0, startIndex) + query.limit + 1
+      );
+      return {
+        items: page.slice(0, query.limit).map((row) => ({
+          ...row,
+          cultivateReason: row.rulesReason,
+          suggestedAction: null as string | null,
+          cultivateSource: 'rules' as const,
+        })),
+        hasMore: page.length > query.limit,
+        source: 'live' as const,
+        day,
+      };
+    });
+  }
+
+  rankCultivateCandidates<
+    T extends {
+      externalId: string;
+      lastOutboundAt: Date | null;
+      relationshipGrade: number | null;
+      relationshipTriage: string | null;
+    }
+  >(candidates: T[], day: string, now = new Date()) {
+    const scored = candidates.map((candidate) => {
+      const staleMs = candidate.lastOutboundAt
+        ? Math.max(0, now.getTime() - candidate.lastOutboundAt.getTime())
+        : Number.POSITIVE_INFINITY;
+      const rotation = this.cultivateDaySeed(day, candidate.externalId);
+      return {
+        candidate,
+        staleMs,
+        grade: candidate.relationshipGrade ?? 0,
+        rotation,
+        rulesReason: this.cultivateRulesReason(candidate, now),
+      };
+    });
+    scored.sort((a, b) => {
+      if (a.staleMs !== b.staleMs) return b.staleMs - a.staleMs;
+      if (a.grade !== b.grade) return b.grade - a.grade;
+      if (a.rotation !== b.rotation) return a.rotation - b.rotation;
+      return a.candidate.externalId.localeCompare(b.candidate.externalId);
+    });
+    return scored.map((row, index) => ({
+      ...row.candidate,
+      rulesRank: index + 1,
+      finalRank: index + 1,
+      rulesReason: row.rulesReason,
+    }));
+  }
+
+  private cultivateDaySeed(day: string, externalId: string) {
+    let hash = 2166136261;
+    const input = `${day}:${externalId}`;
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+
+  private cultivateRulesReason(
+    candidate: {
+      lastOutboundAt: Date | null;
+      relationshipTriage: string | null;
+      relationshipGrade: number | null;
+    },
+    now: Date
+  ) {
+    const daysStale = candidate.lastOutboundAt
+      ? Math.max(
+        1,
+        Math.floor(
+          (now.getTime() - candidate.lastOutboundAt.getTime()) /
+          (24 * 60 * 60 * 1000)
+        )
+      )
+      : null;
+    const relationship =
+      candidate.relationshipTriage === 'mutual'
+        ? 'mutual relationship'
+        : candidate.relationshipGrade != null
+          ? `grade ${candidate.relationshipGrade.toFixed(1)}`
+          : 'warm relationship';
+    if (daysStale == null) {
+      return `No outbound attention yet · ${relationship}`;
+    }
+    return `No outbound attention in ${daysStale} days · ${relationship}`;
   }
 
   async getDueBotScoreBatch(
@@ -1640,7 +2248,7 @@ export class ChannelInteractionRepository {
             select: { listId: true },
           },
           triageIgnores: {
-            select: { triage: true },
+            select: { triage: true, expiresAt: true },
           },
           notes: {
             orderBy: { createdAt: 'desc' },
@@ -2231,15 +2839,19 @@ export class ChannelInteractionRepository {
               ChannelAudienceMembership.NOT_FOLLOWER,
             ],
           },
-          inboundInteractionCount: { gt: 0 },
-          triageIgnores: { none: { triage: 'lead' } },
+          OR: [
+            { inboundInteractionCount: { gt: 0 } },
+            { leadBridgesAsLead: { some: {} } },
+          ],
+          triageIgnores: { none: this.activeTriageIgnoreWhere('lead') },
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
             this.ignoredVisibilityFilter(query.ignoredVisibility),
-            this.leadInboundKeyset(query.cursor, query.direction)
+            this.leadBridgeKeyset(query.cursor, query.direction)
           ),
         },
         orderBy: [
+          { leadBridgeScore: { sort: query.direction, nulls: 'last' } },
           { lastInboundAt: { sort: query.direction, nulls: 'last' } },
           { externalId: query.direction },
         ],
@@ -2248,6 +2860,21 @@ export class ChannelInteractionRepository {
           ...this.audienceMemberListSelect(query.userId),
           inboundInteractionCount: true,
           lastInboundAt: true,
+          leadBridgeScore: true,
+          leadBridgesAsLead: {
+            orderBy: [
+              { bridgeRelationshipGrade: { sort: 'desc', nulls: 'last' } },
+              { lastSeenAt: 'desc' },
+            ],
+            take: 3,
+            select: {
+              bridgeExternalId: true,
+              bridgeRelationshipGrade: true,
+              bridgeMember: {
+                select: { username: true, name: true },
+              },
+            },
+          },
         },
       });
 
@@ -2600,11 +3227,23 @@ export class ChannelInteractionRepository {
           botFormulaVersion: row.botFormulaVersion,
           botGradedAt: row.botGradedAt,
           listIds: (row.listMemberships ?? []).map((membership) => membership.listId),
-          ignoredTriages: (row.triageIgnores ?? []).map((ignore) => ignore.triage),
+          ignoredTriages: this.activeIgnoredTriages(row.triageIgnores ?? []),
           ignoredAt: row.ignoredAt ?? null,
         },
       ])
     );
+  }
+
+  private activeIgnoredTriages(
+    ignores: Array<{ triage: string; expiresAt?: Date | null }>
+  ) {
+    const now = Date.now();
+    return ignores
+      .filter(
+        (ignore) =>
+          ignore.expiresAt == null || ignore.expiresAt.getTime() > now
+      )
+      .map((ignore) => ignore.triage);
   }
 
   private rankedFollowerKeyset(
@@ -2680,12 +3319,22 @@ export class ChannelInteractionRepository {
       return {
         relationshipReciprocationScore: { gt: 0 },
         relationshipEffortScore: 0,
-        triageIgnores: { none: { triage: 'engaged_not_yet' } },
+        triageIgnores: { none: this.activeTriageIgnoreWhere('engaged_not_yet') },
       };
     }
     return {
       relationshipTriage: triage,
-      triageIgnores: { none: { triage } },
+      triageIgnores: { none: this.activeTriageIgnoreWhere(triage) },
+    };
+  }
+
+  private activeTriageIgnoreWhere(
+    triage: string
+  ): Prisma.ChannelAudienceMemberTriageIgnoreWhereInput {
+    const now = new Date();
+    return {
+      triage,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
     };
   }
 
@@ -2709,15 +3358,23 @@ export class ChannelInteractionRepository {
             ChannelAudienceMembership.NOT_FOLLOWER,
           ],
         },
-        inboundInteractionCount: { gt: 0 },
+        OR: [
+          { inboundInteractionCount: { gt: 0 } },
+          { leadBridgesAsLead: { some: {} } },
+        ],
         ignoredAt: null,
-        triageIgnores: { none: { triage: 'lead' } },
+        triageIgnores: { none: this.activeTriageIgnoreWhere('lead') },
       };
     }
     if (category === 'ignored') {
       return {
         membershipState: ChannelAudienceMembership.FOLLOWER,
         ignoredAt: { not: null },
+      };
+    }
+    if (category === 'cultivate') {
+      return {
+        ...this.cultivateEligibilityWhere(),
       };
     }
     return {
@@ -2880,7 +3537,7 @@ export class ChannelInteractionRepository {
         select: { listId: true },
       },
       triageIgnores: {
-        select: { triage: true },
+        select: { triage: true, expiresAt: true },
       },
     } as const;
   }
@@ -2929,27 +3586,52 @@ export class ChannelInteractionRepository {
     cursor: AudienceLeadCursor | undefined,
     direction: 'asc' | 'desc'
   ): Prisma.ChannelAudienceMemberWhereInput {
+    return this.leadBridgeKeyset(cursor, direction);
+  }
+
+  private leadBridgeKeyset(
+    cursor: AudienceLeadCursor | undefined,
+    direction: 'asc' | 'desc'
+  ): Prisma.ChannelAudienceMemberWhereInput {
     if (!cursor) {
       return {};
     }
 
     const comparison = direction === 'desc' ? 'lt' : 'gt';
-    if (cursor.lastInboundAt == null) {
+    const score = cursor.leadBridgeScore;
+    const lastInboundAt =
+      cursor.lastInboundAt == null ? null : new Date(cursor.lastInboundAt);
+
+    const inboundTieBreak: Prisma.ChannelAudienceMemberWhereInput =
+      lastInboundAt == null
+        ? {
+          lastInboundAt: null,
+          externalId: { [comparison]: cursor.externalId },
+        }
+        : {
+          OR: [
+            { lastInboundAt: { [comparison]: lastInboundAt } },
+            {
+              lastInboundAt,
+              externalId: { [comparison]: cursor.externalId },
+            },
+            ...(direction === 'desc' ? [{ lastInboundAt: null }] : []),
+          ],
+        };
+
+    if (score == null) {
       return {
-        lastInboundAt: null,
-        externalId: { [comparison]: cursor.externalId },
+        AND: [{ leadBridgeScore: null }, inboundTieBreak],
       };
     }
 
-    const lastInboundAt = new Date(cursor.lastInboundAt);
     return {
       OR: [
-        { lastInboundAt: { [comparison]: lastInboundAt } },
+        { leadBridgeScore: { [comparison]: score } },
         {
-          lastInboundAt,
-          externalId: { [comparison]: cursor.externalId },
+          AND: [{ leadBridgeScore: score }, inboundTieBreak],
         },
-        ...(direction === 'desc' ? [{ lastInboundAt: null }] : []),
+        ...(direction === 'desc' ? [{ leadBridgeScore: null }] : []),
       ],
     };
   }
@@ -3138,7 +3820,8 @@ export class ChannelInteractionRepository {
     organizationId: string,
     integrationId: string,
     snapshotAt: Date,
-    snapshots: RelationshipGradeSnapshotInput[]
+    snapshots: RelationshipGradeSnapshotInput[],
+    options?: { force?: boolean }
   ) {
     return Promise.all(
       snapshots.map((snapshot) =>
@@ -3147,10 +3830,14 @@ export class ChannelInteractionRepository {
             organizationId,
             integrationId,
             externalId: snapshot.externalId,
-            OR: [
-              { relationshipSnapshotAt: null },
-              { relationshipSnapshotAt: { lte: snapshotAt } },
-            ],
+            ...(options?.force
+              ? {}
+              : {
+                OR: [
+                  { relationshipSnapshotAt: null },
+                  { relationshipSnapshotAt: { lte: snapshotAt } },
+                ],
+              }),
           },
           data: {
             relationshipGrade: snapshot.grade,
@@ -3168,6 +3855,36 @@ export class ChannelInteractionRepository {
         })
       )
     );
+  }
+
+  private async upsertHotLeadSnooze(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    integrationId: string,
+    externalId: string,
+    eventAt: Date
+  ) {
+    const expiresAt = new Date(eventAt.getTime() + RELATIONSHIP_HOT_SNOOZE_MS);
+    await tx.channelAudienceMemberTriageIgnore.upsert({
+      where: {
+        organizationId_integrationId_counterpartyExternalId_triage: {
+          organizationId,
+          integrationId,
+          counterpartyExternalId: externalId,
+          triage: 'hot_lead',
+        },
+      },
+      create: {
+        organizationId,
+        integrationId,
+        counterpartyExternalId: externalId,
+        triage: 'hot_lead',
+        expiresAt,
+      },
+      update: {
+        expiresAt,
+      },
+    });
   }
 
   private async assertNoteAccess(
