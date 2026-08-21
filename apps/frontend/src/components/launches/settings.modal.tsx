@@ -61,6 +61,7 @@ export const SettingsModal: FC<{
 
   useEffect(() => {
     let cancelled = false;
+    setLoadingDocuments(true);
     (async () => {
       try {
         const response = await fetch(
@@ -94,7 +95,9 @@ export const SettingsModal: FC<{
     return () => {
       cancelled = true;
     };
-  }, [fetch, integration.id, t, toast]);
+    // Only reload when the channel changes — toast/t are unstable and would reset selections.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetch, integration.id]);
 
   const changeValue = useCallback(
     (index: number) => (value: any) => {
