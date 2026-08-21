@@ -3730,9 +3730,22 @@ export class ChannelInteractionRepository {
     organizationId: string;
     integrationId: string;
     externalIds: string[];
-  }) {
+  }): Promise<
+    Array<{
+      externalId: string;
+      name: string | null;
+      username: string | null;
+      bio: string | null;
+      followersCount: number | null;
+      followingCount: number | null;
+      leadBridgesAsLead: Array<{
+        bridgeRelationshipGrade: number | null;
+        bridgeMember: { username: string | null };
+      }>;
+    }>
+  > {
     if (!params.externalIds.length) {
-      return [] as string[];
+      return [];
     }
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(
@@ -3740,7 +3753,7 @@ export class ChannelInteractionRepository {
         params.organizationId,
         params.integrationId
       );
-      const rows = await tx.channelAudienceMember.findMany({
+      return tx.channelAudienceMember.findMany({
         where: {
           organizationId: params.organizationId,
           integrationId: params.integrationId,
@@ -3769,7 +3782,6 @@ export class ChannelInteractionRepository {
           },
         },
       });
-      return rows;
     });
   }
 
