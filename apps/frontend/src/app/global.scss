@@ -13,6 +13,10 @@
   }
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background: var(--new-bgColor) !important;
   color: var(--new-btn-text);
