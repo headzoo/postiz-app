@@ -56,7 +56,7 @@ const PAGE_SIZE_OPTIONS = [12, 24, 48] as const;
 
 const FOLLOWER_VIEW_BY_SLUG: Record<
   string,
-  { triage?: FollowerTriageFilter; audience?: 'lead' | 'ignored' }
+  { triage?: FollowerTriageFilter; audience?: 'lead' | 'ignored'; isBot?: true }
 > = {
   engaged: { triage: 'engaged_not_yet' },
   hot: { triage: 'hot_lead' },
@@ -65,6 +65,7 @@ const FOLLOWER_VIEW_BY_SLUG: Record<
   quiet: { triage: 'quiet' },
   lead: { audience: 'lead' },
   ignored: { audience: 'ignored' },
+  bots: { isBot: true },
 };
 
 const TRIAGE_FILTER_OPTIONS: {
@@ -126,6 +127,7 @@ export type FollowerListPath = {
   slug?: string;
   triage?: FollowerTriageFilter;
   audience?: 'lead' | 'ignored';
+  isBot?: true;
 };
 
 export type FollowerDetailPath = {
@@ -163,18 +165,25 @@ export const parseFollowerPath = (pathname: string): FollowerPath => {
     slug: first,
     triage: view.triage,
     audience: view.audience,
+    isBot: view.isBot,
   };
 };
 
 export const parseFollowerViewPath = (pathname: string) => {
   const parsed = parseFollowerPath(pathname);
   if (parsed.type === 'follower') {
-    return { slug: undefined, triage: undefined, audience: undefined };
+    return {
+      slug: undefined,
+      triage: undefined,
+      audience: undefined,
+      isBot: undefined,
+    };
   }
   return {
     slug: parsed.slug,
     triage: parsed.triage,
     audience: parsed.audience,
+    isBot: parsed.isBot,
   };
 };
 
@@ -184,14 +193,12 @@ export const buildFollowersPageHref = ({
   sort,
   direction,
   listId,
-  isBot,
 }: {
   slug?: string;
   search?: string;
   sort?: string;
   direction?: FollowerSortDirection;
   listId?: string;
-  isBot?: boolean;
 }) => {
   const path = slug ? `/followers/${slug}` : '/followers';
   const params = new URLSearchParams();
@@ -206,9 +213,6 @@ export const buildFollowersPageHref = ({
   }
   if (listId) {
     params.set('listId', listId);
-  }
-  if (isBot !== undefined) {
-    params.set('isBot', String(isBot));
   }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
@@ -433,21 +437,20 @@ export const FollowersComponent: FC = () => {
     () => parseFollowerPath(historyPath || '/followers'),
     [historyPath]
   );
-  const { slug, triage, audience } =
+  const { slug, triage, audience, isBot: pathIsBot } =
     followerPath.type === 'follower'
-      ? { slug: undefined, triage: undefined, audience: undefined }
+      ? {
+        slug: undefined,
+        triage: undefined,
+        audience: undefined,
+        isBot: undefined,
+      }
       : followerPath;
   const urlSearch = searchParams.get('search') ?? '';
   const urlListId = searchParams.get('listId') || undefined;
   const urlSort = searchParams.get('sort') || undefined;
   const urlDirectionParam = searchParams.get('direction');
-  const urlIsBotParam = searchParams.get('isBot');
-  const urlIsBot =
-    urlIsBotParam === 'true'
-      ? true
-      : urlIsBotParam === 'false'
-        ? false
-        : undefined;
+  const urlIsBot = pathIsBot === true;
   const urlDirection: FollowerSortDirection | undefined =
     urlDirectionParam === 'asc' || urlDirectionParam === 'desc'
       ? urlDirectionParam
@@ -635,22 +638,19 @@ export const FollowersComponent: FC = () => {
   const previousSearch = useRef(trimmedSearch);
   const previousSlug = useRef(slug);
   const previousListId = useRef(urlListId);
-  const previousIsBot = useRef(urlIsBot);
   useEffect(() => {
     if (
       previousSearch.current === trimmedSearch &&
       previousSlug.current === slug &&
-      previousListId.current === urlListId &&
-      previousIsBot.current === urlIsBot
+      previousListId.current === urlListId
     ) {
       return;
     }
     previousSearch.current = trimmedSearch;
     previousSlug.current = slug;
     previousListId.current = urlListId;
-    previousIsBot.current = urlIsBot;
     resetPagination();
-  }, [trimmedSearch, slug, urlListId, urlIsBot, resetPagination]);
+  }, [trimmedSearch, slug, urlListId, resetPagination]);
 
   const querySort = sort || urlSort;
   const queryDirection = direction || urlDirection;
@@ -660,7 +660,6 @@ export const FollowersComponent: FC = () => {
     sort: querySort || undefined,
     direction: querySort && queryDirection ? queryDirection : undefined,
     listId: urlListId,
-    isBot: urlIsBot,
   });
 
   useEffect(() => {
@@ -688,6 +687,19 @@ export const FollowersComponent: FC = () => {
     if (followerPath.type === 'follower') {
       return;
     }
+    // Legacy bookmarks used ?isBot=true; canonicalize to /followers/bots.
+    if (
+      searchParams.get('isBot') === 'true' &&
+      slug !== 'bots'
+    ) {
+      const legacyParams = new URLSearchParams(searchParams.toString());
+      legacyParams.delete('isBot');
+      const legacyQuery = legacyParams.toString();
+      router.replace(
+        legacyQuery ? `/followers/bots?${legacyQuery}` : '/followers/bots'
+      );
+      return;
+    }
     const nextSearch = trimmedSearch || '';
     const nextSort = querySort || '';
     const nextDirection = querySort && queryDirection ? queryDirection : '';
@@ -696,8 +708,7 @@ export const FollowersComponent: FC = () => {
       (urlSort || '') === nextSort &&
       (urlDirection || '') === nextDirection &&
       (searchParams.get('listId') || undefined) === urlListId &&
-      (searchParams.get('isBot') || undefined) ===
-        (urlIsBot === undefined ? undefined : String(urlIsBot))
+      !searchParams.has('isBot')
     ) {
       return;
     }
@@ -719,7 +730,7 @@ export const FollowersComponent: FC = () => {
     urlSort,
     urlDirection,
     urlListId,
-    urlIsBot,
+    slug,
     router,
     searchParams,
   ]);
@@ -748,7 +759,7 @@ export const FollowersComponent: FC = () => {
     triage: urlListId ? undefined : triage,
     audience: urlListId ? undefined : audience,
     listId: urlListId,
-    isBot: urlIsBot,
+    isBot: urlIsBot || undefined,
   });
 
   const { data: followerLists = [] } = useFollowerLists(selectedIntegrationId);
@@ -1407,7 +1418,7 @@ export const FollowersComponent: FC = () => {
           aria-label={t('followers_triage_filter_group', 'Triage filter')}
         >
           {TRIAGE_FILTER_OPTIONS.map((option) => {
-            const isSelected = urlListId
+            const isSelected = urlListId || urlIsBot
               ? false
               : option.audience
                 ? audience === option.audience
@@ -1420,7 +1431,6 @@ export const FollowersComponent: FC = () => {
                   search: trimmedSearch || undefined,
                   sort: querySort,
                   direction: querySort ? queryDirection : undefined,
-                  isBot: urlIsBot,
                 })}
                 scroll={false}
                 className={clsx(
@@ -1438,24 +1448,22 @@ export const FollowersComponent: FC = () => {
           })}
           <Link
             href={buildFollowersPageHref({
-              slug,
+              slug: urlIsBot ? undefined : 'bots',
               search: trimmedSearch || undefined,
               sort: querySort,
               direction: querySort ? queryDirection : undefined,
-              listId: urlListId,
-              isBot: urlIsBot === true ? undefined : true,
             })}
             scroll={false}
             className={clsx(
               'rounded-[8px] border px-[10px] py-[6px] text-[13px] transition-colors',
-              urlIsBot === true
+              urlIsBot
                 ? 'border-newTableText bg-newTableHeader text-newTextColor'
                 : 'border-newBorder bg-newBgColorInner text-textItemBlur hover:bg-newTableHeader hover:text-newTextColor'
             )}
-            aria-pressed={urlIsBot === true}
-            aria-current={urlIsBot === true ? 'page' : undefined}
+            aria-pressed={urlIsBot}
+            aria-current={urlIsBot ? 'page' : undefined}
           >
-            {t('followers_bot_filter', 'Likely bots')}
+            {t('followers_bot_filter', 'Bots')}
           </Link>
           <Link
             href={buildFollowersPageHref({
@@ -1463,7 +1471,6 @@ export const FollowersComponent: FC = () => {
               search: trimmedSearch || undefined,
               sort: querySort,
               direction: querySort ? queryDirection : undefined,
-              isBot: urlIsBot,
             })}
             scroll={false}
             className={clsx(
@@ -1487,7 +1494,6 @@ export const FollowersComponent: FC = () => {
                   sort: querySort,
                   direction: querySort ? queryDirection : undefined,
                   listId: list.id,
-                  isBot: urlIsBot,
                 })}
                 scroll={false}
                 className={clsx(

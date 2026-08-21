@@ -269,21 +269,31 @@ describe('follower page href helpers', () => {
       slug: undefined,
       triage: undefined,
       audience: undefined,
+      isBot: undefined,
     });
     expect(parseFollowerViewPath('/followers/hot')).toEqual({
       slug: 'hot',
       triage: 'hot_lead',
       audience: undefined,
+      isBot: undefined,
     });
     expect(parseFollowerViewPath('/followers/lead')).toEqual({
       slug: 'lead',
       triage: undefined,
       audience: 'lead',
+      isBot: undefined,
     });
     expect(parseFollowerViewPath('/followers/ignored')).toEqual({
       slug: 'ignored',
       triage: undefined,
       audience: 'ignored',
+      isBot: undefined,
+    });
+    expect(parseFollowerViewPath('/followers/bots')).toEqual({
+      slug: 'bots',
+      triage: undefined,
+      audience: undefined,
+      isBot: true,
     });
     expect(
       buildFollowersPageHref({
@@ -299,6 +309,7 @@ describe('follower page href helpers', () => {
         search: 'alex',
       })
     ).toBe('/followers?search=alex&listId=list-1');
+    expect(buildFollowersPageHref({ slug: 'bots' })).toBe('/followers/bots');
   });
 
   it('maps follower detail paths and hrefs', () => {
@@ -318,6 +329,14 @@ describe('follower page href helpers', () => {
       slug: 'hot',
       triage: 'hot_lead',
       audience: undefined,
+      isBot: undefined,
+    });
+    expect(parseFollowerPath('/followers/bots')).toEqual({
+      type: 'list',
+      slug: 'bots',
+      triage: undefined,
+      audience: undefined,
+      isBot: true,
     });
     expect(buildFollowerDetailHref('channel-1', '@SummerYule')).toBe(
       '/followers/channel-1/@SummerYule'
@@ -421,6 +440,9 @@ describe('FollowersComponent', () => {
     expect(screen.getByRole('link', { name: 'Ignored' }).getAttribute('href')).toBe(
       '/followers/ignored'
     );
+    expect(screen.getByRole('link', { name: 'Bots' }).getAttribute('href')).toBe(
+      '/followers/bots'
+    );
     expect(screen.getByRole('link', { name: 'VIP' }).getAttribute('href')).toBe(
       '/followers?listId=list-1'
     );
@@ -436,6 +458,21 @@ describe('FollowersComponent', () => {
     );
     expect(useFollowersMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ triage: 'hot_lead', audience: undefined })
+    );
+  });
+
+  it('hydrates the bots filter from /followers/bots', () => {
+    mockPathname = '/followers/bots';
+    render(<FollowersComponent />);
+
+    expect(screen.getByRole('link', { name: 'Bots' }).getAttribute('aria-pressed')).toBe(
+      'true'
+    );
+    expect(screen.getByRole('link', { name: 'All' }).getAttribute('aria-pressed')).toBe(
+      'false'
+    );
+    expect(useFollowersMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ isBot: true, triage: undefined, audience: undefined })
     );
   });
 

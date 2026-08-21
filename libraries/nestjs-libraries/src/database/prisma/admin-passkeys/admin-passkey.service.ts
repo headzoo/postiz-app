@@ -166,7 +166,7 @@ export class AdminPasskeyService {
       authenticatorSelection: {
         residentKey: 'preferred',
         requireResidentKey: false,
-        userVerification: 'required',
+        userVerification: 'preferred',
       },
     });
 
@@ -214,7 +214,7 @@ export class AdminPasskeyService {
         },
         expectedOrigin: configuration.expectedOrigin,
         expectedRPID: configuration.rpId,
-        requireUserVerification: true,
+        requireUserVerification: false,
       });
     } catch {
       throw this.registrationRejected();
@@ -272,7 +272,7 @@ export class AdminPasskeyService {
     const options = await generateAuthenticationOptions({
       rpID: configuration.rpId,
       timeout: configuration.challengeTtlMs,
-      userVerification: 'required',
+      userVerification: 'preferred',
       allowCredentials: credentials.map((credential) => ({
         id: credential.credentialId,
         transports: this.toTransports(credential.transports),
@@ -327,7 +327,7 @@ export class AdminPasskeyService {
         },
         expectedOrigin: configuration.expectedOrigin,
         expectedRPID: configuration.rpId,
-        requireUserVerification: true,
+        requireUserVerification: false,
         credential: {
           id: credential.credentialId,
           publicKey: credential.publicKey,

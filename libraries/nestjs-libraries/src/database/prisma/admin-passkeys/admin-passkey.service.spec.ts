@@ -266,7 +266,7 @@ describe('AdminPasskeyService', () => {
   });
 
   describe('registration', () => {
-    it('uses the configured relying party, requires user verification and persists a 5 minute challenge', async () => {
+    it('uses the configured relying party, prefers user verification and persists a 5 minute challenge', async () => {
       generateRegistrationOptionsMock.mockResolvedValue({
         challenge: 'registration-challenge',
       } as any);
@@ -281,7 +281,7 @@ describe('AdminPasskeyService', () => {
           timeout: ADMIN_WEBAUTHN_CHALLENGE_TTL_MS,
           excludeCredentials: [],
           authenticatorSelection: expect.objectContaining({
-            userVerification: 'required',
+            userVerification: 'preferred',
           }),
         })
       );
@@ -355,7 +355,7 @@ describe('AdminPasskeyService', () => {
       verifyRegistrationResponseMock.mockImplementation(async (options: any) => {
         expect(options.expectedOrigin).toBe('https://admin.postiz.example');
         expect(options.expectedRPID).toBe('admin.postiz.example');
-        expect(options.requireUserVerification).toBe(true);
+        expect(options.requireUserVerification).toBe(false);
         await options.expectedChallenge('registration-challenge');
         return {
           verified: true,
@@ -453,7 +453,7 @@ describe('AdminPasskeyService', () => {
       expect(generateAuthenticationOptionsMock).not.toHaveBeenCalled();
     });
 
-    it('offers only the operator credentials and requires user verification', async () => {
+    it('offers only the operator credentials and prefers user verification', async () => {
       repository.listCredentials.mockResolvedValue([storedCredential]);
       generateAuthenticationOptionsMock.mockResolvedValue({
         challenge: 'assertion-challenge',
@@ -464,7 +464,7 @@ describe('AdminPasskeyService', () => {
       expect(generateAuthenticationOptionsMock).toHaveBeenCalledWith(
         expect.objectContaining({
           rpID: 'admin.postiz.example',
-          userVerification: 'required',
+          userVerification: 'preferred',
           allowCredentials: [
             { id: 'stored-credential-id', transports: ['internal'] },
           ],
@@ -513,7 +513,7 @@ describe('AdminPasskeyService', () => {
         async (options: any) => {
           expect(options.expectedOrigin).toBe('https://admin.postiz.example');
           expect(options.expectedRPID).toBe('admin.postiz.example');
-          expect(options.requireUserVerification).toBe(true);
+          expect(options.requireUserVerification).toBe(false);
           expect(options.credential).toEqual({
             id: storedCredential.credentialId,
             publicKey: storedCredential.publicKey,
