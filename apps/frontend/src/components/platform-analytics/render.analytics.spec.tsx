@@ -13,11 +13,39 @@ jest.mock('@gitroom/react/translation/get.transation.service.client', () => ({
   useT: () => (key: string, fallback: string) => fallback,
 }));
 
-jest.mock('@gitroom/frontend/components/analytics/chart-social', () => ({
-  ChartSocial: () => <div data-testid="chart-social" />,
-  sortAnalyticsPoints: (data: Array<{ date: string; total: number }>) =>
-    [...data].sort((a, b) => a.date.localeCompare(b.date)),
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+  }),
 }));
+
+jest.mock('@gitroom/react/helpers/image.with.fallback', () => ({
+  __esModule: true,
+  default: ({ alt }: { alt?: string }) => <span>{alt}</span>,
+}));
+
+jest.mock('@gitroom/frontend/components/analytics/chart-social', () => {
+  const actual = jest.requireActual('@gitroom/frontend/components/analytics/chart-social');
+  return {
+    ...actual,
+    ChartSocial: ({
+      clickable,
+      onPointClick,
+    }: {
+      clickable?: boolean;
+      onPointClick?: (point: { date: string; total: number }) => void;
+    }) => (
+      <button
+        type="button"
+        data-testid="chart-social"
+        data-clickable={clickable ? 'true' : 'false'}
+        onClick={() =>
+          onPointClick?.({ date: '2026-08-20', total: 42 })
+        }
+      />
+    ),
+  };
+});
 
 jest.mock('@gitroom/react/form/button', () => ({
   Button: ({
@@ -60,11 +88,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   AnalyticsCard,
   analyticsTotal,
+  buildMetricDayPath,
   formatAnalyticsValue,
+  isMetricDrilldownEligible,
   RenderAnalytics,
   resolveDisplayUnit,
   resolveValueMode,
 } from './render.analytics';
+import { MetricDayPostList } from '@gitroom/frontend/components/analytics/metric-day/metric-day-post-list';
 
 expect.extend({
   toBeInTheDocument(received: unknown) {
@@ -184,6 +215,173 @@ describe('resolveDisplayUnit', () => {
         displayUnit: 'duration',
       })
     ).toBe('duration');
+  });
+});
+
+describe('isMetricDrilldownEligible', () => {
+  const eligibleItem = {
+    label: 'Impressions',
+    valueMode: 'sum' as const,
+    drilldownSlug: 'impressions',
+    data: [{ date: '2026-08-20', total: 10 }],
+  };
+
+  it('allows exact daily sum metrics with a drilldown slug', () => {
+    expect(isMetricDrilldownEligible(eligibleItem)).toBe(true);
+    expect(
+      buildMetricDayPath('integration-1', 'impressions', '2026-08-20')
+    ).toBe('/analytics/integration-1/impressions/2026-08-20');
+  });
+
+  it('rejects downsampled windows with more than seven source points', () => {
+    expect(
+      isMetricDrilldownEligible({
+        ...eligibleItem,
+        data: Array.from({ length: 8 }, (_, index) => ({
+          date: `2026-08-${String(index + 1).padStart(2, '0')}`,
+          total: index + 1,
+        })),
+      })
+    ).toBe(false);
+  });
+
+  it('rejects line metrics and metrics without drilldown slugs', () => {
+    expect(
+      isMetricDrilldownEligible({
+        label: 'Engagement rate',
+        valueMode: 'average',
+        drilldownSlug: 'likes',
+        data: [{ date: '2026-08-20', total: 1 }],
+      })
+    ).toBe(false);
+    expect(
+      isMetricDrilldownEligible({
+        label: 'Views',
+        valueMode: 'sum',
+        data: [{ date: '2026-08-20', total: 1 }],
+      })
+    ).toBe(false);
+  });
+});
+
+describe('AnalyticsCard drill-down navigation', () => {
+  it('routes eligible bar clicks through the supplied callback', () => {
+    const onBarClick = jest.fn();
+
+    render(
+      <AnalyticsCard
+        index={0}
+        total="42"
+        integrationId="integration-1"
+        onBarClick={onBarClick}
+        item={{
+          label: 'Impressions',
+          valueMode: 'sum',
+          drilldownSlug: 'impressions',
+          data: [{ date: '2026-08-20', total: 42 }],
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('chart-social').getAttribute('data-clickable')).toBe(
+      'true'
+    );
+    fireEvent.click(screen.getByTestId('chart-social'));
+    expect(onBarClick).toHaveBeenCalledWith({
+      integrationId: 'integration-1',
+      drilldownSlug: 'impressions',
+      date: '2026-08-20',
+    });
+  });
+
+  it('does not enable chart clicks for ineligible metrics', () => {
+    render(
+      <AnalyticsCard
+        index={0}
+        total="12.50%"
+        integrationId="integration-1"
+        onBarClick={jest.fn()}
+        item={{
+          label: 'Engagement rate',
+          valueMode: 'average',
+          displayUnit: 'percentage',
+          data: [{ date: '2026-08-20', total: 12.5 }],
+        }}
+      />
+    );
+
+    expect(screen.getByTestId('chart-social').getAttribute('data-clickable')).toBe(
+      'false'
+    );
+  });
+});
+
+describe('MetricDayPostList ordering', () => {
+  it('preserves API order regardless of publish dates', () => {
+    render(
+      <MetricDayPostList
+        channelName="Demo"
+        posts={[
+          {
+            id: 'post-1',
+            content: 'Later publish',
+            publishDate: '2026-08-21T12:00:00.000Z',
+            releaseId: 'release-1',
+            releaseURL: 'https://example.com/1',
+            delta: 50,
+          },
+          {
+            id: 'post-2',
+            content: 'Earlier publish',
+            publishDate: '2026-08-01T12:00:00.000Z',
+            releaseId: 'release-2',
+            releaseURL: 'https://example.com/2',
+            delta: 10,
+          },
+        ]}
+      />
+    );
+
+    const contributions = screen.getAllByText(/^\+/);
+    expect(contributions[0].textContent).toBe('+50');
+    expect(contributions[1].textContent).toBe('+10');
+    expect(screen.getByText('Later publish')).toBeTruthy();
+    expect(screen.getByText('Earlier publish')).toBeTruthy();
+  });
+});
+
+describe('usePlatformAnalytics', () => {
+  it('loads dashboard analytics for the selected integration', async () => {
+    await jest.isolateModulesAsync(async () => {
+      const fetchMock = jest.fn().mockResolvedValue({
+        json: async () => [
+          {
+            id: 'integration-1',
+            analytics: [{ label: 'Impressions', data: [] }],
+          },
+        ],
+      });
+
+      jest.doMock('@gitroom/helpers/utils/custom.fetch', () => ({
+        useFetch: () => fetchMock,
+      }));
+
+      const { renderHook, waitFor } = await import('@testing-library/react');
+      const { usePlatformAnalytics } = await import('./use.platform.analytics');
+      const { result } = renderHook(() =>
+        usePlatformAnalytics({ id: 'integration-1' } as any, 7)
+      );
+
+      await waitFor(() => expect(result.current.data?.length).toBe(1));
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/analytics/dashboard?date=7&integrationId=integration-1'
+      );
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes('/analytics/integration-1?date=')
+        )
+      ).toBe(false);
+    });
   });
 });
 

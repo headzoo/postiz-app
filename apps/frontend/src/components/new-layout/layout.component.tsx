@@ -1,7 +1,6 @@
 'use client';
 
-import React, { ReactNode, useCallback, useEffect } from 'react';
-import { Logo } from '@gitroom/frontend/components/new-layout/logo';
+import React, { ReactNode, useCallback, useEffect, useState } from 'react';
 import { jakartaSans } from '@gitroom/frontend/app/fonts';
 
 import clsx from 'clsx';
@@ -24,26 +23,21 @@ import { CopilotKit } from '@copilotkit/react-core';
 import { MantineWrapper } from '@gitroom/react/helpers/mantine.wrapper';
 import { ImpersonationBanner } from '@gitroom/frontend/components/layout/impersonation-banner.component';
 import { AnnouncementBanner } from '@gitroom/frontend/components/layout/announcement.banner';
-import { Title } from '@gitroom/frontend/components/layout/title';
-import { TopMenu } from '@gitroom/frontend/components/layout/top.menu';
-import { ChromeExtensionComponent } from '@gitroom/frontend/components/layout/chrome.extension.component';
-import NotificationComponent from '@gitroom/frontend/components/notifications/notification.component';
-import { OrganizationSelector } from '@gitroom/frontend/components/layout/organization.selector';
-import { StreakComponent } from '@gitroom/frontend/components/layout/streak.component';
 import { PreConditionComponent } from '@gitroom/frontend/components/layout/pre-condition.component';
-import { AttachToFeedbackIcon } from '@gitroom/frontend/components/new-layout/sentry.feedback.component';
 import { FirstBillingComponent } from '@gitroom/frontend/components/billing/first.billing.component';
 import { TrialTracker } from '@gitroom/frontend/components/layout/gtm.component';
 import { setSentryUser } from '@gitroom/react/sentry/initialize.sentry.client';
-import { NewPost } from '@gitroom/frontend/components/launches/new.post';
 import { useIntegrationList } from '@gitroom/frontend/components/launches/helpers/use.integration.list';
+import { SidebarNav } from '@gitroom/frontend/components/new-layout/sidebar-nav';
+import { MobileSidebarDrawer } from '@gitroom/frontend/components/new-layout/mobile-sidebar.drawer';
+import { SiteHeader } from '@gitroom/frontend/components/new-layout/site-header';
 
 export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const fetch = useFetch();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const { backendUrl, billingEnabled, isGeneral } = useVariables();
 
-  // Feedback icon component attaches Sentry feedback to a top-bar icon when DSN is present
   const searchParams = useSearchParams();
   const load = useCallback(async (path: string) => {
     return await (await fetch(path)).json();
@@ -87,7 +81,7 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
             <ContinueProvider />
             <div
               className={clsx(
-                'flex flex-col min-h-screen min-w-screen text-newTextColor p-[12px]',
+                'flex flex-col min-h-screen min-w-screen text-newTextColor p-[12px] mobile:p-[8px]',
                 jakartaSans.className
               )}
             >
@@ -97,9 +91,13 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
               ) : (
                 <>
                   <AnnouncementBanner />
+                  <MobileSidebarDrawer
+                    open={sidebarOpen}
+                    onClose={() => setSidebarOpen(false)}
+                  />
                   <div className="flex-1 flex gap-[8px]">
                     <Support />
-                    <div className="flex flex-col bg-newBgColorInner w-[80px] rounded-[12px]">
+                    <div className="flex flex-col bg-newBgColorInner w-[80px] rounded-[12px] mobile:hidden">
                       <div
                         id="left-menu"
                         className={clsx(
@@ -107,26 +105,14 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                           user?.impersonate && 'pt-[60px]'
                         )}
                       >
-                        <div className="flex flex-col items-center h-full gap-[32px] flex-1 py-[12px]">
-                          <Logo sidebar />
-                          <TopMenu />
-                        </div>
+                        <SidebarNav />
                       </div>
                     </div>
                     <div className="flex-1 bg-newBgLineColor rounded-[12px] overflow-hidden flex flex-col gap-[1px] blurMe">
-                      <div className="flex bg-newBgColorInner h-[80px] px-[20px] items-center">
-                        <div className="text-[24px] font-[600] flex flex-1 items-center gap-[12px]">
-                          <Title />
-                        </div>
-                        <div className="flex items-center gap-[20px] text-textItemBlur">
-                          <StreakComponent />
-                          <OrganizationSelector />
-                          <ChromeExtensionComponent />
-                          <AttachToFeedbackIcon />
-                          <NotificationComponent />
-                          {integrations.length > 0 && <NewPost variant="header" />}
-                        </div>
-                      </div>
+                      <SiteHeader
+                        showNewPost={integrations.length > 0}
+                        onOpenSidebar={() => setSidebarOpen(true)}
+                      />
                       <div className="flex flex-1 gap-[1px]">{children}</div>
                     </div>
                   </div>

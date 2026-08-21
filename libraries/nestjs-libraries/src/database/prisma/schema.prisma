@@ -1546,19 +1546,21 @@ enum ChannelAnalyticsDisplayUnit {
 }
 
 model ChannelAnalyticsDailyPoint {
-  id             String                       @id @default(cuid())
-  organizationId String
-  integrationId  String
-  day            DateTime                     @db.Date
-  metricKey      String
-  label          String
-  valueMode      ChannelAnalyticsValueMode
-  displayUnit    ChannelAnalyticsDisplayUnit?
-  value          Decimal                      @db.Decimal(30, 6)
-  createdAt      DateTime                     @default(now())
-  updatedAt      DateTime                     @updatedAt
-  organization   Organization                 @relation(fields: [organizationId], references: [id])
-  integration    Integration                  @relation(fields: [integrationId], references: [id])
+  id                 String                       @id @default(cuid())
+  organizationId     String
+  integrationId      String
+  day                DateTime                     @db.Date
+  metricKey          String
+  label              String
+  valueMode          ChannelAnalyticsValueMode
+  displayUnit        ChannelAnalyticsDisplayUnit?
+  value              Decimal                      @db.Decimal(30, 6)
+  currentSnapshotAt  DateTime?
+  previousSnapshotAt DateTime?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  organization       Organization                 @relation(fields: [organizationId], references: [id])
+  integration        Integration                  @relation(fields: [integrationId], references: [id])
 
   @@unique([integrationId, day, metricKey])
   @@index([organizationId, integrationId, day])

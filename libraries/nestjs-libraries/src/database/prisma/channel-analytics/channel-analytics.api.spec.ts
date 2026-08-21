@@ -20,6 +20,8 @@ describe('ChannelAnalytics API shaping', () => {
     getDailyPoints: jest.fn().mockResolvedValue([]),
     getSyncState: jest.fn().mockResolvedValue(null),
     scheduleImmediateCapture: jest.fn().mockResolvedValue({}),
+    getMetricDayContributors: jest.fn(),
+    getMetricDayPosts: jest.fn(),
   });
 
   const createTemporal = () => {
@@ -132,12 +134,16 @@ describe('ChannelAnalytics API shaping', () => {
     ).resolves.toEqual([
       {
         label: 'Impressions',
+        metricKey: 'impressions',
+        drilldownSlug: null,
         valueMode: 'sum',
         displayUnit: 'count',
         data: [{ date: '2026-08-08', total: 4 }],
       },
       {
         label: 'Engagement rate',
+        metricKey: 'engagement_rate',
+        drilldownSlug: null,
         valueMode: 'average',
         displayUnit: 'percentage',
         average: true,
@@ -175,6 +181,8 @@ describe('ChannelAnalytics API shaping', () => {
     ).resolves.toEqual([
       {
         label: 'Average View Duration',
+        metricKey: 'average_view_duration',
+        drilldownSlug: null,
         valueMode: 'average',
         displayUnit: 'duration',
         data: [{ date: '2026-08-08', total: 65 }],
@@ -224,6 +232,8 @@ describe('ChannelAnalytics API shaping', () => {
     ).resolves.toEqual([
       {
         label: 'Impressions',
+        metricKey: 'impressions',
+        drilldownSlug: null,
         valueMode: 'sum',
         displayUnit: 'count',
         data: [{ date: '2026-08-08', total: 3 }],
@@ -245,6 +255,90 @@ describe('ChannelAnalytics API shaping', () => {
         lastSuccessfulSnapshotAt: new Date(),
       })
     ).toBe(false);
+  });
+
+  it('returns matched daily delta contributors without leaking unmatched IDs', async () => {
+    const repository = createRepository();
+    repository.findOwnedIntegration.mockResolvedValue({
+      id: 'integration-a',
+      type: 'social',
+    });
+    repository.getMetricDayContributors.mockResolvedValue({
+      dailyPointTotal: 10,
+      hasProvenance: true,
+      contributors: [
+        { externalPostId: 'missing', delta: { toNumber: () => 9 } },
+        { externalPostId: 'post-a', delta: { toNumber: () => 2 } },
+      ],
+    });
+    repository.getMetricDayPosts.mockResolvedValue([
+      {
+        id: 'post-a',
+        releaseId: 'post-a',
+        content: 'Published post',
+        image: null,
+        publishDate: new Date('2026-08-15T12:00:00.000Z'),
+        releaseURL: null,
+      },
+    ]);
+
+    await expect(
+      createService(repository).getMetricDayAnalytics(
+        'org-a',
+        'integration-a',
+        'likes',
+        '2026-08-15',
+        0,
+        50
+      )
+    ).resolves.toEqual(
+      expect.objectContaining({
+        metricKey: 'like_count',
+        total: 1,
+        matchedPostDeltaTotal: 2,
+        unmatchedContributorCount: 1,
+        posts: [
+          expect.objectContaining({
+            id: 'post-a',
+            delta: 2,
+          }),
+        ],
+      })
+    );
+    expect(repository.getMetricDayPosts).toHaveBeenCalledWith(
+      'org-a',
+      'integration-a',
+      ['missing', 'post-a']
+    );
+  });
+
+  it('returns an explicit empty state when snapshot provenance is unavailable', async () => {
+    const repository = createRepository();
+    repository.findOwnedIntegration.mockResolvedValue({
+      id: 'integration-a',
+      type: 'social',
+    });
+    repository.getMetricDayContributors.mockResolvedValue({
+      dailyPointTotal: 4,
+      hasProvenance: false,
+      contributors: [],
+    });
+
+    await expect(
+      createService(repository).getMetricDayAnalytics(
+        'org-a',
+        'integration-a',
+        'likes',
+        '2026-08-15',
+        0,
+        50
+      )
+    ).resolves.toMatchObject({
+      reason: 'no_post_lifetime_provenance',
+      dailyPointTotal: 4,
+      posts: [],
+    });
+    expect(repository.getMetricDayPosts).not.toHaveBeenCalled();
   });
 
   it('rejects capture requests for unknown integrations', async () => {

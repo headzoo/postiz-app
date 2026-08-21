@@ -21,6 +21,10 @@ import {
   AnalyticsPostMetricInput,
   ChannelAnalyticsRepository,
 } from './channel-analytics.repository';
+import {
+  ANALYTICS_METRIC_SLUGS,
+  AnalyticsMetricSlug,
+} from '@gitroom/nestjs-libraries/dtos/analytics/metric-day.analytics.dto';
 
 const WINDOW_DAYS = new Set([7, 30, 90]);
 const MAX_PAGE_POINTS = 1_000;
@@ -212,6 +216,81 @@ export class ChannelAnalyticsService {
     return window.metrics.map((metric) => this.formatStoredMetric(metric));
   }
 
+  async getMetricDayAnalytics(
+    organizationId: string,
+    integrationId: string,
+    slug: AnalyticsMetricSlug,
+    date: string,
+    page: number,
+    limit: number
+  ) {
+    const integration = await this._repository.findOwnedIntegration(
+      organizationId,
+      integrationId
+    );
+    if (!integration) {
+      throw new NotFoundException('Invalid integration');
+    }
+    if (integration.type !== 'social') {
+      throw new BadRequestException('Analytics drill-down is unavailable');
+    }
+    const day = this.parseUtcDay(date, 'date');
+    const metricKey = ANALYTICS_METRIC_SLUGS[slug];
+    const result = await this._repository.getMetricDayContributors(
+      organizationId,
+      integrationId,
+      metricKey,
+      day
+    );
+    if (!result.hasProvenance) {
+      return {
+        metric: slug,
+        metricKey,
+        date,
+        page,
+        limit,
+        total: 0,
+        matchedPostDeltaTotal: 0,
+        unmatchedContributorCount: 0,
+        dailyPointTotal: result.dailyPointTotal,
+        reason: 'no_post_lifetime_provenance' as const,
+        posts: [],
+      };
+    }
+    const posts = await this._repository.getMetricDayPosts(
+      organizationId,
+      integrationId,
+      result.contributors.map((contributor) => contributor.externalPostId)
+    );
+    const postByReleaseId = new Map(
+      posts
+        .filter((post) => post.releaseId)
+        .map((post) => [post.releaseId!, post])
+    );
+    const matched = result.contributors.flatMap((contributor) => {
+      const post = postByReleaseId.get(contributor.externalPostId);
+      return post
+        ? [{ ...post, delta: contributor.delta.toNumber() }]
+        : [];
+    });
+    const matchedPostDeltaTotal = matched.reduce(
+      (total, post) => total + post.delta,
+      0
+    );
+    return {
+      metric: slug,
+      metricKey,
+      date,
+      page,
+      limit,
+      total: matched.length,
+      matchedPostDeltaTotal,
+      unmatchedContributorCount: result.contributors.length - matched.length,
+      dailyPointTotal: result.dailyPointTotal,
+      posts: matched.slice(page * limit, (page + 1) * limit),
+    };
+  }
+
   isChannelUnavailable(
     syncState?: {
       failureCount: number;
@@ -333,6 +412,7 @@ export class ChannelAnalyticsService {
   }
 
   private formatStoredMetric(metric: {
+    metricKey: string;
     label: string;
     valueMode: ChannelAnalyticsValueMode;
     displayUnit: ChannelAnalyticsDisplayUnit;
@@ -345,6 +425,11 @@ export class ChannelAnalyticsService {
     }));
     const response: AnalyticsData = {
       label: metric.label,
+      metricKey: metric.metricKey,
+      drilldownSlug:
+        metric.valueMode === 'sum'
+          ? metricSlugForKey(metric.metricKey)
+          : null,
       valueMode: metric.valueMode,
       displayUnit: metric.displayUnit,
       data,
@@ -550,6 +635,11 @@ const mapValueMode = (value: PrismaValueMode): ChannelAnalyticsValueMode =>
   [PrismaValueMode.AVERAGE]: 'average',
   [PrismaValueMode.LATEST]: 'latest',
 }[value] as ChannelAnalyticsValueMode);
+
+const metricSlugForKey = (metricKey: string): AnalyticsMetricSlug | null =>
+  (Object.entries(ANALYTICS_METRIC_SLUGS).find(
+    ([, key]) => key === metricKey
+  )?.[0] as AnalyticsMetricSlug | undefined) || null;
 
 const aggregate = (
   points: Array<{ value: { toNumber(): number }; day: Date }>,

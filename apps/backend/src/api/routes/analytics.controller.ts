@@ -5,7 +5,10 @@ import { ApiTags } from '@nestjs/swagger';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import { PostsService } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.service';
 import { DashboardAnalyticsDto } from '@gitroom/nestjs-libraries/dtos/analytics/dashboard.analytics.dto';
-import { PlatformAnalyticsDto } from '@gitroom/nestjs-libraries/dtos/analytics/platform.analytics.dto';
+import {
+  MetricDayAnalyticsParamsDto,
+  MetricDayAnalyticsQueryDto,
+} from '@gitroom/nestjs-libraries/dtos/analytics/metric-day.analytics.dto';
 import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.service';
 
 @ApiTags('Analytics')
@@ -46,16 +49,19 @@ export class AnalyticsController {
     return this._channelAnalyticsService.requestCapture(org.id, integration);
   }
 
-  @Get('/:integration')
-  async getIntegration(
+  @Get('/:integration/:metric/:date')
+  getMetricDayAnalytics(
     @GetOrgFromRequest() org: Organization,
-    @Param('integration') integration: string,
-    @Query() query: PlatformAnalyticsDto
+    @Param() params: MetricDayAnalyticsParamsDto,
+    @Query() query: MetricDayAnalyticsQueryDto
   ) {
-    return this._channelAnalyticsService.getStoredAnalytics(
+    return this._channelAnalyticsService.getMetricDayAnalytics(
       org.id,
-      integration,
-      query.date
+      params.integration,
+      params.metric,
+      params.date,
+      query.page,
+      query.limit
     );
   }
 }

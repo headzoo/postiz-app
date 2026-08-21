@@ -60,6 +60,8 @@ export interface IAuthenticator {
 
 export interface AnalyticsData {
   label: string;
+  metricKey?: string;
+  drilldownSlug?: string | null;
   data: Array<{ total: string | number; date: string }>;
   valueMode?: ChannelAnalyticsValueMode;
   displayUnit?: ChannelAnalyticsDisplayUnit;

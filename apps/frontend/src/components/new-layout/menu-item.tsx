@@ -4,12 +4,13 @@ import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
 import Link from 'next/link';
 
-export const MenuItem: FC<{ label: string; icon: ReactNode; path: string; onClick?: () => void }> = ({
-  label,
-  icon,
-  path,
-  onClick,
-}) => {
+export const MenuItem: FC<{
+  label: string;
+  icon: ReactNode;
+  path: string;
+  onClick?: () => void;
+  onNavigate?: () => void;
+}> = ({ label, icon, path, onClick, onNavigate }) => {
   const currentPath = usePathname();
   const isActive = currentPath.indexOf(path) === 0;
 
@@ -31,7 +32,14 @@ export const MenuItem: FC<{ label: string; icon: ReactNode; path: string; onClic
 
   if (onClick) {
     return (
-      <button onClick={onClick} title={label} className={className}>
+      <button
+        onClick={() => {
+          onClick();
+          onNavigate?.();
+        }}
+        title={label}
+        className={className}
+      >
         {inner}
       </button>
     );
@@ -42,7 +50,8 @@ export const MenuItem: FC<{ label: string; icon: ReactNode; path: string; onClic
       prefetch={true}
       href={path}
       title={label}
-      {...path.indexOf('http') === 0 && { target: '_blank' }}
+      onClick={onNavigate}
+      {...(path.indexOf('http') === 0 && { target: '_blank' })}
       className={className}
     >
       {inner}

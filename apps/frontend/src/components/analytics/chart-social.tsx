@@ -2,6 +2,7 @@
 
 import { FC, useEffect, useMemo, useRef } from 'react';
 import DrawChart from 'chart.js/auto';
+import type { ChartEvent, ActiveElement } from 'chart.js';
 import { TotalList } from '@gitroom/frontend/components/analytics/stars.and.forks.interface';
 import useCookie from 'react-use-cookie';
 
@@ -67,8 +68,16 @@ export const ChartSocial: FC<{
   data: TotalList[];
   color?: 'purple' | 'green' | 'blue';
   valueMode?: AnalyticsValueMode;
+  clickable?: boolean;
+  onPointClick?: (point: TotalList) => void;
 }> = (props) => {
-  const { data, color = 'purple', valueMode = 'sum' } = props;
+  const {
+    data,
+    color = 'purple',
+    valueMode = 'sum',
+    clickable = false,
+    onPointClick,
+  } = props;
   const [mode] = useCookie('mode', 'dark');
 
   const list = useMemo(
@@ -83,9 +92,15 @@ export const ChartSocial: FC<{
 
   const isSinglePoint = list.length === 1;
   const chartType = valueMode === 'sum' ? 'bar' : 'line';
+  const isInteractive = clickable && !!onPointClick;
 
   const ref = useRef<HTMLCanvasElement | null>(null);
   const chart = useRef<DrawChart | null>(null);
+  const listRef = useRef(list);
+  const onPointClickRef = useRef(onPointClick);
+
+  listRef.current = list;
+  onPointClickRef.current = onPointClick;
 
   const colors = colorSchemes[color];
 
@@ -99,6 +114,8 @@ export const ChartSocial: FC<{
     if (!ctx) {
       return;
     }
+
+    canvas.style.cursor = isInteractive ? 'pointer' : '';
 
     const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
     gradient.addColorStop(0, colors.start);
@@ -117,6 +134,17 @@ export const ChartSocial: FC<{
           mode: 'index',
           intersect: false,
         },
+        onClick: isInteractive
+          ? (_event: ChartEvent, elements: ActiveElement[]) => {
+              if (!elements.length || !chart.current) {
+                return;
+              }
+              const point = listRef.current[elements[0].index];
+              if (point) {
+                onPointClickRef.current?.(point);
+              }
+            }
+          : undefined,
         layout: {
           padding: {
             left: 0,
@@ -188,7 +216,15 @@ export const ChartSocial: FC<{
     return () => {
       chart.current?.destroy();
     };
-  }, [chartType, colors, hasNegativeValues, isSinglePoint, list, mode]);
+  }, [
+    chartType,
+    colors,
+    hasNegativeValues,
+    isInteractive,
+    isSinglePoint,
+    list,
+    mode,
+  ]);
 
   return <canvas className="w-full h-full" ref={ref} />;
 };

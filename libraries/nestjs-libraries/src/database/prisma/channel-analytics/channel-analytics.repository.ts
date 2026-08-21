@@ -29,10 +29,11 @@ export class ChannelAnalyticsRepository {
       | 'channelAnalyticsDailyPoint'
       | 'channelAnalyticsPostMetricSnapshot'
       | 'channelAnalyticsSyncState'
+      | 'post'
     >,
     private _integration: PrismaRepository<'integration'>,
     private _transaction: PrismaTransaction
-  ) { }
+  ) {}
 
   async listDueCandidates(
     providerIdentifiers: string[],
@@ -88,12 +89,20 @@ export class ChannelAnalyticsRepository {
               metricKey: point.metricKey,
             },
           },
-          create: { organizationId, integrationId, ...point },
+          create: {
+            organizationId,
+            integrationId,
+            ...point,
+            currentSnapshotAt: null,
+            previousSnapshotAt: null,
+          },
           update: {
             label: point.label,
             valueMode: point.valueMode,
             displayUnit: point.displayUnit,
             value: point.value,
+            currentSnapshotAt: null,
+            previousSnapshotAt: null,
           },
         });
       }
@@ -248,12 +257,16 @@ export class ChannelAnalyticsRepository {
               valueMode: metric.valueMode,
               displayUnit: metric.displayUnit,
               value,
+              currentSnapshotAt: snapshotAt,
+              previousSnapshotAt,
             },
             update: {
               label: metric.label,
               valueMode: metric.valueMode,
               displayUnit: metric.displayUnit,
               value,
+              currentSnapshotAt: snapshotAt,
+              previousSnapshotAt,
             },
           });
         }
@@ -264,8 +277,7 @@ export class ChannelAnalyticsRepository {
         organizationId,
         integrationId,
         snapshotAt,
-        previousSnapshotAt &&
-          isNextUtcDay(previousSnapshotAt, snapshotAt)
+        previousSnapshotAt && isNextUtcDay(previousSnapshotAt, snapshotAt)
           ? utcDay(snapshotAt)
           : undefined
       );
@@ -311,6 +323,112 @@ export class ChannelAnalyticsRepository {
     return this._analytics.model.channelAnalyticsDailyPoint.findMany({
       where: { organizationId, integrationId, day: { gte: from, lt: to } },
       orderBy: [{ metricKey: 'asc' }, { day: 'asc' }],
+    });
+  }
+
+  async getMetricDayContributors(
+    organizationId: string,
+    integrationId: string,
+    metricKey: string,
+    day: Date
+  ) {
+    const dailyPoint =
+      await this._analytics.model.channelAnalyticsDailyPoint.findFirst({
+        where: { organizationId, integrationId, metricKey, day },
+        select: {
+          value: true,
+          currentSnapshotAt: true,
+          previousSnapshotAt: true,
+        },
+      });
+    if (
+      !dailyPoint ||
+      !dailyPoint.currentSnapshotAt ||
+      !dailyPoint.previousSnapshotAt
+    ) {
+      return {
+        dailyPointTotal: dailyPoint?.value.toNumber() ?? null,
+        hasProvenance: false,
+        contributors: [],
+      };
+    }
+    const [current, previous] = await Promise.all([
+      this._analytics.model.channelAnalyticsPostMetricSnapshot.findMany({
+        where: {
+          organizationId,
+          integrationId,
+          metricKey,
+          snapshotAt: dailyPoint.currentSnapshotAt,
+        },
+        select: { externalPostId: true, value: true },
+      }),
+      this._analytics.model.channelAnalyticsPostMetricSnapshot.findMany({
+        where: {
+          organizationId,
+          integrationId,
+          metricKey,
+          snapshotAt: dailyPoint.previousSnapshotAt,
+        },
+        select: { externalPostId: true, value: true },
+      }),
+    ]);
+    const prior = new Map(
+      previous.map((point) => [point.externalPostId, point.value])
+    );
+    const contributors = current
+      .flatMap((point) => {
+        const before = prior.get(point.externalPostId);
+        if (!before) return [];
+        const delta = point.value.minus(before);
+        return delta.isZero()
+          ? []
+          : [{ externalPostId: point.externalPostId, delta }];
+      })
+      .sort(
+        (left, right) =>
+          right.delta.comparedTo(left.delta) ||
+          left.externalPostId.localeCompare(right.externalPostId)
+      );
+    const contributorTotal = contributors.reduce(
+      (sum, contributor) => sum.plus(contributor.delta),
+      new Prisma.Decimal(0)
+    );
+    if (!contributorTotal.equals(dailyPoint.value)) {
+      return {
+        dailyPointTotal: dailyPoint.value.toNumber(),
+        hasProvenance: false,
+        contributors: [],
+      };
+    }
+    return {
+      dailyPointTotal: dailyPoint.value.toNumber(),
+      hasProvenance: true,
+      contributors,
+    };
+  }
+
+  getMetricDayPosts(
+    organizationId: string,
+    integrationId: string,
+    externalPostIds: string[]
+  ) {
+    if (!externalPostIds.length) return Promise.resolve([]);
+    return this._analytics.model.post.findMany({
+      where: {
+        organizationId,
+        integrationId,
+        releaseId: { in: externalPostIds },
+        deletedAt: null,
+        state: 'PUBLISHED',
+      },
+      select: {
+        id: true,
+        content: true,
+        image: true,
+        publishDate: true,
+        releaseId: true,
+        releaseURL: true,
+      },
     });
   }
 
@@ -419,19 +537,19 @@ export class ChannelAnalyticsRepository {
       state.pendingCoverageEndDay;
     const coverage = hasPendingCoverage
       ? mergeCoverage(
-        state?.coverageStartDay,
-        state?.coverageEndDay,
-        state.pendingCoverageStartDay,
-        state.pendingCoverageEndDay
-      )
+          state?.coverageStartDay,
+          state?.coverageEndDay,
+          state.pendingCoverageStartDay,
+          state.pendingCoverageEndDay
+        )
       : coveredDay
-        ? mergeCoverage(
+      ? mergeCoverage(
           state?.coverageStartDay,
           state?.coverageEndDay,
           coveredDay,
           coveredDay
         )
-        : undefined;
+      : undefined;
     return tx.channelAnalyticsSyncState.upsert({
       where: { integrationId },
       create: {
@@ -440,10 +558,10 @@ export class ChannelAnalyticsRepository {
         lastSuccessfulSnapshotAt: snapshotAt,
         ...(coverage
           ? {
-            coverageStartDay: coverage.startDay,
-            coverageEndDay: coverage.endDay,
-            lastCoveredDay: coverage.endDay,
-          }
+              coverageStartDay: coverage.startDay,
+              coverageEndDay: coverage.endDay,
+              lastCoveredDay: coverage.endDay,
+            }
           : {}),
         nextAttemptAt: nextUtcDay(snapshotAt),
       },
@@ -451,17 +569,17 @@ export class ChannelAnalyticsRepository {
         lastSuccessfulSnapshotAt: snapshotAt,
         ...(coverage
           ? {
-            coverageStartDay: coverage.startDay,
-            coverageEndDay: coverage.endDay,
-            lastCoveredDay: coverage.endDay,
-          }
+              coverageStartDay: coverage.startDay,
+              coverageEndDay: coverage.endDay,
+              lastCoveredDay: coverage.endDay,
+            }
           : {}),
         ...(hasPendingCoverage
           ? {
-            pendingCoverageSnapshotAt: null,
-            pendingCoverageStartDay: null,
-            pendingCoverageEndDay: null,
-          }
+              pendingCoverageSnapshotAt: null,
+              pendingCoverageStartDay: null,
+              pendingCoverageEndDay: null,
+            }
           : {}),
         nextAttemptAt: nextUtcDay(snapshotAt),
         failureCount: 0,

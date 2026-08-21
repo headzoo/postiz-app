@@ -20,12 +20,20 @@ const createHarness = () => {
     },
   };
   const integration = { findMany: jest.fn() };
+  const analytics = {
+    channelAnalyticsDailyPoint: { findMany: jest.fn(), findFirst: jest.fn() },
+    channelAnalyticsPostMetricSnapshot: {
+      findFirst: jest.fn(),
+      findMany: jest.fn(),
+    },
+    post: { findMany: jest.fn() },
+  };
   const repository = new ChannelAnalyticsRepository(
-    { model: { channelAnalyticsDailyPoint: { findMany: jest.fn() } } } as any,
+    { model: analytics } as any,
     { model: { integration } } as any,
     { model: { $transaction: jest.fn((callback) => callback(tx)) } } as any
   );
-  return { repository, tx, integration };
+  return { repository, tx, integration, analytics };
 };
 
 describe('ChannelAnalyticsRepository', () => {
@@ -81,6 +89,14 @@ describe('ChannelAnalyticsRepository', () => {
             metricKey: 'views',
           },
         },
+        create: expect.objectContaining({
+          currentSnapshotAt: null,
+          previousSnapshotAt: null,
+        }),
+        update: expect.objectContaining({
+          currentSnapshotAt: null,
+          previousSnapshotAt: null,
+        }),
       })
     );
   });
@@ -105,7 +121,9 @@ describe('ChannelAnalyticsRepository', () => {
       },
     ]);
 
-    expect(tx.channelAnalyticsPostMetricSnapshot.upsert).toHaveBeenCalledTimes(2);
+    expect(tx.channelAnalyticsPostMetricSnapshot.upsert).toHaveBeenCalledTimes(
+      2
+    );
     expect(tx.post.updateMany).toHaveBeenCalledTimes(1);
     expect(tx.post.updateMany).toHaveBeenCalledWith({
       where: {
@@ -132,6 +150,55 @@ describe('ChannelAnalyticsRepository', () => {
     );
     expect(result).toEqual({ finalized: true, derived: 0 });
     expect(tx.channelAnalyticsDailyPoint.upsert).not.toHaveBeenCalled();
+  });
+
+  it('binds derived daily points to the finalized snapshot pair', async () => {
+    const { repository, tx } = createHarness();
+    const previousSnapshotAt = new Date('2026-08-14T12:00:00Z');
+    const snapshotAt = new Date('2026-08-15T12:00:00Z');
+    tx.channelAnalyticsSyncState.findUnique.mockResolvedValue({
+      lastSuccessfulSnapshotAt: previousSnapshotAt,
+    });
+    tx.channelAnalyticsPostMetricSnapshot.findMany
+      .mockResolvedValueOnce([
+        {
+          externalPostId: 'post',
+          metricKey: 'like_count',
+          label: 'Likes',
+          valueMode: 'SUM',
+          displayUnit: 'COUNT',
+          value: new Prisma.Decimal(5),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          externalPostId: 'post',
+          metricKey: 'like_count',
+          label: 'Likes',
+          valueMode: 'SUM',
+          displayUnit: 'COUNT',
+          value: new Prisma.Decimal(3),
+        },
+      ]);
+
+    await repository.finalizePostLifetimeCapture(
+      'org',
+      'integration',
+      snapshotAt
+    );
+
+    expect(tx.channelAnalyticsDailyPoint.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          currentSnapshotAt: snapshotAt,
+          previousSnapshotAt,
+        }),
+        update: expect.objectContaining({
+          currentSnapshotAt: snapshotAt,
+          previousSnapshotAt,
+        }),
+      })
+    );
   });
 
   it('extends X coverage for consecutive successful empty snapshots', async () => {
@@ -447,6 +514,225 @@ describe('ChannelAnalyticsRepository', () => {
         nextAttemptAt: new Date(0),
       },
       update: { nextAttemptAt: new Date(0) },
+    });
+  });
+
+  it('derives deterministic non-zero metric-day deltas from the matching stored bar', async () => {
+    const { repository, analytics } = createHarness();
+    const currentSnapshotAt = new Date('2026-08-15T18:00:00Z');
+    const previousSnapshotAt = new Date('2026-08-14T18:00:00Z');
+    analytics.channelAnalyticsDailyPoint.findFirst.mockResolvedValue({
+      value: new Prisma.Decimal(4),
+      currentSnapshotAt,
+      previousSnapshotAt,
+    });
+    analytics.channelAnalyticsPostMetricSnapshot.findMany
+      .mockResolvedValueOnce([
+        {
+          externalPostId: 'b',
+          value: new Prisma.Decimal(4),
+        },
+        {
+          externalPostId: 'a',
+          value: new Prisma.Decimal(5),
+        },
+        {
+          externalPostId: 'zero',
+          value: new Prisma.Decimal(2),
+        },
+      ])
+      .mockResolvedValueOnce([
+        { externalPostId: 'b', value: new Prisma.Decimal(2) },
+        { externalPostId: 'a', value: new Prisma.Decimal(3) },
+        { externalPostId: 'zero', value: new Prisma.Decimal(2) },
+      ]);
+
+    const result = await repository.getMetricDayContributors(
+      'org',
+      'integration',
+      'like_count',
+      new Date('2026-08-15T00:00:00Z')
+    );
+
+    expect(result.dailyPointTotal).toBe(4);
+    expect(result.hasProvenance).toBe(true);
+    expect(
+      result.contributors.map((contributor) => [
+        contributor.externalPostId,
+        contributor.delta.toNumber(),
+      ])
+    ).toEqual([
+      ['a', 2],
+      ['b', 2],
+    ]);
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).toHaveBeenCalledTimes(2);
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({ snapshotAt: currentSnapshotAt }),
+      })
+    );
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({ snapshotAt: previousSnapshotAt }),
+      })
+    );
+  });
+
+  it('uses the bound pair when equal totals have different contributors', async () => {
+    const { repository, analytics } = createHarness();
+    const currentSnapshotAt = new Date('2026-08-15T18:00:00Z');
+    const previousSnapshotAt = new Date('2026-08-14T18:00:00Z');
+    const failedPartialSnapshotAt = new Date('2026-08-15T19:00:00Z');
+    const failedPartialPreviousSnapshotAt = new Date('2026-08-15T16:00:00Z');
+    analytics.channelAnalyticsDailyPoint.findFirst.mockResolvedValue({
+      value: new Prisma.Decimal(5),
+      currentSnapshotAt,
+      previousSnapshotAt,
+    });
+    analytics.channelAnalyticsPostMetricSnapshot.findMany.mockImplementation(
+      ({ where }) => {
+        if (where.snapshotAt.getTime() === currentSnapshotAt.getTime()) {
+          return [
+            {
+              externalPostId: 'finalized-post',
+              value: new Prisma.Decimal(10),
+            },
+            {
+              externalPostId: 'other-finalized-post',
+              value: new Prisma.Decimal(4),
+            },
+          ];
+        }
+        if (where.snapshotAt.getTime() === previousSnapshotAt.getTime()) {
+          return [
+            { externalPostId: 'finalized-post', value: new Prisma.Decimal(7) },
+            {
+              externalPostId: 'other-finalized-post',
+              value: new Prisma.Decimal(2),
+            },
+          ];
+        }
+        if (where.snapshotAt.getTime() === failedPartialSnapshotAt.getTime()) {
+          return [
+            {
+              externalPostId: 'failed-partial-post',
+              value: new Prisma.Decimal(10),
+            },
+          ];
+        }
+        if (
+          where.snapshotAt.getTime() ===
+          failedPartialPreviousSnapshotAt.getTime()
+        ) {
+          return [
+            {
+              externalPostId: 'failed-partial-post',
+              value: new Prisma.Decimal(5),
+            },
+          ];
+        }
+        return [];
+      }
+    );
+
+    await expect(
+      repository.getMetricDayContributors(
+        'org',
+        'integration',
+        'like_count',
+        new Date('2026-08-15T00:00:00Z')
+      )
+    ).resolves.toMatchObject({
+      hasProvenance: true,
+      contributors: [
+        { externalPostId: 'finalized-post', delta: new Prisma.Decimal(3) },
+        {
+          externalPostId: 'other-finalized-post',
+          delta: new Prisma.Decimal(2),
+        },
+      ],
+    });
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ snapshotAt: failedPartialSnapshotAt }),
+      })
+    );
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          snapshotAt: failedPartialPreviousSnapshotAt,
+        }),
+      })
+    );
+  });
+
+  it('treats legacy daily points without a bound pair as unavailable', async () => {
+    const { repository, analytics } = createHarness();
+    analytics.channelAnalyticsDailyPoint.findFirst.mockResolvedValue({
+      value: new Prisma.Decimal(5),
+      currentSnapshotAt: null,
+      previousSnapshotAt: null,
+    });
+
+    await expect(
+      repository.getMetricDayContributors(
+        'org',
+        'integration',
+        'like_count',
+        new Date('2026-08-15T00:00:00Z')
+      )
+    ).resolves.toMatchObject({
+      dailyPointTotal: 5,
+      hasProvenance: false,
+      contributors: [],
+    });
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when bound pair deltas do not equal the stored bar total', async () => {
+    const { repository, analytics } = createHarness();
+    const currentSnapshotAt = new Date('2026-08-15T18:00:00Z');
+    const previousSnapshotAt = new Date('2026-08-14T18:00:00Z');
+    analytics.channelAnalyticsDailyPoint.findFirst.mockResolvedValue({
+      value: new Prisma.Decimal(8),
+      currentSnapshotAt,
+      previousSnapshotAt,
+    });
+    analytics.channelAnalyticsPostMetricSnapshot.findMany
+      .mockResolvedValueOnce([
+        { externalPostId: 'a', value: new Prisma.Decimal(5) },
+        { externalPostId: 'b', value: new Prisma.Decimal(4) },
+      ])
+      .mockResolvedValueOnce([
+        { externalPostId: 'a', value: new Prisma.Decimal(3) },
+        { externalPostId: 'b', value: new Prisma.Decimal(2) },
+      ]);
+
+    await expect(
+      repository.getMetricDayContributors(
+        'org',
+        'integration',
+        'like_count',
+        new Date('2026-08-15T00:00:00Z')
+      )
+    ).resolves.toMatchObject({
+      dailyPointTotal: 8,
+      hasProvenance: false,
+      contributors: [],
     });
   });
 });

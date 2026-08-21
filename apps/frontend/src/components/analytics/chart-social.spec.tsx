@@ -2,10 +2,35 @@
  * @jest-environment ./jest.jsdom.environment.js
  */
 
+import React from 'react';
+import { render } from '@testing-library/react';
 import {
+  ChartSocial,
   downsampleAnalyticsPoints,
   sortAnalyticsPoints,
 } from './chart-social';
+
+const chartInstances: Array<{
+  options: { onClick?: (...args: unknown[]) => void };
+  destroy: jest.Mock;
+}> = [];
+
+jest.mock('chart.js/auto', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation((_canvas, config) => {
+    const instance = {
+      options: config.options,
+      destroy: jest.fn(),
+    };
+    chartInstances.push(instance);
+    return instance;
+  }),
+}));
+
+jest.mock('react-use-cookie', () => ({
+  __esModule: true,
+  default: () => ['dark'],
+}));
 
 describe('sortAnalyticsPoints', () => {
   it('sorts points by ISO date', () => {
@@ -80,5 +105,45 @@ describe('downsampleAnalyticsPoints', () => {
     const buckets = downsampleAnalyticsPoints(manyPoints, 'sum');
     expect(buckets[0].date).toBe('2026-08-01 - 2026-08-02');
     expect(buckets[6].date).toBe('2026-08-13 - 2026-08-14');
+  });
+});
+
+describe('ChartSocial point clicks', () => {
+  beforeEach(() => {
+    chartInstances.length = 0;
+  });
+
+  it('invokes onPointClick for the clicked bar index when clickable', () => {
+    const onPointClick = jest.fn();
+    render(
+      <ChartSocial
+        data={[
+          { date: '2026-08-19', total: 10 },
+          { date: '2026-08-20', total: 20 },
+        ]}
+        clickable
+        onPointClick={onPointClick}
+      />
+    );
+
+    const chart = chartInstances.at(-1);
+    expect(chart?.options.onClick).toBeDefined();
+
+    chart?.options.onClick?.({}, [{ index: 1 }]);
+    expect(onPointClick).toHaveBeenCalledWith({
+      date: '2026-08-20',
+      total: 20,
+    });
+  });
+
+  it('does not register onClick when the chart is not clickable', () => {
+    render(
+      <ChartSocial
+        data={[{ date: '2026-08-20', total: 20 }]}
+        onPointClick={jest.fn()}
+      />
+    );
+
+    expect(chartInstances.at(-1)?.options.onClick).toBeUndefined();
   });
 });

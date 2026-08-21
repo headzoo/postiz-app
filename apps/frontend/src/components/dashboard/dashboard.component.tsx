@@ -23,7 +23,9 @@ import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import {
   AnalyticsCard,
   analyticsTotal,
+  buildMetricDayPath,
   CollectAnalyticsButton,
+  MetricDayBarClick,
 } from '@gitroom/frontend/components/platform-analytics/render.analytics';
 import {
   DashboardChannelAnalytics,
@@ -199,6 +201,12 @@ export const Dashboard = () => {
     },
     [fetch, mutateNoticeStatus]
   );
+  const handleBarClick = useCallback(
+    ({ integrationId, drilldownSlug, date: day }: MetricDayBarClick) => {
+      router.push(buildMetricDayPath(integrationId, drilldownSlug, day));
+    },
+    [router]
+  );
 
   if (integrationsLoading) {
     return (
@@ -306,6 +314,8 @@ export const Dashboard = () => {
                         item={metric}
                         total={analyticsTotal(metric)}
                         index={index}
+                        integrationId={selectedChannel.id}
+                        onBarClick={handleBarClick}
                       />
                     ))}
                   </div>

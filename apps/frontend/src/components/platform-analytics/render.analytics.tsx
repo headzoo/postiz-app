@@ -1,4 +1,4 @@
-import { FC, useEffect, useMemo, useState } from 'react';
+import { FC, useCallback, useEffect, useMemo, useState } from 'react';
 import { Integration } from '@prisma/client';
 import {
   AnalyticsValueMode,
@@ -11,6 +11,7 @@ import { usePlatformAnalytics } from '@gitroom/frontend/components/platform-anal
 import { useRequestAnalyticsCapture } from '@gitroom/frontend/components/platform-analytics/use.request.analytics.capture';
 import { Button } from '@gitroom/react/form/button';
 import { useToaster } from '@gitroom/react/toaster/toaster';
+import { useRouter } from 'next/navigation';
 
 export type AnalyticsDisplayUnit =
   | 'count'
@@ -20,12 +21,44 @@ export type AnalyticsDisplayUnit =
 
 export interface AnalyticsDataItem {
   label: string;
+  metricKey?: string;
+  drilldownSlug?: string | null;
   data: Array<{ total: number; date: string }>;
   valueMode?: AnalyticsValueMode;
   displayUnit?: AnalyticsDisplayUnit;
   average?: boolean;
   percentageChange?: number;
 }
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export const isExactIsoDate = (date: string) => ISO_DATE_RE.test(date);
+
+export const isMetricDrilldownEligible = (item: AnalyticsDataItem) => {
+  if (resolveValueMode(item) !== 'sum') {
+    return false;
+  }
+  if (!item.drilldownSlug) {
+    return false;
+  }
+  const sorted = sortAnalyticsPoints(item.data);
+  if (!sorted.length || sorted.length > 7) {
+    return false;
+  }
+  return sorted.every((point) => isExactIsoDate(point.date));
+};
+
+export const buildMetricDayPath = (
+  integrationId: string,
+  drilldownSlug: string,
+  date: string
+) => `/analytics/${integrationId}/${drilldownSlug}/${date}`;
+
+export type MetricDayBarClick = {
+  integrationId: string;
+  drilldownSlug: string;
+  date: string;
+};
 
 export const resolveValueMode = (item: AnalyticsDataItem): AnalyticsValueMode => {
   if (item.valueMode) {
@@ -148,13 +181,32 @@ export const AnalyticsCard: FC<{
   item: AnalyticsDataItem;
   total: string | number;
   index: number;
-}> = ({ item, total, index }) => {
+  integrationId?: string;
+  onBarClick?: (params: MetricDayBarClick) => void;
+}> = ({ item, total, index, integrationId, onBarClick }) => {
   const colorVariants = ['purple', 'green', 'blue'] as const;
   const color = colorVariants[index % colorVariants.length];
   const valueMode = resolveValueMode(item);
   const displayUnit = resolveDisplayUnit(item);
   const chartData = sortAnalyticsPoints(item.data);
   const hasDataPoints = chartData.length >= 1;
+  const drilldownEligible = isMetricDrilldownEligible(item);
+  const handlePointClick = useCallback(
+    (point: { date: string }) => {
+      if (!drilldownEligible || !integrationId || !item.drilldownSlug) {
+        return;
+      }
+      if (!isExactIsoDate(point.date)) {
+        return;
+      }
+      onBarClick?.({
+        integrationId,
+        drilldownSlug: item.drilldownSlug,
+        date: point.date,
+      });
+    },
+    [drilldownEligible, integrationId, item.drilldownSlug, onBarClick]
+  );
 
   return (
     <div className="group relative">
@@ -200,6 +252,8 @@ export const AnalyticsCard: FC<{
                   data={chartData}
                   color={color}
                   valueMode={valueMode}
+                  clickable={drilldownEligible && !!integrationId && !!onBarClick}
+                  onPointClick={handlePointClick}
                   key={`chart-${index}`}
                 />
               </div>
@@ -334,11 +388,18 @@ export const RenderAnalytics: FC<{
   date: number;
 }> = (props) => {
   const { integration, date } = props;
+  const router = useRouter();
   const [polling, setPolling] = useState(false);
   const { data, isLoading } = usePlatformAnalytics(
     integration,
     date,
     polling ? ANALYTICS_POLL_INTERVAL_MS : 0
+  );
+  const handleBarClick = useCallback(
+    ({ integrationId, drilldownSlug, date: day }: MetricDayBarClick) => {
+      router.push(buildMetricDayPath(integrationId, drilldownSlug, day));
+    },
+    [router]
   );
 
   useEffect(() => {
@@ -387,6 +448,8 @@ export const RenderAnalytics: FC<{
           item={item}
           total={totals?.[index] ?? analyticsTotal(item)}
           index={index}
+          integrationId={integration.id}
+          onBarClick={handleBarClick}
         />
       ))}
     </div>

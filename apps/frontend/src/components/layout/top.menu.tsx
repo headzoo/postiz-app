@@ -362,7 +362,7 @@ export const useMenuItem = () => {
   };
 };
 
-export const TopMenu: FC = () => {
+export const TopMenu: FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   const user = useUser();
   const { firstMenu, secondMenu } = useMenuItem();
   const { isGeneral, billingEnabled } = useVariables();
@@ -393,13 +393,14 @@ export const TopMenu: FC = () => {
               }
               return true;
             })
-            .map((item, index) => (
+            .map((item) => (
               <MenuItem
                 path={item.path}
                 label={item.name}
                 icon={item.icon}
                 key={item.name}
                 onClick={item.onClick}
+                onNavigate={onNavigate}
               />
             ))
         }
@@ -424,13 +425,14 @@ export const TopMenu: FC = () => {
             }
             return true;
           })
-          .map((item, index) => (
+          .map((item) => (
             <MenuItem
               path={item.path}
               label={item.name}
               icon={item.icon}
               key={item.name}
               onClick={item.onClick}
+              onNavigate={onNavigate}
             />
           ))}
       </div>
