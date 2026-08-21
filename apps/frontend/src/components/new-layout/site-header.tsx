@@ -38,10 +38,10 @@ export const SiteHeader: FC<{
           {showNewPost && <NewPost variant="header" />}
         </div>
       </div>
-      <div className="hidden mobile:flex items-center justify-end gap-[16px] text-textItemBlur">
+      <div className="hidden mobile:flex items-center justify-start gap-[16px] text-textItemBlur">
+        {showNewPost && <NewPost variant="header" />}
         <StreakComponent />
         <NotificationComponent />
-        {showNewPost && <NewPost variant="header" />}
         <HeaderMoreMenu />
       </div>
     </div>

@@ -43,30 +43,31 @@ export const MobileSidebarDrawer: FC<{
         type="button"
         aria-label="Close menu"
         onClick={onClose}
+        tabIndex={open ? 0 : -1}
         className={clsx(
           'absolute inset-0 bg-primary/80 transition-opacity duration-200',
-          open ? 'opacity-100' : 'opacity-0'
+          open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         )}
       />
       <aside
         className={clsx(
-          'absolute top-0 start-0 z-[551] h-full w-[240px] bg-newBgColorInner rounded-e-[12px] shadow-lg transition-transform duration-200 ease-out flex flex-col',
+          'absolute top-0 start-0 z-[551] h-full w-[80px] bg-newBgColorInner rounded-e-[12px] shadow-lg transition-transform duration-200 ease-out flex flex-col',
           open
-            ? 'translate-x-0'
-            : '-translate-x-full rtl:translate-x-full'
+            ? 'translate-x-0 pointer-events-auto'
+            : '-translate-x-full rtl:translate-x-full pointer-events-none'
         )}
       >
-        <div className="flex justify-end p-[12px]">
+        <div className="flex justify-center pt-[8px]">
           <button
             type="button"
             aria-label="Close menu"
             onClick={onClose}
             className="text-textItemBlur hover:text-newTextColor p-[4px]"
           >
-            <CloseIcon size={20} />
+            <CloseIcon size={16} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-[8px] pb-[12px]">
+        <div className="flex-1 overflow-y-auto pb-[12px]">
           <SidebarNav onNavigate={onClose} />
         </div>
       </aside>

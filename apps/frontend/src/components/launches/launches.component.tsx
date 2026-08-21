@@ -115,9 +115,9 @@ export const LaunchesComponent = () => {
     <DNDProvider>
       <Onboarding />
       <CalendarWeekProvider integrations={sortedIntegrations}>
-        <div className="bg-newBgColorInner flex-1 flex-col flex p-[20px] gap-[12px]">
+        <div className="bg-newBgColorInner flex-1 flex-col flex min-w-0 p-[20px] mobile:p-[12px] gap-[12px]">
           <Filters />
-          <div className="flex-1 flex">
+          <div className="flex-1 flex min-w-0">
             <Calendar />
           </div>
         </div>

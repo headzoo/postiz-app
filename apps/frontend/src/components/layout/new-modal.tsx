@@ -16,6 +16,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import clsx from 'clsx';
 import { EventEmitter } from 'events';
 import { CustomScrollArea } from '@gitroom/frontend/components/ui/custom.scroll.area';
+import { useT } from '@gitroom/react/translation/get.transation.service.client';
 
 interface OpenModalInterface {
   title?: any;
@@ -103,6 +104,7 @@ export const Component: FC<{
   isLast: boolean;
   modal: { id: string } & OpenModalInterface;
 }> = memo(({ isLast, modal, closeModal, zIndex }) => {
+  const t = useT();
   const decision = useDecisionModal();
   const closeModalFunction = useCallback(async () => {
     if (modal.askClose) {
@@ -196,7 +198,7 @@ export const Component: FC<{
         onClick={closeModalFunction}
         style={{ zIndex }}
         className={clsx(
-          'fixed flex left-0 top-0 min-w-full min-h-full bg-popup transition-all animate-fadeIn overflow-y-auto text-newTextColor',
+          'fixed flex left-0 top-0 min-w-full min-h-full bg-popup transition-all animate-fadeIn overflow-y-auto overflow-x-hidden text-newTextColor',
           !modal.fullScreen && 'pb-[50px]'
         )}
       >
@@ -212,7 +214,9 @@ export const Component: FC<{
               !modal.fullScreen
                 ? modal.top
                   ? ''
-                  : 'min-h-full pt-[100px] pb-[100px]'
+                  : modal.size && modal.height
+                    ? 'min-h-full py-[12px] sm:py-[40px]'
+                    : 'min-h-full pt-[100px] pb-[100px]'
                 : 'h-screen',
               modal.size && modal.height
                 ? 'flex justify-center items-center'
@@ -221,8 +225,13 @@ export const Component: FC<{
           >
             <div
               className={clsx(
-                'bg-newBgColorInner mx-auto flex flex-col w-fit rounded-[24px] relative overflow-hidden max-h-[calc(100vh-200px)]',
-                modal.size ? '' : 'min-w-[600px]',
+                'bg-newBgColorInner mx-auto flex flex-col rounded-[24px] relative overflow-hidden box-border',
+                modal.height && !modal.fullScreen
+                  ? 'max-h-[calc(100dvh-24px)]'
+                  : 'max-h-[calc(100vh-200px)]',
+                modal.size
+                  ? 'w-full'
+                  : 'w-[calc(100vw-24px)] max-w-[600px] sm:min-w-[600px] sm:w-fit',
                 modal.fullScreen && 'h-full max-h-full',
                 modal.classNames?.modal
               )}
@@ -238,9 +247,9 @@ export const Component: FC<{
               {(!!modal.title ||
                 typeof modal.withCloseButton === 'undefined' ||
                 modal.withCloseButton) && (
-                  <div className="flex items-center px-[32px] pt-[32px] pb-[24px] shrink-0">
+                  <div className="flex items-center px-[16px] sm:px-[32px] pt-[24px] sm:pt-[32px] pb-[16px] sm:pb-[24px] shrink-0 pe-[48px]">
                     {!!modal.title && (
-                      <div className="text-[24px] font-[600] flex-1">
+                      <div className="text-[20px] sm:text-[24px] font-[600] flex-1 min-w-0">
                         {modal.title}
                       </div>
                     )}
@@ -250,6 +259,7 @@ export const Component: FC<{
                         <button
                           className="outline-none absolute end-[20px] top-[20px] mantine-UnstyledButton-root mantine-ActionIcon-root hover:bg-tableBorder cursor-pointer mantine-Modal-close mantine-1dcetaa"
                           type="button"
+                          aria-label={t('close', 'Close')}
                           onClick={closeModalFunction}
                         >
                           <svg
@@ -274,12 +284,12 @@ export const Component: FC<{
               <CustomScrollArea
                 className="flex-1 min-h-0 pr-[12px]"
                 contentClassName={clsx(
-                  'px-[32px] pb-[32px]',
+                  'px-[16px] sm:px-[32px] pb-[16px] sm:pb-[32px]',
                   !(
                     !!modal.title ||
                     typeof modal.withCloseButton === 'undefined' ||
                     modal.withCloseButton
-                  ) && 'pt-[32px]'
+                  ) && 'pt-[16px] sm:pt-[32px]'
                 )}
               >
                 <div

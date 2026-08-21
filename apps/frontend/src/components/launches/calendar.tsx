@@ -808,14 +808,14 @@ export const ListView = () => {
   }
 
   return (
-    <div className="flex flex-col gap-[10px] flex-1 relative">
-      <div className="absolute start-0 top-0 w-full h-full flex flex-col overflow-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
+    <div className="flex flex-col gap-[10px] flex-1 relative min-w-0 max-w-full overflow-x-hidden">
+      <div className="absolute start-0 top-0 w-full max-w-full h-full flex flex-col overflow-y-auto overflow-x-hidden scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
         {groupedPosts.map(([dateKey, datePosts]) => (
           <Fragment key={dateKey}>
-            <div className="text-center text-[14px] min-h-[21px] text-textColor font-[500] mt-[10px]">
+            <div className="text-center text-[14px] min-h-[21px] text-textColor font-[500] mt-[10px] px-[10px] max-w-full">
               {newDayjs(dateKey).format(isUSCitizen() ? 'dddd, MMMM D, YYYY' : 'dddd, D MMMM YYYY')}
             </div>
-            <div className="flex flex-col gap-[10px] mb-[20px] px-[10px] mx-auto w-full max-w-[600px]">
+            <div className="flex flex-col gap-[10px] mb-[20px] px-[10px] mx-auto w-full max-w-[600px] min-w-0 box-border">
               {datePosts.map((entry) => {
                 const post =
                   entry.kind === 'stack'
@@ -1424,7 +1424,7 @@ const StackedCalendarItem: FC<{
     <div
       ref={stackRef}
       className={clsx(
-        'relative w-full',
+        'relative w-full min-w-0 max-w-full box-border',
         hasError && !expanded && 'rounded-[10px] ring-2 ring-red-500'
       )}
       onClick={(event) => {
@@ -1438,6 +1438,7 @@ const StackedCalendarItem: FC<{
       <div
         // @ts-ignore
         ref={expanded ? undefined : dragRef}
+        className="w-full min-w-0 max-w-full"
         style={{ opacity: expanded ? 1 : opacity }}
       >
         {hasError && !expanded && (
@@ -1470,7 +1471,7 @@ const StackedCalendarItem: FC<{
             <div
               key={post.id}
               className={clsx(
-                'relative w-full transition-[max-height,margin-bottom] duration-200 ease-out',
+                'relative w-full min-w-0 max-w-full box-border transition-[max-height,margin-bottom] duration-200 ease-out',
                 (isPeek || (expanded && !revealOverflow)) && 'overflow-hidden'
               )}
               style={{
@@ -1634,7 +1635,7 @@ const CalendarItem: FC<{
       ref={disableDrag ? undefined : dragRef}
       className={clsx(
         // Stacked front cards must not use h-full or they cover peek clicks.
-        'w-full flex flex-col group',
+        'w-full min-w-0 max-w-full box-border flex flex-col group',
         'relative',
         !stackShadow && 'h-full flex-1',
         stackShadow && STACK_SHADOW,
@@ -1678,7 +1679,7 @@ const CalendarItem: FC<{
       <div
         onClick={editPost}
         className={clsx(
-          'text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center gap-[6px] px-[8px] cursor-pointer',
+          'text-[11px] max-h-[24px] h-[24px] min-h-[24px] w-full min-w-0 max-w-full rounded-tr-[10px] rounded-tl-[10px] flex items-center gap-[6px] px-[8px] cursor-pointer',
           !headerColor && 'text-white bg-btnPrimary'
         )}
         style={{
@@ -1694,13 +1695,13 @@ const CalendarItem: FC<{
       <div
         onClick={editPost}
         className={clsx(
-          'w-full flex flex-col gap-[4px] flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor cursor-pointer',
-          'relative',
+          'w-full min-w-0 max-w-full flex flex-col gap-[4px] flex-1 rounded-br-[10px] rounded-bl-[10px] p-[8px] text-[14px] bg-newColColor cursor-pointer',
+          'relative overflow-hidden',
           isBeforeNow && '!grayscale'
         )}
       >
-        <div className="flex items-center gap-[6px] min-w-0">
-          <div className="flex-1 min-w-0 text-ellipsis break-words line-clamp-1 text-start">
+        <div className="flex items-center gap-[6px] min-w-0 max-w-full">
+          <div className="flex-1 min-w-0 overflow-hidden text-ellipsis break-words line-clamp-1 text-start">
             {stripHtmlValidation('none', post.content, false, true, false) ||
               t('no_content', 'no content')}
           </div>
@@ -1714,17 +1715,17 @@ const CalendarItem: FC<{
         </div>
         {showLikes && (
           <div
-            className="flex items-center gap-[4px] text-[12px] text-textColor/50"
+            className="flex items-center gap-[4px] text-[12px] text-textColor/50 min-w-0 max-w-full"
             data-tooltip-id="tooltip"
             data-tooltip-content={t('post_likes_count', 'Likes')}
           >
             <CalendarLikesIcon />
-            <span>{likesLabel}</span>
+            <span className="truncate">{likesLabel}</span>
           </div>
         )}
         <div
           className={clsx(
-            'flex items-center gap-[8px] h-[15px] invisible opacity-0 pointer-events-none',
+            'flex items-center gap-[8px] h-[15px] min-w-0 max-w-full invisible opacity-0 pointer-events-none',
             !hideActions &&
             'group-hover:visible group-hover:opacity-100 group-hover:pointer-events-auto'
           )}

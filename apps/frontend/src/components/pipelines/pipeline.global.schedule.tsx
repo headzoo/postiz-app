@@ -52,8 +52,6 @@ const formatDateHeader = (date: dayjs.Dayjs, timezone: string) =>
   new Intl.DateTimeFormat(undefined, {
     timeZone: timezone,
     weekday: 'short',
-    month: 'short',
-    day: 'numeric',
   }).format(date.toDate());
 
 const formatHour = (hour: number) =>
@@ -473,8 +471,8 @@ export const PipelineGlobalSchedule: FC = () => {
     <DNDProvider>
       <div
         className={clsx(
-          'bg-newBgColorInner flex flex-1 flex-col min-h-0 text-textColor',
-          isCalendarExpanded ? 'p-0 overflow-hidden' : 'p-[20px] gap-[20px]'
+          'bg-newBgColorInner flex flex-1 flex-col min-h-0 min-w-0 text-textColor',
+          isCalendarExpanded ? 'p-0 overflow-hidden' : 'p-[20px] gap-[20px] overflow-y-auto overflow-x-hidden'
         )}
       >
         {!isCalendarExpanded && (

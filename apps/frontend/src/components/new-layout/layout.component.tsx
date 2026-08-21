@@ -6,7 +6,7 @@ import { jakartaSans } from '@gitroom/frontend/app/fonts';
 import clsx from 'clsx';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
-import { useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { CheckPayment } from '@gitroom/frontend/components/layout/check.payment';
 import { ToolTip } from '@gitroom/frontend/components/layout/top.tip';
@@ -34,6 +34,7 @@ import { SiteHeader } from '@gitroom/frontend/components/new-layout/site-header'
 
 export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const fetch = useFetch();
+  const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const { backendUrl, billingEnabled, isGeneral } = useVariables();
@@ -56,6 +57,10 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
       user ? { id: user.id, email: user.email, orgId: user.orgId } : null
     );
   }, [user]);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
 
   if (!user) return null;
 
@@ -113,7 +118,9 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                         showNewPost={integrations.length > 0}
                         onOpenSidebar={() => setSidebarOpen(true)}
                       />
-                      <div className="flex flex-1 gap-[1px]">{children}</div>
+                      <div className="flex flex-1 gap-[1px] min-w-0 overflow-hidden">
+                        {children}
+                      </div>
                     </div>
                   </div>
                 </>

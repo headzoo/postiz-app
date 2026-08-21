@@ -803,6 +803,11 @@ html[dir='rtl'] [dir='ltr'] {
 .w8-max {
   width: calc(100% / 6);
   max-width: calc(100% / 6);
+
+  @media (max-width: 1025px) {
+    width: 100%;
+    max-width: 100%;
+  }
 }
 
 .withp3 {

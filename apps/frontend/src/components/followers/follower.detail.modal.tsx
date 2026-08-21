@@ -224,6 +224,7 @@ const NoteCard: FC<{
             label=""
             name={`note-edit-${note.id}`}
             disableForm={true}
+            className="box-border w-full max-w-full"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
           />
@@ -250,7 +251,7 @@ const NoteCard: FC<{
         </>
       ) : (
         <>
-          <p className="whitespace-pre-wrap text-[14px] text-newTextColor">
+          <p className="whitespace-pre-wrap break-words text-[14px] text-newTextColor">
             {note.content}
           </p>
           <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[4px] text-[12px] text-textItemBlur">
@@ -428,7 +429,7 @@ const FollowerDetailContent: FC<{
     : null;
 
   return (
-    <div className="flex flex-col gap-[20px]">
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-[20px] overflow-x-hidden">
       <div className="flex items-start justify-between gap-[12px]">
         <div className="flex items-start gap-[12px] min-w-0 flex-1">
           {follower.profileUrl ? (
@@ -524,9 +525,9 @@ const FollowerDetailContent: FC<{
             {(Number.isFinite(follower.followingCount) ||
               Number.isFinite(follower.followersCount) ||
               accountCreatedAt) && (
-                <div className="mt-[6px] flex flex-wrap items-center gap-x-[20px] gap-y-[6px] text-[13px]">
+                <div className="mt-[6px] grid grid-cols-1 gap-x-[20px] gap-y-[6px] text-[13px] sm:grid-cols-2 xl:grid-cols-3">
                   {Number.isFinite(follower.followingCount) && (
-                    <span>
+                    <span className="min-w-0">
                       <span className="font-[700] text-newTextColor">
                         {formatCompactCount(follower.followingCount!)}
                       </span>{' '}
@@ -536,7 +537,7 @@ const FollowerDetailContent: FC<{
                     </span>
                   )}
                   {Number.isFinite(follower.followersCount) && (
-                    <span>
+                    <span className="min-w-0">
                       <span className="font-[700] text-newTextColor">
                         {formatCompactCount(follower.followersCount!)}
                       </span>{' '}
@@ -546,7 +547,7 @@ const FollowerDetailContent: FC<{
                     </span>
                   )}
                   {accountCreatedAt && (
-                    <span>
+                    <span className="min-w-0">
                       <span className="font-[700] text-newTextColor">
                         {t('followers_joined_label', 'Joined')}
                       </span>{' '}
@@ -556,7 +557,7 @@ const FollowerDetailContent: FC<{
                 </div>
               )}
             {follower.bio && (
-              <p className="mt-[8px] text-[13px] text-newTextColor whitespace-pre-wrap">
+              <p className="mt-[8px] whitespace-pre-wrap break-words text-[13px] text-newTextColor">
                 {follower.bio}
               </p>
             )}
@@ -587,31 +588,47 @@ const FollowerDetailContent: FC<{
           <h4 className="text-[16px] font-[600] text-newTextColor">
             {t('followers_bot_classification', 'Bot classification')}
           </h4>
-          <p>
-            {follower.isBot === true
-              ? t('followers_bot_status_likely', 'Likely bot')
-              : follower.isBot === false
-                ? t('followers_bot_status_unlikely', 'Likely human')
-                : t('followers_bot_status_uncertain', 'Not enough data')}
-            {follower.botGrade != null
-              ? ` · ${t('followers_bot_grade_label', 'Grade {{grade}} of 5', {
-                  grade: String(follower.botGrade),
-                })}`
-              : ''}
-            {follower.botConfidence != null
-              ? ` · ${t(
-                  'followers_bot_confidence_label',
-                  'Confidence {{pct}}%',
-                  {
-                    pct: String(Math.round(follower.botConfidence * 100)),
-                  }
-                )}`
-              : ''}
-          </p>
+          <div className="flex max-w-full flex-wrap items-center gap-x-[8px] gap-y-[4px]">
+            <span className="min-w-0 max-w-full break-words">
+              {follower.isBot === true
+                ? t('followers_bot_status_likely', 'Likely bot')
+                : follower.isBot === false
+                  ? t('followers_bot_status_unlikely', 'Likely human')
+                  : t('followers_bot_status_uncertain', 'Not enough data')}
+            </span>
+            {follower.botGrade != null && (
+              <>
+                <span aria-hidden="true" className="shrink-0">
+                  ·
+                </span>
+                <span className="min-w-0 max-w-full break-words">
+                  {t('followers_bot_grade_label', 'Grade {{grade}} of 5', {
+                    grade: String(follower.botGrade),
+                  })}
+                </span>
+              </>
+            )}
+            {follower.botConfidence != null && (
+              <>
+                <span aria-hidden="true" className="shrink-0">
+                  ·
+                </span>
+                <span className="min-w-0 max-w-full break-words">
+                  {t(
+                    'followers_bot_confidence_label',
+                    'Confidence {{pct}}%',
+                    {
+                      pct: String(Math.round(follower.botConfidence * 100)),
+                    }
+                  )}
+                </span>
+              </>
+            )}
+          </div>
         </section>
       )}
 
-      <section className="flex flex-col gap-[12px]">
+      <section className="flex min-w-0 flex-col gap-[12px]">
         <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-3">
           <div className="flex flex-col gap-[8px]">
             <div className="flex items-center gap-[8px]">
@@ -727,12 +744,12 @@ const FollowerDetailContent: FC<{
         )}
       </section>
 
-      <section className="flex flex-col gap-[12px]">
+      <section className="flex min-w-0 flex-col gap-[12px]">
         <h4 className="text-[16px] font-[600] text-newTextColor">
           {t('followers_notes', 'Notes')}
         </h4>
         {sortedNotes.length ? (
-          <div className="flex flex-col gap-[10px]">
+          <div className="flex min-w-0 flex-col gap-[10px]">
             {sortedNotes.map((note) => (
               <NoteCard
                 key={note.id}
@@ -747,11 +764,12 @@ const FollowerDetailContent: FC<{
             {t('followers_no_notes', 'No notes yet. Add one for your team.')}
           </p>
         )}
-        <div className="flex flex-col gap-[8px]">
+        <div className="flex min-w-0 flex-col gap-[8px]">
           <Textarea
             label={t('followers_add_note', 'Add a note')}
             name="follower-new-note"
             disableForm={true}
+            className="box-border w-full max-w-full"
             value={newNote}
             onChange={(event) => setNewNote(event.target.value)}
           />

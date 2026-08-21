@@ -894,10 +894,13 @@ export const FollowersComponent: FC = () => {
       openedFollowerKeyRef.current = modalId;
       modal.openModal({
         id: modalId,
-        title: '',
-        withCloseButton: false,
+        title: t('followers_detail_title', 'Follower details'),
+        size: 'calc(100vw - 24px)',
+        maxSize: '960px',
+        height: 'min(820px, calc(100dvh - 24px))',
+        withCloseButton: true,
         classNames: {
-          modal: 'w-[100%] max-w-[960px] text-textColor',
+          modal: 'text-textColor',
         },
         onClose: username ? closeFollowerDetailUrl : undefined,
         children: (
@@ -909,7 +912,7 @@ export const FollowersComponent: FC = () => {
         ),
       });
     },
-    [closeFollowerDetailUrl, modal]
+    [closeFollowerDetailUrl, modal, t]
   );
 
   const handleNext = useCallback(() => {

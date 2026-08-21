@@ -272,6 +272,18 @@ describe('FollowerCard', () => {
     expect(screen.getByText('Hot')).toBeTruthy();
   });
 
+  it('lets follower details span the full mobile card width', () => {
+    const { container } = render(
+      <FollowerCard follower={baseFollower} onOpen={jest.fn()} />
+    );
+
+    const layout = container.querySelector('[data-follower-card-layout]');
+    const details = layout?.querySelector('.col-span-2');
+    expect(layout?.className).toContain('grid-cols-[48px_minmax(0,1fr)]');
+    expect(layout?.className).toContain('md:flex');
+    expect(details?.className).toContain('md:flex-1');
+  });
+
   it('shows a robot icon after the display name and before triage badges', () => {
     render(
       <FollowerCard

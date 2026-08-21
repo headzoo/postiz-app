@@ -668,7 +668,7 @@ describe('FollowersComponent', () => {
     ).toBeTruthy();
   });
 
-  it('opens the detail modal with the widened desktop width', () => {
+  it('opens the detail modal as a closeable floating view', () => {
     followersPage = {
       items: [{ id: 'follower-1', name: 'Alex Example' }],
       hasMore: false,
@@ -681,8 +681,13 @@ describe('FollowersComponent', () => {
 
     expect(openModal).toHaveBeenCalledWith(
       expect.objectContaining({
+        title: 'Follower details',
+        size: 'calc(100vw - 24px)',
+        maxSize: '960px',
+        height: 'min(820px, calc(100dvh - 24px))',
+        withCloseButton: true,
         classNames: {
-          modal: 'w-[100%] max-w-[960px] text-textColor',
+          modal: 'text-textColor',
         },
       })
     );

@@ -272,6 +272,33 @@ describe('FollowerDetailModal', () => {
     expect(screen.queryByText('Their reciprocation (R): 5')).toBeNull();
   });
 
+  it('allows bot classification metadata to wrap on narrow screens', () => {
+    useSWR.mockReturnValue({
+      data: {
+        ...detail,
+        follower: {
+          ...detail.follower,
+          isBot: true,
+          botGrade: 4,
+          botConfidence: 0.86,
+        },
+      },
+      error: undefined,
+      isLoading: false,
+      mutate,
+    });
+
+    render(
+      <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />
+    );
+
+    expect(screen.getByText('Likely bot')).toBeTruthy();
+    expect(screen.getByText('Grade 4 of 5').className).toContain('break-words');
+    expect(screen.getByText('Confidence 86%').className).toContain(
+      'break-words'
+    );
+  });
+
   it('renders accessible grade history for every snapshot', () => {
     render(
       <FollowerDetailModal integrationId="channel-1" externalId="follower-1" />

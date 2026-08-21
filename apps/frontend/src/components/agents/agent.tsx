@@ -4,6 +4,7 @@ import React, {
   createContext,
   FC,
   useCallback,
+  useEffect,
   useMemo,
   useState,
   ReactNode,
@@ -16,7 +17,7 @@ import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useWaitForClass } from '@gitroom/helpers/utils/use.wait.for.class';
 import { MultiMediaComponent } from '@gitroom/frontend/components/media/media.component';
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { Integrations } from '@gitroom/frontend/components/launches/calendar.context';
 import { PipelineSummary } from '@gitroom/frontend/components/pipelines/pipeline.types';
@@ -345,6 +346,7 @@ export const Agent: FC<{ children: ReactNode }> = ({ children }) => {
   const [selection, setSelection] = useState<AgentSelectionState>(
     defaultAgentSelectionState
   );
+  const [threadsOpen, setThreadsOpen] = useState(false);
 
   const handleToggleIntegration = useCallback((integration: Integrations) => {
     setSelection((current) =>
@@ -372,16 +374,23 @@ export const Agent: FC<{ children: ReactNode }> = ({ children }) => {
         onToggleIntegration={handleToggleIntegration}
         onSelectPipeline={handleSelectPipeline}
       />
-      <div className="bg-newBgColorInner flex flex-1">{children}</div>
-      <Threads />
+      <div className="bg-newBgColorInner flex flex-1 min-w-0 relative">
+        <button
+          type="button"
+          onClick={() => setThreadsOpen(true)}
+          className="hidden mobile:flex absolute top-[12px] end-[12px] z-[120] h-[32px] px-[10px] text-[12px] rounded-[8px] bg-btnSimple text-btnText border border-newBorder"
+        >
+          Threads
+        </button>
+        {children}
+      </div>
+      <Threads mobileOpen={threadsOpen} onClose={() => setThreadsOpen(false)} />
     </PropertiesContext.Provider>
   );
 };
 
-const Threads: FC = () => {
+const ThreadsPanelContent: FC<{ onNavigate?: () => void }> = ({ onNavigate }) => {
   const fetch = useFetch();
-  const router = useRouter();
-  const pathname = usePathname();
   const t = useT();
   const threads = useCallback(async () => {
     return (await fetch('/copilot/list')).json();
@@ -391,54 +400,96 @@ const Threads: FC = () => {
   const { data } = useSWR('threads', threads);
 
   return (
-    <div
-      className={clsx(
-        'trz bg-newBgColorInner flex flex-col gap-[15px] transition-all relative',
-        'w-[260px]'
-      )}
-    >
-      <div className="absolute top-0 start-0 w-full h-full p-[20px] overflow-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
-        <div className="mb-[15px] justify-center flex group-[.sidebar]:pb-[15px]">
-          <Link
-            href={`/agents`}
-            className="text-white whitespace-nowrap flex-1 pt-[12px] pb-[14px] ps-[16px] pe-[20px] group-[.sidebar]:p-0 min-h-[44px] max-h-[44px] rounded-md bg-btnPrimary flex justify-center items-center gap-[5px] outline-none"
+    <div className="absolute top-0 start-0 w-full h-full p-[20px] overflow-auto scrollbar scrollbar-thumb-fifth scrollbar-track-newBgColor">
+      <div className="mb-[15px] justify-center flex group-[.sidebar]:pb-[15px]">
+        <Link
+          href={`/agents`}
+          onClick={onNavigate}
+          className="text-white whitespace-nowrap flex-1 pt-[12px] pb-[14px] ps-[16px] pe-[20px] group-[.sidebar]:p-0 min-h-[44px] max-h-[44px] rounded-md bg-btnPrimary flex justify-center items-center gap-[5px] outline-none"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="21"
+            height="20"
+            viewBox="0 0 21 20"
+            fill="none"
+            className="min-w-[21px] min-h-[20px]"
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="21"
-              height="20"
-              viewBox="0 0 21 20"
-              fill="none"
-              className="min-w-[21px] min-h-[20px]"
-            >
-              <path
-                d="M10.5001 4.16699V15.8337M4.66675 10.0003H16.3334"
-                stroke="white"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <div className="flex-1 text-start text-[16px] group-[.sidebar]:hidden">
-              {t('start_a_new_chat', 'Start a new chat')}
-            </div>
+            <path
+              d="M10.5001 4.16699V15.8337M4.66675 10.0003H16.3334"
+              stroke="white"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <div className="flex-1 text-start text-[16px] group-[.sidebar]:hidden">
+            {t('start_a_new_chat', 'Start a new chat')}
+          </div>
+        </Link>
+      </div>
+      <div className="flex flex-col gap-[1px]">
+        {data?.threads?.map((p: any) => (
+          <Link
+            className={clsx(
+              'overflow-ellipsis overflow-hidden whitespace-nowrap hover:bg-newBgColor px-[10px] py-[6px] rounded-[10px] cursor-pointer',
+              p.id === id && 'bg-newBgColor'
+            )}
+            href={`/agents/${p.id}`}
+            onClick={onNavigate}
+            key={p.id}
+          >
+            {p.title}
           </Link>
-        </div>
-        <div className="flex flex-col gap-[1px]">
-          {data?.threads?.map((p: any) => (
-            <Link
-              className={clsx(
-                'overflow-ellipsis overflow-hidden whitespace-nowrap hover:bg-newBgColor px-[10px] py-[6px] rounded-[10px] cursor-pointer',
-                p.id === id && 'bg-newBgColor'
-              )}
-              href={`/agents/${p.id}`}
-              key={p.id}
-            >
-              {p.title}
-            </Link>
-          ))}
-        </div>
+        ))}
       </div>
     </div>
+  );
+};
+
+const Threads: FC<{ mobileOpen: boolean; onClose: () => void }> = ({
+  mobileOpen,
+  onClose,
+}) => {
+  useEffect(() => {
+    if (!mobileOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [mobileOpen, onClose]);
+
+  return (
+    <>
+      <div className="trz bg-newBgColorInner hidden mobile:hidden md:flex flex-col gap-[15px] transition-all relative w-[260px] shrink-0">
+        <ThreadsPanelContent />
+      </div>
+      {mobileOpen && (
+        <div className="hidden mobile:block fixed inset-0 z-[560]">
+          <button
+            type="button"
+            aria-label="Close threads"
+            onClick={onClose}
+            className="absolute inset-0 bg-primary/80 transition-opacity duration-200 opacity-100"
+          />
+          <aside className="absolute top-0 end-0 h-full w-[260px] bg-newBgColorInner transition-transform duration-200 ease-out translate-x-0">
+            <ThreadsPanelContent onNavigate={onClose} />
+          </aside>
+        </div>
+      )}
+    </>
   );
 };

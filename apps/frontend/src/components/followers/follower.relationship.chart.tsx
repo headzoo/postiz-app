@@ -155,65 +155,67 @@ export const FollowerRelationshipChart: FC<{
   }
 
   return (
-    <div className="flex flex-col gap-[12px]">
+    <div className="flex min-w-0 flex-col gap-[12px]">
       <div className="h-[220px] w-full" aria-hidden="true">
         <canvas ref={ref} className="h-full w-full" />
       </div>
-      <table
-        className="w-full border-collapse text-[13px] text-textItemBlur"
-        aria-label={t(
-          'followers_relationship_history_table',
-          'Relationship history'
-        )}
-      >
-        <thead>
-          <tr className="border-b border-newTableBorder text-left text-[12px] uppercase tracking-wide text-newTextColor">
-            <th scope="col" className="py-[8px] pe-[12px] font-[600]">
-              {t('followers_history_date', 'Date')}
-            </th>
-            <th scope="col" className="py-[8px] pe-[12px] font-[600]">
-              {t('followers_history_formula', 'Formula')}
-            </th>
-            <th scope="col" className="py-[8px] pe-[12px] font-[600]">
-              {t('followers_history_grade', 'Grade')}
-            </th>
-            <th scope="col" className="py-[8px] pe-[12px] font-[600]">
-              E
-            </th>
-            <th scope="col" className="py-[8px] pe-[12px] font-[600]">
-              R
-            </th>
-            <th scope="col" className="py-[8px] font-[600]">
-              {t('followers_history_reciprocity', 'Reciprocity')}
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {visibleHistory.map((snapshot) => (
-            <tr
-              key={snapshot.snapshotAt}
-              className="border-b border-newTableBorder"
-            >
-              <td className="py-[8px] pe-[12px] text-newTextColor">
-                {newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')}
-              </td>
-              <td className="py-[8px] pe-[12px]">
-                {formatFormulaLabel(snapshot.formulaVersion, t)}
-              </td>
-              <td className="py-[8px] pe-[12px]">
-                {formatGradeLabel(snapshot.grade, t)}
-              </td>
-              <td className="py-[8px] pe-[12px]">{snapshot.effortScore}</td>
-              <td className="py-[8px] pe-[12px]">
-                {snapshot.reciprocationScore}
-              </td>
-              <td className="py-[8px]">
-                {formatReciprocity(snapshot.reciprocity)}
-              </td>
+      <div className="w-full max-w-full overflow-x-auto">
+        <table
+          className="w-full border-collapse text-[13px] text-textItemBlur"
+          aria-label={t(
+            'followers_relationship_history_table',
+            'Relationship history'
+          )}
+        >
+          <thead>
+            <tr className="border-b border-newTableBorder text-left text-[12px] uppercase tracking-wide text-newTextColor">
+              <th scope="col" className="py-[8px] pe-[12px] font-[600]">
+                {t('followers_history_date', 'Date')}
+              </th>
+              <th scope="col" className="py-[8px] pe-[12px] font-[600]">
+                {t('followers_history_formula', 'Formula')}
+              </th>
+              <th scope="col" className="py-[8px] pe-[12px] font-[600]">
+                {t('followers_history_grade', 'Grade')}
+              </th>
+              <th scope="col" className="py-[8px] pe-[12px] font-[600]">
+                E
+              </th>
+              <th scope="col" className="py-[8px] pe-[12px] font-[600]">
+                R
+              </th>
+              <th scope="col" className="py-[8px] font-[600]">
+                {t('followers_history_reciprocity', 'Reciprocity')}
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {visibleHistory.map((snapshot) => (
+              <tr
+                key={snapshot.snapshotAt}
+                className="border-b border-newTableBorder"
+              >
+                <td className="break-words py-[8px] pe-[12px] text-newTextColor">
+                  {newDayjs(snapshot.snapshotAt).format('MMM D, YYYY')}
+                </td>
+                <td className="break-words py-[8px] pe-[12px]">
+                  {formatFormulaLabel(snapshot.formulaVersion, t)}
+                </td>
+                <td className="break-words py-[8px] pe-[12px]">
+                  {formatGradeLabel(snapshot.grade, t)}
+                </td>
+                <td className="py-[8px] pe-[12px]">{snapshot.effortScore}</td>
+                <td className="py-[8px] pe-[12px]">
+                  {snapshot.reciprocationScore}
+                </td>
+                <td className="py-[8px]">
+                  {formatReciprocity(snapshot.reciprocity)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

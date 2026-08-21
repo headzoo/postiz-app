@@ -422,8 +422,8 @@ export const MediaComponentInner: FC<{
   }, [generating, loading, media?.id, newFetch, t, toaster]);
 
   return (
-    <div className="mt-[10px] flex flex-col gap-[20px]">
-      <div className="flex flex-col space-y-2">
+    <div className="mt-[10px] flex flex-col gap-[20px] min-w-0 w-full">
+      <div className="flex flex-col space-y-2 min-w-0">
         <label className="text-sm text-textColor font-medium">
           Alt Text (for accessibility)
         </label>
@@ -432,7 +432,7 @@ export const MediaComponentInner: FC<{
           onChange={(e) => setAltText(e.target.value)}
           placeholder="Describe the image/video content..."
           rows={3}
-          className="w-full px-3 py-2 min-h-[80px] bg-fifth border border-tableBorder rounded-lg text-textColor placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-forth focus:border-transparent resize-y"
+          className="w-full min-w-0 box-border px-3 py-2 min-h-[80px] bg-fifth border border-tableBorder rounded-lg text-textColor placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-forth focus:border-transparent resize-y"
         />
         {canGenerateAlt && (
           <Button
@@ -441,10 +441,13 @@ export const MediaComponentInner: FC<{
             onClick={generateAlt}
             disabled={loading}
             loading={generating}
-            innerClassName="gap-[8px]"
+            className="w-full min-w-0"
+            innerClassName="gap-[8px] min-w-0"
           >
             <MagicWandIcon />
-            {t('generate_alt_text_with_ai', 'Generate alt text with AI')}
+            <span className="truncate">
+              {t('generate_alt_text_with_ai', 'Generate alt text with AI')}
+            </span>
           </Button>
         )}
       </div>
@@ -469,11 +472,11 @@ export const MediaComponentInner: FC<{
                 )}
 
                 {/* Action Buttons */}
-                <div className="flex space-x-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <button
                     disabled={loading}
                     onClick={() => setIsEditingThumbnail(true)}
-                    className="bg-third text-textColor px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all flex-1 border border-tableBorder"
+                    className="bg-third text-textColor px-4 sm:px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all flex-1 min-w-0 border border-tableBorder"
                   >
                     {media.thumbnail || newThumbnail
                       ? 'Edit Thumbnail'
@@ -486,7 +489,7 @@ export const MediaComponentInner: FC<{
                         setNewThumbnail(null);
                         setThumbnail(null);
                       }}
-                      className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all flex-1 border border-red-700"
+                      className="bg-red-600 text-white px-4 sm:px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all flex-1 min-w-0 border border-red-700"
                     >
                       Clear Thumbnail
                     </button>
@@ -545,18 +548,18 @@ export const MediaComponentInner: FC<{
       )}
 
       {!isEditingThumbnail && (
-        <div className="flex space-x-2 !mt-[20px]">
+        <div className="flex gap-2 !mt-[20px] min-w-0">
           <button
             disabled={loading || generating}
             onClick={onClose}
-            className="flex-1 bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all"
+            className="flex-1 min-w-0 bg-gray-600 text-white px-4 sm:px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all"
           >
             Cancel
           </button>
           <button
             onClick={save}
             disabled={loading || generating}
-            className="flex-1 bg-forth text-white px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 min-w-0 bg-forth text-white px-4 sm:px-6 py-2 rounded-lg hover:bg-opacity-80 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Save Changes
           </button>

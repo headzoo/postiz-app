@@ -173,7 +173,7 @@ export const Pipelines: FC = () => {
           />
         )}
       </ChannelsSidebar>
-      <div className="bg-newBgColorInner p-[20px] flex flex-1 flex-col gap-[20px] transition-all text-textColor">
+      <div className="bg-newBgColorInner p-[20px] flex flex-1 flex-col gap-[20px] transition-all text-textColor min-w-0 min-h-0 overflow-y-auto overflow-x-hidden">
         <div className="flex flex-col gap-[6px]">
           <h1 className="text-[24px] font-[600]">
             {t('pipelines', 'Pipelines')} ({visiblePipelines.length})

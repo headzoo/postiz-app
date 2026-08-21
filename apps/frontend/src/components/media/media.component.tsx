@@ -400,6 +400,8 @@ export const MediaBox: FC<{
       e.stopPropagation();
       modals.openModal({
         title: t('media_settings', 'Media Settings'),
+        size: 'calc(100vw - 24px)',
+        maxSize: '600px',
         children: (close) => (
           <MediaComponentInner
             media={media as any}
@@ -446,13 +448,21 @@ export const MediaBox: FC<{
       <div className="flex flex-col flex-1">
         <div
           className={clsx(
-            'flex items-center gap-[12px]',
+            'flex items-center gap-[12px] mb-4',
             !isLoading &&
             !data?.results?.length &&
             !debouncedSearch &&
             'hidden'
           )}
         >
+          <input
+            type="file"
+            ref={uploaderRef}
+            onChange={addToUpload}
+            className="hidden"
+            multiple={true}
+          />
+          {btn}
           <div className="flex-1">
             <input
               type="text"
@@ -462,19 +472,14 @@ export const MediaBox: FC<{
               className="w-full h-[44px] px-[14px] rounded-[8px] bg-newBgColorInner border border-newColColor text-[14px] outline-none focus:border-[#eb3825]"
             />
           </div>
-          <input
-            type="file"
-            ref={uploaderRef}
-            onChange={addToUpload}
-            className="hidden"
-            multiple={true}
-          />
-          <div className="flex gap-[8px]">
-            {btn}
-            <ThirdPartyMediaLibrary onImported={() => mutate()} />
-          </div>
+          <ThirdPartyMediaLibrary onImported={() => mutate()} />
         </div>
-        <div className="w-full pointer-events-none relative mt-[5px] mb-[5px]">
+        <div
+          className={clsx(
+            'w-full pointer-events-none relative mt-[5px] mb-[5px]',
+            !loading && 'hidden'
+          )}
+        >
           <div className="w-full h-[46px] overflow-hidden absolute left-0 bg-newBgColorInner uppyChange">
             <Dashboard
               height={46}
@@ -828,6 +833,8 @@ export const MultiMediaComponent: FC<{
                       onClick={async () => {
                         modals.openModal({
                           title: t('media_settings', 'Media Settings'),
+                          size: 'calc(100vw - 24px)',
+                          maxSize: '600px',
                           children: (close) => (
                             <MediaComponentInner
                               media={media as any}

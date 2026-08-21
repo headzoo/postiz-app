@@ -1,16 +1,39 @@
 'use client';
 
-import { FC, useState } from 'react';
+import { FC, useCallback, useState } from 'react';
 import { useClickAway } from '@uidotdev/usehooks';
+import useSWR from 'swr';
 import clsx from 'clsx';
 import { MoreIcon } from '@gitroom/frontend/components/ui/icons';
 import { OrganizationSelector } from '@gitroom/frontend/components/layout/organization.selector';
 import { ChromeExtensionComponent } from '@gitroom/frontend/components/layout/chrome.extension.component';
 import { AttachToFeedbackIcon } from '@gitroom/frontend/components/new-layout/sentry.feedback.component';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 
 export const HeaderMoreMenu: FC = () => {
   const [open, setOpen] = useState(false);
   const ref = useClickAway<HTMLDivElement>(() => setOpen(false));
+  const { billingEnabled, sentryDsn } = useVariables();
+  const fetch = useFetch();
+  const loadOrgs = useCallback(async () => {
+    return await (await fetch('/user/organizations')).json();
+  }, [fetch]);
+  const { data: organizations } = useSWR('organizations', loadOrgs, {
+    revalidateIfStale: false,
+    revalidateOnFocus: false,
+    refreshWhenOffline: false,
+    refreshWhenHidden: false,
+    revalidateOnReconnect: false,
+  });
+
+  const hasOrganizations = (organizations?.length ?? 0) > 1;
+  const hasChrome = !!billingEnabled;
+  const hasFeedback = !!sentryDsn;
+
+  if (!hasOrganizations && !hasChrome && !hasFeedback) {
+    return null;
+  }
 
   return (
     <div className="relative hidden mobile:flex" ref={ref}>
@@ -29,11 +52,13 @@ export const HeaderMoreMenu: FC = () => {
           open ? 'flex' : 'hidden'
         )}
       >
-        <OrganizationSelector asOpenSelect />
-        <div className="flex items-center gap-[16px] text-textItemBlur">
-          <ChromeExtensionComponent />
-          <AttachToFeedbackIcon />
-        </div>
+        {hasOrganizations && <OrganizationSelector asOpenSelect />}
+        {(hasChrome || hasFeedback) && (
+          <div className="flex items-center gap-[16px] text-textItemBlur">
+            <ChromeExtensionComponent />
+            <AttachToFeedbackIcon />
+          </div>
+        )}
       </div>
     </div>
   );

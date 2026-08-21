@@ -252,7 +252,10 @@ export const FollowerCard: FC<{
           <TimelineIcon size={14} />
         </Link>
         )}
-        <div className="flex flex-1 items-start gap-[12px]">
+        <div
+          data-follower-card-layout=""
+          className="grid flex-1 grid-cols-[48px_minmax(0,1fr)] items-start gap-x-[12px] gap-y-[12px] md:flex md:gap-[12px]"
+        >
           {follower.profileUrl ? (
             <a
               href={follower.profileUrl}
@@ -286,101 +289,103 @@ export const FollowerCard: FC<{
               height={48}
             />
           )}
-          <div className="flex flex-1 min-w-0 flex-col gap-[12px] h-full">
-            <div>
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
-                  <h3 className="text-[15px] font-[600] text-newTextColor truncate">
-                    {follower.name}
-                  </h3>
-                  {follower.isBot === true && (
+          <div className="contents md:flex md:h-full md:min-w-0 md:flex-1 md:flex-col md:gap-[12px]">
+            <div className="col-start-2 min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-[8px]">
+                <h3 className="text-[15px] font-[600] text-newTextColor truncate">
+                  {follower.name}
+                </h3>
+                {follower.isBot === true && (
+                  <span
+                    role="img"
+                    className="inline-flex shrink-0 text-textItemBlur"
+                    title={t(
+                      'followers_bot_tooltip',
+                      'Likely bot · grade {{grade}} of 5',
+                      {
+                        grade:
+                          follower.botGrade != null
+                            ? String(follower.botGrade)
+                            : '?',
+                      }
+                    )}
+                    aria-label={t(
+                      'followers_bot_aria',
+                      'Likely bot, grade {{grade}} of 5',
+                      {
+                        grade:
+                          follower.botGrade != null
+                            ? String(follower.botGrade)
+                            : 'unknown',
+                      }
+                    )}
+                  >
+                    <RobotIcon size={14} />
+                  </span>
+                )}
+                {follower.isLead && (
+                  <RelationshipTriageBadge
+                    triage="lead"
+                    onRemove={onDismissTriage}
+                  />
+                )}
+                {follower.engagedNotYet && (
+                  <RelationshipTriageBadge
+                    triage="engaged_not_yet"
+                    onRemove={onDismissTriage}
+                  />
+                )}
+                {follower.relationshipTriage && (
+                  <RelationshipTriageBadge
+                    triage={follower.relationshipTriage}
+                    onRemove={onDismissTriage}
+                  />
+                )}
+                {(follower.listIds ?? []).map((listId) => {
+                  const list = lists.find((item) => item.id === listId);
+                  if (!list) {
+                    return null;
+                  }
+                  return (
                     <span
-                      role="img"
-                      className="inline-flex shrink-0 text-textItemBlur"
-                      title={t(
-                        'followers_bot_tooltip',
-                        'Likely bot · grade {{grade}} of 5',
-                        {
-                          grade:
-                            follower.botGrade != null
-                              ? String(follower.botGrade)
-                              : '?',
-                        }
-                      )}
-                      aria-label={t(
-                        'followers_bot_aria',
-                        'Likely bot, grade {{grade}} of 5',
-                        {
-                          grade:
-                            follower.botGrade != null
-                              ? String(follower.botGrade)
-                              : 'unknown',
-                        }
-                      )}
+                      key={list.id}
+                      className="inline-flex w-fit shrink-0 items-center rounded-full border border-newTableBorder px-[8px] py-[2px] text-[11px] font-[600] text-textItemBlur"
                     >
-                      <RobotIcon size={14} />
+                      {list.name}
                     </span>
-                  )}
-                  {follower.isLead && (
-                    <RelationshipTriageBadge
-                      triage="lead"
-                      onRemove={onDismissTriage}
-                    />
-                  )}
-                  {follower.engagedNotYet && (
-                    <RelationshipTriageBadge
-                      triage="engaged_not_yet"
-                      onRemove={onDismissTriage}
-                    />
-                  )}
-                  {follower.relationshipTriage && (
-                    <RelationshipTriageBadge
-                      triage={follower.relationshipTriage}
-                      onRemove={onDismissTriage}
-                    />
-                  )}
-                  {(follower.listIds ?? []).map((listId) => {
-                    const list = lists.find((item) => item.id === listId);
-                    if (!list) {
-                      return null;
-                    }
-                    return (
-                      <span
-                        key={list.id}
-                        className="inline-flex w-fit shrink-0 items-center rounded-full border border-newTableBorder px-[8px] py-[2px] text-[11px] font-[600] text-textItemBlur"
-                      >
-                        {list.name}
-                      </span>
-                    );
-                  })}
-                  {(onToggleList || onToggleIgnored) && (
-                    <FollowerListDropdown
-                      lists={lists}
-                      assignedListIds={follower.listIds ?? []}
-                      isIgnored={!!follower.isIgnored}
-                      onToggle={onToggleList ?? (async () => undefined)}
-                      onToggleIgnored={onToggleIgnored}
-                    />
-                  )}
-                </div>
-                {handle &&
-                  (follower.profileUrl ? (
-                    <a
-                      href={follower.profileUrl}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      onClick={stopProfileNavigation}
-                      onKeyDown={stopProfileKeyboard}
-                      className="mt-[2px] inline-block max-w-full shrink-0 text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80"
-                    >
-                      {handle}
-                    </a>
-                  ) : (
-                    <span className="mt-[2px] inline-block max-w-full shrink-0 text-[13px] text-textItemBlur truncate">
-                      {handle}
-                    </span>
-                  ))}
+                  );
+                })}
+                {(onToggleList || onToggleIgnored) && (
+                  <FollowerListDropdown
+                    lists={lists}
+                    assignedListIds={follower.listIds ?? []}
+                    isIgnored={!!follower.isIgnored}
+                    onToggle={onToggleList ?? (async () => undefined)}
+                    onToggleIgnored={onToggleIgnored}
+                  />
+                )}
               </div>
+              {handle &&
+                (follower.profileUrl ? (
+                  <a
+                    href={follower.profileUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    onClick={stopProfileNavigation}
+                    onKeyDown={stopProfileKeyboard}
+                    className="mt-[2px] inline-block max-w-full shrink-0 text-[13px] text-textItemBlur truncate hover:underline hover:opacity-80"
+                  >
+                    {handle}
+                  </a>
+                ) : (
+                  <span className="mt-[2px] inline-block max-w-full shrink-0 text-[13px] text-textItemBlur truncate">
+                    {handle}
+                  </span>
+                ))}
+            </div>
+
+            <div className="col-span-2 flex min-w-0 flex-col gap-[12px] h-full md:col-auto md:flex-1">
+              <div>
 
               {accountCreatedAt && (
                 <div className="mt-[4px] min-w-0 overflow-hidden whitespace-nowrap text-[13px]">
@@ -418,7 +423,7 @@ export const FollowerCard: FC<{
                   className={clsx(
                     'mt-[8px] grid gap-x-[16px] gap-y-[8px]',
                     hasRelationshipEffort && hasMetricsGrid
-                      ? 'grid-cols-[max-content_minmax(0,1fr)]'
+                      ? 'grid-cols-1 md:grid-cols-[max-content_minmax(0,1fr)]'
                       : 'grid-cols-1'
                   )}
                 >
@@ -448,7 +453,7 @@ export const FollowerCard: FC<{
                     </div>
                   )}
                   {hasMetricsGrid && (
-                    <div className="grid min-w-0 grid-cols-2 gap-x-[12px] gap-y-[6px] text-[13px]">
+                    <div className="flex min-w-0 flex-wrap gap-x-[12px] gap-y-[6px] text-[13px]">
                       {hasFollowingCount && (
                         <span className="whitespace-nowrap">
                           <span className="font-[700] text-newTextColor">
@@ -530,6 +535,7 @@ export const FollowerCard: FC<{
                 </span>
               </div>
             )}
+            </div>
           </div>
         </div>
       </article>
