@@ -77,6 +77,17 @@ const scheduleByKey: Record<string, unknown> = {
     },
     activeCount: 2,
   },
+  '/admin/schedule/lead-bridge': {
+    workflowId: 'channel-lead-bridge-workflow-v1',
+    exists: true,
+    status: 'RUNNING',
+    cadence: {
+      unit: 'hour',
+      interval: 1,
+      label:
+        'Idle up to 1 hour(s) when quiet; max 5 warm crawls per channel per UTC day',
+    },
+  },
 };
 
 describe('AdminScheduleComponent', () => {
@@ -212,6 +223,29 @@ describe('AdminScheduleComponent', () => {
       );
       expect(mockFetch).toHaveBeenCalledWith(
         '/admin/schedule/autopost-workflows/trigger',
+        { method: 'POST' }
+      );
+    });
+  });
+
+  it('renders and triggers lead discovery', async () => {
+    render(<AdminScheduleComponent />);
+
+    expect(screen.getByText('Lead discovery')).toBeTruthy();
+    expect(screen.getByText(/warm crawls per channel/)).toBeTruthy();
+    expect(mockUseSWR).toHaveBeenCalledWith(
+      '/admin/schedule/lead-bridge',
+      expect.any(Function),
+      expect.any(Object)
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole('button', { name: 'Trigger now' })[2]);
+    });
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/admin/schedule/lead-bridge/trigger',
         { method: 'POST' }
       );
     });

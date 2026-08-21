@@ -12,6 +12,12 @@ import {
   PIPELINE_SCHEDULER_TICK_WORKFLOW_TYPE,
   PIPELINE_SCHEDULER_WORKFLOW_ID,
 } from './admin-schedule.workflow';
+import {
+  LEAD_BRIDGE_DAILY_LIMIT,
+  LEAD_BRIDGE_IDLE_MS,
+  LEAD_BRIDGE_WORKFLOW_ID,
+  LEAD_BRIDGE_WORKFLOW_TYPE,
+} from './lead-bridge.schedule';
 
 export type AdminWorkflowCadence = {
   unit: 'second' | 'hour';
@@ -100,6 +106,23 @@ export class AdminScheduleWorkflowService {
     return this.getAutopostWorkflowStatus();
   }
 
+  async getLeadBridgeStatus(): Promise<AdminWorkflowStatus> {
+    const idleHours = Math.max(1, Math.round(LEAD_BRIDGE_IDLE_MS / (60 * 60 * 1000)));
+    return this.describeWorkflow(LEAD_BRIDGE_WORKFLOW_ID, {
+      unit: 'hour',
+      interval: idleHours,
+      label: `Idle up to ${idleHours} hour(s) when quiet; max ${LEAD_BRIDGE_DAILY_LIMIT} warm crawls per channel per UTC day`,
+    });
+  }
+
+  async triggerLeadBridge() {
+    await this.ensureWorkflowStarted(LEAD_BRIDGE_WORKFLOW_TYPE, LEAD_BRIDGE_WORKFLOW_ID, [
+      {},
+    ]);
+    await this.signalWorkflow(LEAD_BRIDGE_WORKFLOW_ID, 'channelLeadBridge');
+    return this.getLeadBridgeStatus();
+  }
+
   private async describeWorkflow(
     workflowId: string,
     cadence: AdminWorkflowCadence,
@@ -145,6 +168,14 @@ export class AdminScheduleWorkflowService {
     workflowId: string,
     args: unknown[]
   ) {
+    await this.ensureWorkflowStarted(workflowType, workflowId, args);
+  }
+
+  private async ensureWorkflowStarted(
+    workflowType: string,
+    workflowId: string,
+    args: unknown[]
+  ) {
     try {
       await this.workflowClient().start(workflowType, {
         workflowId,
@@ -156,6 +187,10 @@ export class AdminScheduleWorkflowService {
         throw error;
       }
     }
+  }
+
+  private async signalWorkflow(workflowId: string, signalName: string) {
+    await this.workflowClient().getHandle(workflowId).signal(signalName);
   }
 
   private workflowClient() {

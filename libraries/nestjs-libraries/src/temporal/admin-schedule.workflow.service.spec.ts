@@ -100,4 +100,73 @@ describe('AdminScheduleWorkflowService', () => {
       })
     );
   });
+
+  it('describes the lead bridge workflow', async () => {
+    const describe = jest.fn().mockResolvedValue({
+      status: { name: 'RUNNING' },
+      startTime: new Date('2026-08-21T00:00:00.000Z'),
+    });
+    const service = createService(
+      {
+        getHandle: jest.fn().mockReturnValue({ describe }),
+        start: jest.fn(),
+      },
+      { countActiveAutoposts: jest.fn() }
+    );
+
+    const status = await service.getLeadBridgeStatus();
+    expect(status.workflowId).toBe('channel-lead-bridge-workflow-v1');
+    expect(status.exists).toBe(true);
+    expect(status.status).toBe('RUNNING');
+    expect(status.cadence.label).toContain('warm crawls');
+  });
+
+  it('starts and signals the lead bridge workflow', async () => {
+    const describe = jest.fn().mockResolvedValue({
+      status: { name: 'RUNNING' },
+      startTime: new Date('2026-08-21T00:00:00.000Z'),
+    });
+    const signal = jest.fn().mockResolvedValue(undefined);
+    const start = jest.fn().mockResolvedValue(undefined);
+    const service = createService(
+      {
+        getHandle: jest.fn().mockReturnValue({ describe, signal }),
+        start,
+      },
+      { countActiveAutoposts: jest.fn() }
+    );
+
+    await service.triggerLeadBridge();
+    expect(start).toHaveBeenCalledWith(
+      'channelLeadBridgeWorkflowV1',
+      expect.objectContaining({
+        workflowId: 'channel-lead-bridge-workflow-v1',
+        taskQueue: 'main',
+        args: [{}],
+      })
+    );
+    expect(signal).toHaveBeenCalledWith('channelLeadBridge');
+  });
+
+  it('signals an already-running lead bridge workflow', async () => {
+    const describe = jest.fn().mockResolvedValue({
+      status: { name: 'RUNNING' },
+      startTime: new Date('2026-08-21T00:00:00.000Z'),
+    });
+    const signal = jest.fn().mockResolvedValue(undefined);
+    const start = jest.fn().mockRejectedValue({
+      name: 'WorkflowExecutionAlreadyStartedError',
+      message: 'already started',
+    });
+    const service = createService(
+      {
+        getHandle: jest.fn().mockReturnValue({ describe, signal }),
+        start,
+      },
+      { countActiveAutoposts: jest.fn() }
+    );
+
+    await service.triggerLeadBridge();
+    expect(signal).toHaveBeenCalledWith('channelLeadBridge');
+  });
 });

@@ -141,6 +141,24 @@ const useAutopostWorkflowSchedule = () => {
   );
 };
 
+const useLeadBridgeSchedule = () => {
+  const fetch = useFetch();
+  return useSWR<WorkflowStatusResponse>(
+    '/admin/schedule/lead-bridge',
+    async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error('Failed to load schedule');
+      }
+      return res.json();
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
+  );
+};
+
 const formatCadence = (cadence: ScheduleCadence) => {
   if (cadence.unit === 'hour') {
     return cadence.interval === 1
@@ -169,6 +187,7 @@ export const AdminScheduleComponent: FC = () => {
   const missingPosts = useMissingPostRecoverySchedule();
   const postWorkflows = usePostWorkflowSchedule();
   const autopostWorkflows = useAutopostWorkflowSchedule();
+  const leadBridge = useLeadBridgeSchedule();
 
   const [unit, setUnit] = useState<ScheduleUnit>('day');
   const [interval, setInterval] = useState(3);
@@ -182,6 +201,7 @@ export const AdminScheduleComponent: FC = () => {
   const [triggeringMissing, setTriggeringMissing] = useState(false);
   const [triggeringPosts, setTriggeringPosts] = useState(false);
   const [triggeringAutopost, setTriggeringAutopost] = useState(false);
+  const [triggeringLeadBridge, setTriggeringLeadBridge] = useState(false);
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
@@ -363,6 +383,29 @@ export const AdminScheduleComponent: FC = () => {
     }
   }, [autopostWorkflows, fetch, t]);
 
+  const triggerLeadBridge = useCallback(async () => {
+    setFormError('');
+    setTriggeringLeadBridge(true);
+    try {
+      const res = await fetch('/admin/schedule/lead-bridge/trigger', {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to trigger schedule');
+      }
+      await leadBridge.mutate(await res.json(), false);
+    } catch {
+      setFormError(
+        t(
+          'admin_schedule_lead_bridge_trigger_error',
+          'Could not trigger lead discovery. Try again.'
+        )
+      );
+    } finally {
+      setTriggeringLeadBridge(false);
+    }
+  }, [fetch, leadBridge, t]);
+
   if (!user?.isSuperAdmin) {
     return (
       <div className="text-textColor p-[20px]">
@@ -376,7 +419,8 @@ export const AdminScheduleComponent: FC = () => {
     botScores.isLoading ||
     missingPosts.isLoading ||
     postWorkflows.isLoading ||
-    autopostWorkflows.isLoading
+    autopostWorkflows.isLoading ||
+    leadBridge.isLoading
   ) {
     return <LoadingComponent />;
   }
@@ -386,7 +430,8 @@ export const AdminScheduleComponent: FC = () => {
     botScores.error ||
     missingPosts.error ||
     postWorkflows.error ||
-    autopostWorkflows.error
+    autopostWorkflows.error ||
+    leadBridge.error
   ) {
     return (
       <div className="text-red-400">
@@ -553,6 +598,39 @@ export const AdminScheduleComponent: FC = () => {
             {t('save', 'Save')}
           </Button>
           <Button secondary disabled={triggeringBotScores} onClick={triggerBotScores}>
+            {t('admin_schedule_trigger_now', 'Trigger now')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="border border-newTableBorder rounded-[8px] p-[16px] bg-newBgColorInner flex flex-col gap-[12px]">
+        <div className="text-[16px] font-[600]">
+          {t('admin_schedule_lead_bridge_title', 'Lead discovery')}
+        </div>
+        <div className="text-[13px] opacity-70">
+          {leadBridge.data?.exists
+            ? t(
+              'admin_schedule_lead_bridge_running',
+              'Lead discovery workflow is present.'
+            )
+            : t(
+              'admin_schedule_lead_bridge_missing',
+              'Lead discovery workflow is not running.'
+            )}
+        </div>
+        <div className="text-[13px]">
+          {leadBridge.data?.cadence?.label ||
+            'Idle up to 1 hour when quiet; daily crawl caps apply'}
+        </div>
+        <div className="text-[13px]">
+          {t('admin_schedule_status', 'Status')}: {leadBridge.data?.status}
+        </div>
+        <div className="flex flex-wrap gap-[12px]">
+          <Button
+            secondary
+            disabled={triggeringLeadBridge}
+            onClick={triggerLeadBridge}
+          >
             {t('admin_schedule_trigger_now', 'Trigger now')}
           </Button>
         </div>

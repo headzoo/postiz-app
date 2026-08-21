@@ -197,4 +197,17 @@ export class AdminController {
     this.assertSuperAdmin(user);
     return this._adminScheduleWorkflowService.triggerAutopostWorkflows();
   }
+
+  @Get('/schedule/lead-bridge')
+  async getLeadBridgeSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.getLeadBridgeStatus();
+  }
+
+  @Post('/schedule/lead-bridge/trigger')
+  @RequireAdminStepUp('fresh')
+  async triggerLeadBridgeSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.triggerLeadBridge();
+  }
 }
