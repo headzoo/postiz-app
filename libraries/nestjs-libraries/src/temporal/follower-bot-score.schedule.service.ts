@@ -150,7 +150,6 @@ export class FollowerBotScoreScheduleService {
 
   private cadenceFromDescription(description: {
     memo?: Record<string, unknown>;
-    info?: { interval?: unknown };
   }) {
     try {
       return normalizeFollowerBotScoreSchedule(
