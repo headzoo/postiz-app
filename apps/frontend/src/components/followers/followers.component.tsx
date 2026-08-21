@@ -972,15 +972,6 @@ export const FollowersComponent: FC = () => {
     if (!deepLinkDetail) {
       return;
     }
-    if (deepLinkDetail.follower.isIgnored) {
-      followerModalFromUrlRef.current = false;
-      if (openedFollowerKeyRef.current) {
-        modal.closeById(openedFollowerKeyRef.current);
-        openedFollowerKeyRef.current = null;
-      }
-      router.replace('/followers/ignored');
-      return;
-    }
     const modalId = `follower-detail-${followerPath.integrationId}-${followerPath.username}`;
     followerModalFromUrlRef.current = true;
     if (openedFollowerKeyRef.current === modalId) {
@@ -998,7 +989,6 @@ export const FollowersComponent: FC = () => {
     followerPath,
     modal,
     openFollowerDetailModal,
-    router,
     selectedIntegrationId,
   ]);
 

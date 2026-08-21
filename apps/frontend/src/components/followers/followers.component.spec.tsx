@@ -33,6 +33,7 @@ let followersPage = {
 let pushState: jest.SpyInstance;
 let historyBack: jest.SpyInstance;
 let replaceState: jest.SpyInstance;
+let deepLinkIsIgnored = false;
 
 const channel: FollowerChannel = {
   id: 'channel-1',
@@ -244,7 +245,7 @@ jest.mock('@gitroom/frontend/components/followers/use.followers', () => {
             id: 'follower-1',
             name: identity.username,
             username: identity.username,
-            isIgnored: false,
+            isIgnored: deepLinkIsIgnored,
           },
           notes: [],
           interactions: [],
@@ -354,6 +355,7 @@ describe('FollowersComponent', () => {
     useCopilotReadableMock.mockReset();
     mockPathname = '/followers';
     mockSearchParams = new URLSearchParams();
+    deepLinkIsIgnored = false;
     followersPage = {
       items: [],
       hasMore: false,
@@ -736,5 +738,47 @@ describe('FollowersComponent', () => {
         children: expect.anything(),
       })
     );
+  });
+
+  it('opens the detail modal for ignored followers from the ignored list', () => {
+    deepLinkIsIgnored = true;
+    mockPathname = '/followers/ignored';
+    followersPage = {
+      items: [
+        {
+          id: 'follower-1',
+          name: 'Alex Example',
+          username: 'SummerYule',
+          isIgnored: true,
+        },
+      ],
+      hasMore: false,
+      total: 1,
+    };
+
+    render(<FollowersComponent />);
+    fireEvent.click(screen.getByRole('button', { name: 'Alex Example' }));
+
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'follower-detail-channel-1-SummerYule',
+      })
+    );
+    expect(closeById).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalledWith('/followers/ignored');
+  });
+
+  it('opens the detail modal from a deep link when the follower is ignored', () => {
+    deepLinkIsIgnored = true;
+    mockPathname = '/followers/channel-1/@SummerYule';
+    render(<FollowersComponent />);
+
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'follower-detail-channel-1-SummerYule',
+      })
+    );
+    expect(closeById).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalledWith('/followers/ignored');
   });
 });
