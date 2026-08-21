@@ -43,6 +43,8 @@ module.exports = {
     '<rootDir>/apps/backend/src/services/auth/auth.middleware.spec.ts',
     '<rootDir>/apps/orchestrator/src/workflows/channel-relationship-grade.workflow.spec.ts',
     '<rootDir>/apps/orchestrator/src/workflows/channel-relationship-grade.workflow.v2.spec.ts',
+    '<rootDir>/apps/orchestrator/src/workflows/channel-lead-bridge.workflow.v1.spec.ts',
+    '<rootDir>/apps/orchestrator/src/workflows/channel-cultivate.workflow.v1.spec.ts',
     '<rootDir>/apps/frontend/src/components/admin/admin-schedule.component.spec.tsx',
     '<rootDir>/apps/frontend/src/components/admin/admin-passkey.utils.spec.ts',
     '<rootDir>/apps/frontend/src/components/admin/admin-passkey-flow.spec.tsx',

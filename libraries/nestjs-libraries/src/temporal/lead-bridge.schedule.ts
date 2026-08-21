@@ -7,6 +7,8 @@ export const LEAD_BRIDGE_WORKFLOW_ID = 'channel-lead-bridge-workflow-v1';
 /** Max warm followers whose follower lists we crawl per integration per UTC day. */
 export const LEAD_BRIDGE_DAILY_LIMIT = 5;
 export const LEAD_BRIDGE_PAGE_SIZE = 100;
+/** Max newly-applied leads persisted from a single warm follower crawl. */
+export const LEAD_BRIDGE_PER_SOURCE_CAP = 15;
 export const LEAD_BRIDGE_WARM_GRADE_THRESHOLD = 3.5;
 /** Idle wait when no integrations have remaining daily crawl quota. */
 export const LEAD_BRIDGE_IDLE_MS = 60 * 60 * 1000;

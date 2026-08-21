@@ -17,7 +17,8 @@ export class IntegrationRepository {
     private _exisingPlugData: PrismaRepository<'exisingPlugData'>,
     private _customers: PrismaRepository<'customer'>,
     private _mentions: PrismaRepository<'mentions'>,
-    private _integrationNoticeRead: PrismaRepository<'integrationNoticeRead'>
+    private _integrationNoticeRead: PrismaRepository<'integrationNoticeRead'>,
+    private _contextDocument: PrismaRepository<'contextDocument'>
   ) { }
 
   getMentions(platform: string, q: string) {
@@ -97,6 +98,79 @@ export class IntegrationRepository {
         additionalSettings: settings,
       },
     });
+  }
+
+  getOwnedContextDocuments(orgId: string, documentIds: string[]) {
+    if (!documentIds.length) {
+      return Promise.resolve([] as Array<{ id: string; name: string }>);
+    }
+    return this._contextDocument.model.contextDocument.findMany({
+      where: {
+        organizationId: orgId,
+        id: { in: documentIds },
+      },
+      select: { id: true, name: true },
+    });
+  }
+
+  async listIntegrationContextDocuments(orgId: string, integrationId: string) {
+    const integration = await this._integration.model.integration.findFirst({
+      where: {
+        id: integrationId,
+        organizationId: orgId,
+        deletedAt: null,
+      },
+      select: {
+        contextDocuments: {
+          include: {
+            contextDocument: {
+              select: {
+                id: true,
+                name: true,
+                fileSize: true,
+                updatedAt: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!integration) {
+      return null;
+    }
+    return integration.contextDocuments;
+  }
+
+  async replaceIntegrationContextDocuments(
+    orgId: string,
+    integrationId: string,
+    documentIds: string[]
+  ) {
+    const existing = await this._integration.model.integration.findFirst({
+      where: {
+        id: integrationId,
+        organizationId: orgId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!existing) {
+      return null;
+    }
+
+    await this._integration.model.integration.update({
+      where: { id: integrationId },
+      data: {
+        contextDocuments: {
+          deleteMany: {},
+          create: documentIds.map((contextDocumentId) => ({
+            contextDocumentId,
+          })),
+        },
+      },
+    });
+
+    return this.listIntegrationContextDocuments(orgId, integrationId);
   }
 
   async setTimes(org: string, id: string, times: IntegrationTimeDto) {

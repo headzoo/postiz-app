@@ -1,10 +1,9 @@
-import { channelLeadBridgeWorkflowV1 } from './channel-lead-bridge.workflow.v1';
-
 const listDueCandidatesV1 = jest.fn();
 const crawlNextWarmFollowerV1 = jest.fn();
+const continueAsNew = jest.fn((args) => Promise.resolve({ continued: true, args }));
 
 jest.mock('@temporalio/workflow', () => ({
-  continueAsNew: jest.fn((args) => Promise.resolve({ continued: true, args })),
+  continueAsNew,
   condition: jest.fn(() => Promise.resolve(false)),
   defineSignal: jest.fn((name: string) => name),
   setHandler: jest.fn(),
@@ -18,9 +17,14 @@ jest.mock('@gitroom/orchestrator/signals/channel-lead-bridge.signal', () => ({
   channelLeadBridgeSignal: 'channelLeadBridge',
 }));
 
+import { channelLeadBridgeWorkflowV1 } from './channel-lead-bridge.workflow.v1';
+
 describe('channelLeadBridgeWorkflowV1', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    continueAsNew.mockImplementation((args) =>
+      Promise.resolve({ continued: true, args })
+    );
   });
 
   it('idles when no candidates remain', async () => {

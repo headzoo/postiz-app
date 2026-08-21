@@ -10,10 +10,9 @@ import {
   useState,
 } from 'react';
 import clsx from 'clsx';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useClickOutside } from '@mantine/hooks';
 import { Button } from '@gitroom/react/form/button';
+import { Input } from '@gitroom/react/form/input';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import Loading, {
@@ -38,55 +37,163 @@ import { useContextDocumentList } from '@gitroom/frontend/components/context-doc
 import { useContextDocumentContent } from '@gitroom/frontend/components/context-documents/use.context-document.content';
 import { useContextDocumentUpload } from '@gitroom/frontend/components/context-documents/use.context-document.upload';
 import { useContextDocumentDelete } from '@gitroom/frontend/components/context-documents/use.context-document.delete';
+import { useContextDocumentCreate } from '@gitroom/frontend/components/context-documents/use.context-document.create';
+import { useContextDocumentUpdate } from '@gitroom/frontend/components/context-documents/use.context-document.update';
+import { useContextDocumentRename } from '@gitroom/frontend/components/context-documents/use.context-document.rename';
 
-const ContextDocumentMarkdown: FC<{
-  content: string;
-}> = ({ content }) => {
-  return (
-    <div
-      className={clsx(
-        'whitespace-normal text-[14px] leading-[1.6] text-textColor',
-        '[&_h1]:text-[24px] [&_h1]:font-[600] [&_h1]:mb-[12px] [&_h1]:mt-[8px]',
-        '[&_h2]:text-[20px] [&_h2]:font-[600] [&_h2]:mb-[10px] [&_h2]:mt-[16px]',
-        '[&_h3]:text-[16px] [&_h3]:font-[600] [&_h3]:mb-[8px] [&_h3]:mt-[14px]',
-        '[&_p]:mb-[10px]',
-        '[&_ul]:list-disc [&_ul]:ps-[20px] [&_ul]:mb-[10px]',
-        '[&_ol]:list-decimal [&_ol]:ps-[20px] [&_ol]:mb-[10px]',
-        '[&_li]:mb-[4px]',
-        '[&_blockquote]:border-s-[3px] [&_blockquote]:border-newBorder [&_blockquote]:ps-[12px] [&_blockquote]:opacity-80 [&_blockquote]:mb-[10px]',
-        '[&_pre]:bg-newBgColor [&_pre]:p-[12px] [&_pre]:rounded-[8px] [&_pre]:overflow-x-auto [&_pre]:mb-[10px] [&_pre]:text-[13px]',
-        '[&_code]:font-mono [&_code]:text-[13px]',
-        '[&_a]:underline',
-        '[&_hr]:border-newBorder [&_hr]:my-[16px]',
-        '[&_table]:w-full [&_table]:mb-[12px] [&_th]:border [&_td]:border [&_th]:border-newBorder [&_td]:border-newBorder [&_th]:p-[6px] [&_td]:p-[6px] [&_th]:text-start',
-        '[&_img]:max-w-full [&_img]:rounded-[8px]'
-      )}
-    >
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
+const validateDocumentFilename = (
+  rawName: string,
+  t: (key: string, fallback: string) => string
+): { name?: string; error?: string } => {
+  const normalizedName = normalizeContextDocumentName(rawName);
+
+  if (!normalizedName) {
+    return {
+      error: t(
+        'context_document_invalid_extension',
+        'Only .md and .markdown files are supported.'
+      ),
+    };
+  }
+
+  const skillSlug = getContextDocumentSkillSlug(normalizedName);
+  if (isAttemptedContextDocumentSkillFilename(normalizedName) && !skillSlug) {
+    return {
+      error: t(
+        'context_document_invalid_skill_name',
+        'Agent skill filenames must use the format {slug}.skill.md, with lowercase letters, numbers, and hyphens in the slug.'
+      ),
+    };
+  }
+
+  if (skillSlug && RESERVED_AGENT_COMMAND_SLUGS.has(skillSlug)) {
+    return {
+      error: t(
+        'context_document_reserved_skill',
+        `Agent skill command /${skillSlug} is reserved and cannot be used.`
+      ),
+    };
+  }
+
+  return { name: normalizedName };
 };
 
-const ContextDocumentReader: FC<{
+const ContextDocumentEditor: FC<{
   documentId: string;
+  documentName: string;
   skillSlug?: string;
-}> = ({ documentId, skillSlug }) => {
+  onSaved?: () => void;
+}> = ({ documentId, documentName, skillSlug, onSaved }) => {
   const t = useT();
+  const toaster = useToaster();
+  const modal = useModals();
+  const decision = useDecisionModal();
+  const updateDocument = useContextDocumentUpdate();
   const { data, error, isLoading } = useContextDocumentContent(
     documentId,
     skillSlug
   );
+  const [content, setContent] = useState('');
+  const [initialized, setInitialized] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (data && !initialized) {
+      setContent(data.content);
+      setInitialized(true);
+    }
+  }, [data, initialized]);
+
+  const dirty = initialized && content !== (data?.content ?? '');
+  const byteLength = useMemo(() => {
+    if (typeof TextEncoder !== 'undefined') {
+      return new TextEncoder().encode(content).length;
+    }
+    return Buffer.byteLength(content, 'utf8');
+  }, [content]);
+
+  const handleSave = useCallback(async () => {
+    if (byteLength > CONTEXT_DOCUMENT_MAX_BYTES) {
+      toaster.show(
+        t(
+          'context_document_oversize',
+          'This file exceeds the 256 KiB limit and cannot be uploaded.'
+        ),
+        'warning'
+      );
+      return;
+    }
+
+    if (isContextDocumentLarge(byteLength)) {
+      const approved = await decision.open({
+        title: t('context_document_large_title', 'Large document warning'),
+        description: t(
+          'context_document_large_description',
+          `"${documentName}" is ${formatContextDocumentSize(byteLength)} (${byteLength.toLocaleString()} bytes). Documents at or above ${formatContextDocumentSize(CONTEXT_DOCUMENT_LARGE_WARNING_BYTES)} may be too large for reliable agent use. Consider splitting it into smaller files.`
+        ),
+        approveLabel: t('context_document_save_anyway', 'Save anyway'),
+        cancelLabel: t('cancel', 'Cancel'),
+      });
+
+      if (!approved) {
+        return;
+      }
+    }
+
+    setSaving(true);
+    try {
+      const updated = await updateDocument(documentId, content, documentName);
+      toaster.show(
+        t('context_document_saved_success', 'Document saved successfully.'),
+        'success'
+      );
+      if (updated.warning) {
+        toaster.show(updated.warning, 'warning');
+      }
+      onSaved?.();
+      modal.closeAll();
+    } catch (err: any) {
+      toaster.show(
+        err?.message ||
+        t(
+          'context_document_save_error',
+          'Failed to save document. Please try again.'
+        ),
+        'warning'
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    byteLength,
+    content,
+    decision,
+    documentId,
+    documentName,
+    modal,
+    onSaved,
+    t,
+    toaster,
+    updateDocument,
+  ]);
+
+  const handleCancel = useCallback(async () => {
+    if (dirty) {
+      const approved = await decision.open({
+        title: t('context_document_discard_title', 'Discard changes?'),
+        description: t(
+          'context_document_discard_description',
+          'You have unsaved changes. Are you sure you want to close without saving?'
+        ),
+        approveLabel: t('context_document_discard_confirm', 'Discard'),
+        cancelLabel: t('cancel', 'Cancel'),
+      });
+      if (!approved) {
+        return;
+      }
+    }
+    modal.closeAll();
+  }, [decision, dirty, modal, t]);
 
   if (isLoading && !data) {
     return (
@@ -108,15 +215,105 @@ const ContextDocumentReader: FC<{
   }
 
   return (
-    <ContextDocumentMarkdown content={data.content} />
+    <div className="flex flex-col gap-[12px]">
+      <textarea
+        value={content}
+        onChange={(event) => setContent(event.target.value)}
+        spellCheck={false}
+        className="w-full min-h-[420px] bg-input border border-tableBorder rounded-[8px] p-[12px] text-[14px] font-mono text-newTextColor outline-none resize-y focus:border-[#eb3825]"
+        aria-label={t('context_document_editor', 'Document content')}
+      />
+      <div className="flex items-center justify-between gap-[12px] flex-wrap">
+        <div className="text-[12px] opacity-70">
+          {formatContextDocumentSize(byteLength)} ({byteLength.toLocaleString()}{' '}
+          bytes)
+          {isContextDocumentLarge(byteLength) && (
+            <span className="ms-[8px] text-amber-500">
+              {t('context_document_large_badge', 'Large')}
+            </span>
+          )}
+        </div>
+        <div className="flex gap-[8px]">
+          <Button secondary onClick={handleCancel} disabled={saving}>
+            {t('cancel', 'Cancel')}
+          </Button>
+          <Button onClick={handleSave} loading={saving} disabled={!dirty}>
+            {t('save', 'Save')}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ContextDocumentNameModal: FC<{
+  initialName: string;
+  confirmLabel: string;
+  onSave: (name: string) => Promise<void>;
+}> = ({ initialName, confirmLabel, onSave }) => {
+  const t = useT();
+  const modal = useModals();
+  const [value, setValue] = useState(initialName);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const save = useCallback(async () => {
+    const validated = validateDocumentFilename(value, t);
+    if (!validated.name) {
+      setError(validated.error);
+      return;
+    }
+
+    setSaving(true);
+    setError(undefined);
+    try {
+      await onSave(validated.name);
+      modal.closeCurrent();
+    } catch (err: any) {
+      setError(
+        err?.message ||
+        t(
+          'context_document_name_save_error',
+          'We could not save this document name.'
+        )
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [modal, onSave, t, value]);
+
+  return (
+    <div>
+      <Input
+        name="context-document-name"
+        disableForm={true}
+        removeError={true}
+        label={t('context_document_filename', 'Filename')}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder="NOTES.md"
+      />
+      {error && (
+        <p className="mt-[8px] text-[13px] text-red-400">{error}</p>
+      )}
+      <div className="mt-[16px] flex justify-end gap-[8px]">
+        <Button onClick={() => modal.closeCurrent()} disabled={saving} secondary>
+          {t('cancel', 'Cancel')}
+        </Button>
+        <Button onClick={save} loading={saving} disabled={!value.trim()}>
+          {confirmLabel}
+        </Button>
+      </div>
+    </div>
   );
 };
 
 const ContextDocumentMenu: FC<{
   disabled?: boolean;
+  onRename: () => void;
   onReplace: () => void;
   onDelete: () => void;
-}> = ({ disabled, onReplace, onDelete }) => {
+}> = ({ disabled, onRename, onReplace, onDelete }) => {
   const t = useT();
   const [open, setOpen] = useState(false);
   const ref = useClickOutside<HTMLDivElement>(() => setOpen(false));
@@ -151,6 +348,13 @@ const ContextDocumentMenu: FC<{
         <div className="z-[300] absolute end-0 bottom-full mb-[6px] min-w-[140px] bg-newBgColorInner p-[8px] menu-shadow flex flex-col rounded-[8px] border border-newBorder">
           <button
             type="button"
+            onClick={run(onRename)}
+            className="px-[10px] py-[8px] text-[13px] rounded-[6px] text-start hover:bg-newBgColor"
+          >
+            {t('rename', 'Rename')}
+          </button>
+          <button
+            type="button"
             onClick={run(onReplace)}
             className="px-[10px] py-[8px] text-[13px] rounded-[6px] text-start hover:bg-newBgColor"
           >
@@ -173,33 +377,17 @@ const ContextDocumentCard: FC<{
   document: ContextDocumentMetadata;
   pending: boolean;
   uploading: boolean;
+  onOpen: () => void;
+  onRename: () => void;
   onReplace: () => void;
   onDelete: () => void;
-}> = ({ document, pending, uploading, onReplace, onDelete }) => {
+}> = ({ document, pending, uploading, onOpen, onRename, onReplace, onDelete }) => {
   const t = useT();
-  const modal = useModals();
   const skillSlug =
     document.skill?.slug || getContextDocumentSkillSlug(document.name);
   const skillConflict =
     document.skill?.conflict ||
     (skillSlug ? RESERVED_AGENT_COMMAND_SLUGS.has(skillSlug) : false);
-
-  const openReader = useCallback(() => {
-    if (skillConflict) {
-      return;
-    }
-    modal.openModal({
-      title: document.name,
-      size: '840px',
-      maxSize: '90vw',
-      children: (
-        <ContextDocumentReader
-          documentId={document.id}
-          skillSlug={skillSlug}
-        />
-      ),
-    });
-  }, [document.id, document.name, modal, skillConflict, skillSlug]);
 
   return (
     <div
@@ -210,7 +398,7 @@ const ContextDocumentCard: FC<{
     >
       <button
         type="button"
-        onClick={openReader}
+        onClick={onOpen}
         aria-label={t('context_document_open', 'Open document')}
         disabled={skillConflict}
         className="min-w-0 flex-1 p-[12px] flex flex-col gap-[8px] text-start"
@@ -259,6 +447,7 @@ const ContextDocumentCard: FC<{
       <div className="shrink-0 p-[12px] ps-0">
         <ContextDocumentMenu
           disabled={pending || uploading}
+          onRename={onRename}
           onReplace={onReplace}
           onDelete={onDelete}
         />
@@ -271,10 +460,13 @@ export const ContextDocumentLibrary: FC = () => {
   const t = useT();
   const toaster = useToaster();
   const decision = useDecisionModal();
+  const modal = useModals();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data, error, isLoading, mutate } = useContextDocumentList();
   const uploadDocument = useContextDocumentUpload();
   const deleteDocument = useContextDocumentDelete();
+  const createDocument = useContextDocumentCreate();
+  const renameDocument = useContextDocumentRename();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [search, setSearch] = useState('');
@@ -296,9 +488,92 @@ export const ContextDocumentLibrary: FC = () => {
     }
   }, [documents.length, search]);
 
+  const openEditor = useCallback(
+    (document: Pick<ContextDocumentMetadata, 'id' | 'name'> & {
+      skill?: ContextDocumentMetadata['skill'];
+    }) => {
+      const skillSlug =
+        document.skill?.slug || getContextDocumentSkillSlug(document.name);
+      const skillConflict =
+        document.skill?.conflict ||
+        (skillSlug ? RESERVED_AGENT_COMMAND_SLUGS.has(skillSlug) : false);
+
+      if (skillConflict) {
+        return;
+      }
+
+      modal.openModal({
+        title: document.name,
+        size: '840px',
+        maxSize: '90vw',
+        children: (
+          <ContextDocumentEditor
+            documentId={document.id}
+            documentName={document.name}
+            skillSlug={skillSlug}
+            onSaved={() => {
+              void mutate();
+            }}
+          />
+        ),
+      });
+    },
+    [modal, mutate]
+  );
+
   const handleUploadClick = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
+
+  const openCreateModal = useCallback(() => {
+    modal.openModal({
+      title: t('context_document_new_title', 'New document'),
+      children: (
+        <ContextDocumentNameModal
+          initialName=""
+          confirmLabel={t('context_document_create', 'Create')}
+          onSave={async (name) => {
+            const created = await createDocument({ name, content: '' });
+            await mutate();
+            toaster.show(
+              t(
+                'context_document_created_success',
+                'Document created successfully.'
+              ),
+              'success'
+            );
+            openEditor(created);
+          }}
+        />
+      ),
+    });
+  }, [createDocument, modal, mutate, openEditor, t, toaster]);
+
+  const openRenameModal = useCallback(
+    (document: ContextDocumentMetadata) => {
+      modal.openModal({
+        title: t('context_document_rename_title', 'Rename document'),
+        children: (
+          <ContextDocumentNameModal
+            initialName={document.name}
+            confirmLabel={t('rename', 'Rename')}
+            onSave={async (name) => {
+              await renameDocument(document.id, name, document.name);
+              await mutate();
+              toaster.show(
+                t(
+                  'context_document_renamed_success',
+                  'Document renamed successfully.'
+                ),
+                'success'
+              );
+            }}
+          />
+        ),
+      });
+    },
+    [modal, mutate, renameDocument, t, toaster]
+  );
 
   const handleFileSelected = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -309,41 +584,12 @@ export const ContextDocumentLibrary: FC = () => {
         return;
       }
 
-      const normalizedName = normalizeContextDocumentName(file.name);
-
-      if (!normalizedName) {
-        toaster.show(
-          t(
-            'context_document_invalid_extension',
-            'Only .md and .markdown files are supported.'
-          ),
-          'warning'
-        );
+      const validated = validateDocumentFilename(file.name, t);
+      if (!validated.name) {
+        toaster.show(validated.error!, 'warning');
         return;
       }
-
-      const skillSlug = getContextDocumentSkillSlug(normalizedName);
-      if (isAttemptedContextDocumentSkillFilename(normalizedName) && !skillSlug) {
-        toaster.show(
-          t(
-            'context_document_invalid_skill_name',
-            'Agent skill filenames must use the format {slug}.skill.md, with lowercase letters, numbers, and hyphens in the slug.'
-          ),
-          'warning'
-        );
-        return;
-      }
-
-      if (skillSlug && RESERVED_AGENT_COMMAND_SLUGS.has(skillSlug)) {
-        toaster.show(
-          t(
-            'context_document_reserved_skill',
-            `Agent skill command /${skillSlug} is reserved and cannot be used.`
-          ),
-          'warning'
-        );
-        return;
-      }
+      const normalizedName = validated.name;
 
       if (file.size > CONTEXT_DOCUMENT_MAX_BYTES) {
         toaster.show(
@@ -497,7 +743,7 @@ export const ContextDocumentLibrary: FC = () => {
         <p className="text-[14px] opacity-70 max-w-[760px]">
           {t(
             'context_documents_description',
-            'Upload reusable Markdown files for your organization. Standard documents can be attached to Pipelines; {slug}.skill.md files are agent procedures invoked with /slug. Maximum file size is 256 KiB.'
+            'Create or upload reusable Markdown files for your organization. Standard documents can be attached to Pipelines; {slug}.skill.md files are agent procedures invoked with /slug. Maximum file size is 256 KiB.'
           )}
         </p>
       </div>
@@ -526,7 +772,10 @@ export const ContextDocumentLibrary: FC = () => {
             />
           </div>
         )}
-        <Button onClick={handleUploadClick} loading={uploading}>
+        <Button onClick={openCreateModal}>
+          {t('context_document_new', '+ New document')}
+        </Button>
+        <Button onClick={handleUploadClick} loading={uploading} secondary>
           {t('context_document_upload', '+ Upload')}
         </Button>
       </div>
@@ -539,12 +788,17 @@ export const ContextDocumentLibrary: FC = () => {
           <div className="text-[14px] opacity-70 max-w-[520px]">
             {t(
               'context_documents_empty_description',
-              'Upload .md or .markdown files such as BRANDING.md for Pipeline guidance, or {slug}.skill.md files for agent procedures invoked with /slug.'
+              'Create a blank Markdown document in the browser, or upload .md / .markdown files such as BRANDING.md for Pipeline guidance, or {slug}.skill.md files for agent procedures invoked with /slug.'
             )}
           </div>
-          <Button onClick={handleUploadClick} loading={uploading}>
-            {t('context_document_upload', '+ Upload')}
-          </Button>
+          <div className="flex gap-[8px] flex-wrap justify-center">
+            <Button onClick={openCreateModal}>
+              {t('context_document_new', '+ New document')}
+            </Button>
+            <Button onClick={handleUploadClick} loading={uploading} secondary>
+              {t('context_document_upload', '+ Upload')}
+            </Button>
+          </div>
         </div>
       ) : !filteredDocuments.length ? (
         <div className="rounded-[12px] border border-newBorder bg-newBgColor p-[32px] flex flex-col items-center justify-center gap-[12px] text-center">
@@ -566,6 +820,8 @@ export const ContextDocumentLibrary: FC = () => {
               document={document}
               pending={pendingId === document.id}
               uploading={uploading}
+              onOpen={() => openEditor(document)}
+              onRename={() => openRenameModal(document)}
               onReplace={handleUploadClick}
               onDelete={confirmDelete(document)}
             />

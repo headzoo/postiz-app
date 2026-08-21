@@ -456,6 +456,24 @@ describe('FollowerCard', () => {
     expect(onDismissTriage).toHaveBeenCalledWith('lead');
   });
 
+  it('renders a Fit score badge for scored leads', () => {
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          isLead: true,
+          leadFitScore: 82,
+          leadFitReason: 'Matches channel tech audience',
+        }}
+      />
+    );
+
+    expect(screen.getByText('Fit 82')).toBeTruthy();
+    expect(
+      screen.getByTitle('Matches channel tech audience')
+    ).toBeTruthy();
+  });
+
   it('renders cultivate reason and dismissible Cultivate badge', async () => {
     const onDismissTriage = jest.fn();
     decisionOpen.mockResolvedValue(true);

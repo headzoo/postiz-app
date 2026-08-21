@@ -1,11 +1,15 @@
-import { TopTitle } from '@gitroom/frontend/components/launches/helpers/top.title.component';
-import React, { FC, useCallback, useState } from 'react';
+'use client';
+
+import React, { FC, useCallback, useEffect, useState } from 'react';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { Integration } from '@prisma/client';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { Button } from '@gitroom/react/form/button';
 import { Slider } from '@gitroom/react/form/slider';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { ContextDocumentAssignmentPicker } from '@gitroom/frontend/components/context-documents/context-document.assignment-picker';
+import { PipelineContextDocument } from '@gitroom/frontend/components/pipelines/pipeline.types';
+import { useToaster } from '@gitroom/react/toaster/toaster';
 
 export const Element: FC<{
   setting: any;
@@ -28,6 +32,7 @@ export const Element: FC<{
     </div>
   );
 };
+
 export const SettingsModal: FC<{
   integration: Integration & {
     customer?: {
@@ -39,11 +44,58 @@ export const SettingsModal: FC<{
 }> = (props) => {
   const fetch = useFetch();
   const t = useT();
+  const toast = useToaster();
   const { onClose, integration } = props;
   const modal = useModals();
   const [values, setValues] = useState(
     JSON.parse(integration?.additionalSettings || '[]')
   );
+  const [selectedContextDocumentIds, setSelectedContextDocumentIds] = useState<
+    string[]
+  >([]);
+  const [knownDocuments, setKnownDocuments] = useState<
+    PipelineContextDocument[]
+  >([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(
+          `/integrations/${integration.id}/context-documents`
+        );
+        if (!response.ok) {
+          throw new Error('Failed to load channel context documents');
+        }
+        const documents = (await response.json()) as PipelineContextDocument[];
+        if (cancelled) {
+          return;
+        }
+        setKnownDocuments(documents);
+        setSelectedContextDocumentIds(documents.map((document) => document.id));
+      } catch {
+        if (!cancelled) {
+          toast.show(
+            t(
+              'channel_context_documents_load_error',
+              'Failed to load channel context documents'
+            ),
+            'warning'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingDocuments(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetch, integration.id, t, toast]);
+
   const changeValue = useCallback(
     (index: number) => (value: any) => {
       const newValues = [...values];
@@ -52,30 +104,100 @@ export const SettingsModal: FC<{
     },
     [values]
   );
+
   const save = useCallback(async () => {
-    await fetch(`/integrations/${integration.id}/settings`, {
-      method: 'POST',
-      body: JSON.stringify({
-        additionalSettings: JSON.stringify(values),
-      }),
-    });
-    modal.closeAll();
-    onClose();
-  }, [values, integration]);
+    setSaving(true);
+    try {
+      if (values.length) {
+        const settingsResponse = await fetch(
+          `/integrations/${integration.id}/settings`,
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              additionalSettings: JSON.stringify(values),
+            }),
+          }
+        );
+        if (!settingsResponse.ok) {
+          throw new Error('Failed to save channel settings');
+        }
+      }
+
+      const documentsResponse = await fetch(
+        `/integrations/${integration.id}/context-documents`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            contextDocumentIds: selectedContextDocumentIds,
+          }),
+        }
+      );
+      if (!documentsResponse.ok) {
+        throw new Error('Failed to save channel context documents');
+      }
+
+      modal.closeAll();
+      onClose();
+    } catch {
+      toast.show(
+        t('channel_settings_save_error', 'Failed to save channel settings'),
+        'warning'
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    fetch,
+    integration.id,
+    modal,
+    onClose,
+    selectedContextDocumentIds,
+    t,
+    toast,
+    values,
+  ]);
+
   return (
     <div>
+      {!!values.length && (
+        <div className="mt-[16px]">
+          {values.map((setting: any, index: number) => (
+            <Element
+              key={setting.title}
+              setting={setting}
+              onChange={changeValue(index)}
+            />
+          ))}
+        </div>
+      )}
+
       <div className="mt-[16px]">
-        {values.map((setting: any, index: number) => (
-          <Element
-            key={setting.title}
-            setting={setting}
-            onChange={changeValue(index)}
+        {loadingDocuments ? (
+          <div className="text-[13px] opacity-70">
+            {t('loading', 'Loading...')}
+          </div>
+        ) : (
+          <ContextDocumentAssignmentPicker
+            selectedIds={selectedContextDocumentIds}
+            onChange={setSelectedContextDocumentIds}
+            knownDocuments={knownDocuments}
+            title={t('channel_context_documents', 'Context documents')}
+            helpText={t(
+              'channel_context_documents_help',
+              'Optional Markdown files that describe this channel — who they are, what they believe, and who they want to attract. Lead scoring and the agent can use these documents.'
+            )}
+            emptyText={t(
+              'channel_context_documents_empty',
+              'No organization documents yet. Upload Markdown files in the context document library, then attach them here.'
+            )}
           />
-        ))}
+        )}
       </div>
 
       <div className="my-[16px] flex gap-[10px]">
-        <Button onClick={save}>{t('save', 'Save')}</Button>
+        <Button onClick={save} disabled={saving || loadingDocuments}>
+          {saving ? t('saving', 'Saving...') : t('save', 'Save')}
+        </Button>
       </div>
     </div>
   );

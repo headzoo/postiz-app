@@ -72,6 +72,8 @@ const createRepository = () => ({
   listCultivateCandidates: jest.fn().mockResolvedValue([]),
   rankCultivateCandidates: jest.fn().mockReturnValue([]),
   upsertCultivatePicks: jest.fn().mockResolvedValue({ count: 0 }),
+  listUnscoredLeadExternalIds: jest.fn().mockResolvedValue([]),
+  updateAudienceLeadFit: jest.fn().mockResolvedValue({ count: 0 }),
   getStoredFollowerAudienceCounts: jest.fn().mockResolvedValue({
     categories: {},
     lists: [],
@@ -128,12 +130,12 @@ describe('ChannelInteractionService', () => {
     [20, 20, 1, 5],
     [80, 40, 0.5, 5],
   ])(
-    'calculates formula-v2 relationship grade for effort %i and reciprocation %i',
+    'calculates formula-v3 relationship grade for effort %i and reciprocation %i',
     (effortScore, reciprocationScore, reciprocity, grade) => {
       expect(calculateRelationshipGrade(effortScore, reciprocationScore)).toEqual({
         reciprocity,
         grade,
-        formulaVersion: 2,
+        formulaVersion: 3,
       });
     }
   );
@@ -485,7 +487,7 @@ describe('ChannelInteractionService', () => {
         reciprocationScore: 0,
         reciprocity: null,
         grade: null,
-        formulaVersion: 2,
+        formulaVersion: 3,
       }]
     );
   });
@@ -1769,5 +1771,114 @@ describe('ChannelInteractionService', () => {
         },
       ],
     });
+  });
+
+  it('scores unscored leads from attached channel documents', async () => {
+    const repository = createRepository();
+    repository.listUnscoredLeadExternalIds.mockResolvedValue([
+      {
+        externalId: 'lead-1',
+        name: 'Lead One',
+        username: 'leadone',
+        bio: 'Builds developer tools',
+        followersCount: 1200,
+        followingCount: 80,
+        leadBridgesAsLead: [
+          {
+            bridgeRelationshipGrade: 4.2,
+            bridgeMember: { username: 'warmbridge' },
+          },
+        ],
+      },
+    ]);
+    const openaiService = {
+      scoreLeadFit: jest.fn().mockResolvedValue({
+        score: 81,
+        reason: 'Strong tech overlap',
+        concerns: [],
+        matchedTopics: ['developer tools'],
+        model: 'gpt-4.1',
+        version: 1,
+      }),
+    };
+    const contextDocumentService = {
+      listAttachedDocumentsForIntegration: jest.fn().mockResolvedValue([
+        { name: 'audience.md', content: 'We serve software founders.' },
+      ]),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      undefined,
+      undefined,
+      undefined,
+      openaiService as any,
+      contextDocumentService as any
+    );
+
+    await expect(
+      service.scoreLeadFitBatch({
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalIds: ['lead-1', 'lead-2'],
+      })
+    ).resolves.toEqual({ scored: 1, skipped: 1 });
+    expect(openaiService.scoreLeadFit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channelDocuments: [
+          { name: 'audience.md', content: 'We serve software founders.' },
+        ],
+        candidate: expect.objectContaining({
+          username: 'leadone',
+          bio: 'Builds developer tools',
+        }),
+      })
+    );
+    expect(repository.updateAudienceLeadFit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalId: 'lead-1',
+        leadFitScore: 81,
+        leadFitReason: 'Strong tech overlap',
+        leadFitModel: 'gpt-4.1',
+        leadFitVersion: 1,
+      })
+    );
+  });
+
+  it('leaves leads unscored when AI scoring fails', async () => {
+    const repository = createRepository();
+    repository.listUnscoredLeadExternalIds.mockResolvedValue([
+      {
+        externalId: 'lead-1',
+        name: 'Lead One',
+        username: 'leadone',
+        bio: null,
+        followersCount: null,
+        followingCount: null,
+        leadBridgesAsLead: [],
+      },
+    ]);
+    const openaiService = {
+      scoreLeadFit: jest.fn().mockRejectedValue(new Error('timeout')),
+    };
+    const contextDocumentService = {
+      listAttachedDocumentsForIntegration: jest.fn().mockResolvedValue([]),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      undefined,
+      undefined,
+      undefined,
+      openaiService as any,
+      contextDocumentService as any
+    );
+
+    await expect(
+      service.scoreLeadFitBatch({
+        organizationId: 'org',
+        integrationId: 'integration',
+        externalIds: ['lead-1'],
+      })
+    ).resolves.toEqual({ scored: 0, skipped: 1 });
+    expect(repository.updateAudienceLeadFit).not.toHaveBeenCalled();
   });
 });

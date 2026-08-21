@@ -1,3 +1,5 @@
+import { IsDefined, IsOptional, IsString } from 'class-validator';
+
 export type ContextDocumentMetadataDto = {
   id: string;
   organizationId: string;
@@ -40,3 +42,25 @@ export type SkillMetadataDto = {
 export type SkillContentDto = SkillMetadataDto & {
   content: string;
 };
+
+export class CreateContextDocumentDto {
+  @IsString()
+  @IsDefined()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  content?: string;
+}
+
+export class UpdateContextDocumentContentDto {
+  @IsString()
+  @IsDefined()
+  content: string;
+}
+
+export class RenameContextDocumentDto {
+  @IsString()
+  @IsDefined()
+  name: string;
+}

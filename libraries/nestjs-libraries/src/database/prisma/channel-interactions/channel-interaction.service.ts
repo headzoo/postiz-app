@@ -35,6 +35,8 @@ import {
   logEventType,
 } from '@gitroom/nestjs-libraries/database/prisma/logs/http-log.serialize';
 import { PostsRepository } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.repository';
+import { OpenaiService } from '@gitroom/nestjs-libraries/openai/openai.service';
+import { ContextDocumentService } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.service';
 import {
   AudienceProfile,
   ChannelInteractionRepository,
@@ -52,11 +54,13 @@ import { RelationshipGradeScheduleConfig } from '@gitroom/nestjs-libraries/tempo
 import {
   LEAD_BRIDGE_DAILY_LIMIT,
   LEAD_BRIDGE_PAGE_SIZE,
+  LEAD_BRIDGE_PER_SOURCE_CAP,
   leadBridgeCursorKey,
   leadBridgeDailyCountKey,
   leadBridgeDailyTtlSeconds,
   utcDayKey,
 } from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
+import { parseSkillFilename } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
 import {
   CULTIVATE_CANDIDATE_POOL_SIZE,
   CULTIVATE_DAILY_PICK_LIMIT,
@@ -166,7 +170,9 @@ export class ChannelInteractionService {
     private _repository: ChannelInteractionRepository,
     private _integrationManager?: IntegrationManager,
     private _logsService?: LogsService,
-    private _postsRepository?: PostsRepository
+    private _postsRepository?: PostsRepository,
+    private _openaiService?: OpenaiService,
+    private _contextDocumentService?: ContextDocumentService
   ) { }
 
   async handleChallenge(
@@ -1133,12 +1139,33 @@ export class ChannelInteractionService {
         : {}),
     }));
 
+    const deduped = new Map<string, (typeof leads)[number]>();
+    for (const lead of leads) {
+      if (!lead.externalId || lead.externalId === warm.externalId) {
+        continue;
+      }
+      if (!deduped.has(lead.externalId)) {
+        deduped.set(lead.externalId, lead);
+      }
+    }
+    const rankedLeads = [...deduped.values()].sort((left, right) => {
+      const leftBio = left.bio?.trim().length ?? 0;
+      const rightBio = right.bio?.trim().length ?? 0;
+      if (leftBio !== rightBio) {
+        return rightBio - leftBio;
+      }
+      const leftFollowers = left.followersCount ?? -1;
+      const rightFollowers = right.followersCount ?? -1;
+      return rightFollowers - leftFollowers;
+    });
+
     const result = await this._repository.applyLeadBridgeDiscoveries({
       organizationId: integration.organizationId,
       integrationId: integration.id,
       bridgeExternalId: warm.externalId,
       bridgeRelationshipGrade: warm.relationshipGrade,
-      leads,
+      leads: rankedLeads,
+      maxApplied: LEAD_BRIDGE_PER_SOURCE_CAP,
     });
 
     await ioRedis.set(cursorKey, warm.externalId);
@@ -1152,7 +1179,79 @@ export class ChannelInteractionService {
       processed: 1,
       applied: result.applied,
       skippedLeads: result.skipped,
+      appliedExternalIds: result.appliedExternalIds,
       bridgeExternalId: warm.externalId,
+    };
+  }
+
+  async scoreLeadFitBatch(params: {
+    organizationId: string;
+    integrationId: string;
+    externalIds: string[];
+  }) {
+    if (!this._openaiService || !this._contextDocumentService) {
+      return { scored: 0, skipped: params.externalIds.length };
+    }
+    const documents =
+      await this._contextDocumentService.listAttachedDocumentsForIntegration(
+        params.organizationId,
+        params.integrationId
+      );
+    const channelDocuments = documents
+      .filter((document) => !parseSkillFilename(document.name))
+      .map((document) => ({
+        name: document.name,
+        content: document.content,
+      }));
+    const candidates = await this._repository.listUnscoredLeadExternalIds({
+      organizationId: params.organizationId,
+      integrationId: params.integrationId,
+      externalIds: params.externalIds,
+    });
+    let scored = 0;
+    for (const candidate of candidates) {
+      try {
+        const result = await this._openaiService.scoreLeadFit({
+          channelDocuments,
+          candidate: {
+            ...(candidate.name ? { name: candidate.name } : {}),
+            ...(candidate.username ? { username: candidate.username } : {}),
+            ...(candidate.bio ? { bio: candidate.bio } : {}),
+            ...(candidate.followersCount != null
+              ? { followersCount: candidate.followersCount }
+              : {}),
+            ...(candidate.followingCount != null
+              ? { followingCount: candidate.followingCount }
+              : {}),
+          },
+          bridges: candidate.leadBridgesAsLead.map((bridge) => ({
+            ...(bridge.bridgeMember.username
+              ? { username: bridge.bridgeMember.username }
+              : {}),
+            ...(bridge.bridgeRelationshipGrade != null
+              ? { grade: bridge.bridgeRelationshipGrade }
+              : {}),
+          })),
+        });
+        await this._repository.updateAudienceLeadFit({
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          externalId: candidate.externalId,
+          leadFitScore: result.score,
+          leadFitReason: result.reason,
+          leadFitConcerns: result.concerns,
+          leadFitMatchedTopics: result.matchedTopics,
+          leadFitModel: result.model,
+          leadFitVersion: result.version,
+        });
+        scored++;
+      } catch {
+        // Keep the lead unscored when AI scoring fails.
+      }
+    }
+    return {
+      scored,
+      skipped: Math.max(0, params.externalIds.length - scored),
     };
   }
 
@@ -1563,6 +1662,7 @@ export class ChannelInteractionService {
       'costly',
       'quiet',
       'lead',
+      'leads',
       'ignored',
     ];
     if (reserved.includes(normalized.toLowerCase())) {

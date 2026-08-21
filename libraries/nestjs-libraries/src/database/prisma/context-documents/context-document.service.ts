@@ -8,6 +8,7 @@ import {
   ContextDocumentContentDto,
   ContextDocumentMetadataDto,
   ContextDocumentUploadResponseDto,
+  CreateContextDocumentDto,
   SkillContentDto,
   SkillMetadataDto,
 } from '@gitroom/nestjs-libraries/dtos/context-documents/context-document.dto';
@@ -17,6 +18,8 @@ import {
   isContextDocumentLarge,
   isReservedAgentCommandSlug,
   parseSkillFilename,
+  validateContextDocumentContent,
+  validateContextDocumentNameForWrite,
   validateContextDocumentUpload,
 } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
 import { ContextDocument } from '@prisma/client';
@@ -25,7 +28,7 @@ import { ContextDocument } from '@prisma/client';
 export class ContextDocumentService {
   constructor(
     private _contextDocumentRepository: ContextDocumentRepository
-  ) {}
+  ) { }
 
   async listDocuments(
     organizationId: string
@@ -85,6 +88,126 @@ export class ContextDocumentService {
     );
 
     return this.toMetadata(document);
+  }
+
+  async createDocument(
+    organizationId: string,
+    dto: CreateContextDocumentDto
+  ): Promise<ContextDocumentMetadataDto> {
+    const name = validateContextDocumentNameForWrite(dto.name);
+    const { content, fileSize } = validateContextDocumentContent(
+      dto.content ?? '',
+      { allowEmpty: true }
+    );
+
+    const existing = await this._contextDocumentRepository.findByName(
+      organizationId,
+      name
+    );
+    if (existing) {
+      throw new BadRequestException(
+        `A document named "${name}" already exists.`
+      );
+    }
+
+    try {
+      const document = await this._contextDocumentRepository.createDocument(
+        organizationId,
+        name,
+        content,
+        fileSize
+      );
+      return this.toMetadata(document);
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        throw new BadRequestException(
+          `A document named "${name}" already exists.`
+        );
+      }
+      throw error;
+    }
+  }
+
+  async updateDocumentContent(
+    organizationId: string,
+    id: string,
+    content: string
+  ): Promise<ContextDocumentMetadataDto> {
+    const existing = await this._contextDocumentRepository.findById(
+      organizationId,
+      id
+    );
+    if (!existing) {
+      throw new NotFoundException('Context document not found.');
+    }
+
+    const validated = validateContextDocumentContent(content, {
+      allowEmpty: true,
+    });
+
+    try {
+      const document =
+        await this._contextDocumentRepository.updateDocumentContent(
+          organizationId,
+          id,
+          validated.content,
+          validated.fileSize
+        );
+      return this.toMetadata(document);
+    } catch (error: any) {
+      if (error?.code === 'P2025') {
+        throw new NotFoundException('Context document not found.');
+      }
+      throw error;
+    }
+  }
+
+  async renameDocument(
+    organizationId: string,
+    id: string,
+    nextName: string
+  ): Promise<ContextDocumentMetadataDto> {
+    const existing = await this._contextDocumentRepository.findById(
+      organizationId,
+      id
+    );
+    if (!existing) {
+      throw new NotFoundException('Context document not found.');
+    }
+
+    const name = validateContextDocumentNameForWrite(nextName);
+    if (name === existing.name) {
+      return this.toMetadata(existing);
+    }
+
+    const conflict = await this._contextDocumentRepository.findByName(
+      organizationId,
+      name
+    );
+    if (conflict && conflict.id !== id) {
+      throw new BadRequestException(
+        `A document named "${name}" already exists.`
+      );
+    }
+
+    try {
+      const document = await this._contextDocumentRepository.renameDocument(
+        organizationId,
+        id,
+        name
+      );
+      return this.toMetadata(document);
+    } catch (error: any) {
+      if (error?.code === 'P2025') {
+        throw new NotFoundException('Context document not found.');
+      }
+      if (error?.code === 'P2002') {
+        throw new BadRequestException(
+          `A document named "${name}" already exists.`
+        );
+      }
+      throw error;
+    }
   }
 
   async getDocumentById(
@@ -153,6 +276,47 @@ export class ContextDocumentService {
     return this.toContentResponse(document);
   }
 
+  async getAttachedDocumentForIntegration(
+    organizationId: string,
+    integrationId: string,
+    selector: { documentId?: string; name?: string }
+  ) {
+    const hasDocumentId = Boolean(selector.documentId);
+    const hasName = Boolean(selector.name);
+
+    if (hasDocumentId === hasName) {
+      throw new BadRequestException(
+        'Provide exactly one of documentId or name.'
+      );
+    }
+
+    const document =
+      await this._contextDocumentRepository.findAttachedToIntegration(
+        organizationId,
+        integrationId,
+        selector
+      );
+
+    if (!document) {
+      throw new NotFoundException('Context document not found.');
+    }
+    if (parseSkillFilename(document.name)) {
+      throw new NotFoundException('Context document not found.');
+    }
+
+    return this.toContentResponse(document);
+  }
+
+  listAttachedDocumentsForIntegration(
+    organizationId: string,
+    integrationId: string
+  ) {
+    return this._contextDocumentRepository.listAttachedToIntegration(
+      organizationId,
+      integrationId
+    );
+  }
+
   async deleteDocument(organizationId: string, id: string) {
     try {
       await this._contextDocumentRepository.deleteDocument(organizationId, id);
@@ -191,12 +355,12 @@ export class ContextDocumentService {
       ...(warning ? { warning } : {}),
       ...(slug
         ? {
-            skill: {
-              slug,
-              command: `/${slug}`,
-              conflict: isReservedAgentCommandSlug(slug),
-            },
-          }
+          skill: {
+            slug,
+            command: `/${slug}`,
+            conflict: isReservedAgentCommandSlug(slug),
+          },
+        }
         : {}),
     };
   }

@@ -71,6 +71,7 @@ import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
 import { RefreshToken } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import { IntegrationTimeDto } from '@gitroom/nestjs-libraries/dtos/integrations/integration.time.dto';
 import { UploadFactory } from '@gitroom/nestjs-libraries/upload/upload.factory';
+import { parseSkillFilename } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
 import { PlugDto } from '@gitroom/nestjs-libraries/dtos/plugs/plug.dto';
 import { difference, uniq } from 'lodash';
 import utc from 'dayjs/plugin/utc';
@@ -154,6 +155,82 @@ export class IntegrationService {
       id,
       additionalSettings
     );
+  }
+
+  async listIntegrationContextDocuments(orgId: string, integrationId: string) {
+    const assignments =
+      await this._integrationRepository.listIntegrationContextDocuments(
+        orgId,
+        integrationId
+      );
+    if (!assignments) {
+      throw new NotFoundException('Integration not found');
+    }
+    return this.toIntegrationContextDocuments(assignments);
+  }
+
+  async replaceIntegrationContextDocuments(
+    orgId: string,
+    integrationId: string,
+    documentIds: string[]
+  ) {
+    if (new Set(documentIds).size !== documentIds.length) {
+      throw new BadRequestException(
+        'Channel context document IDs must be unique'
+      );
+    }
+    if (documentIds.length) {
+      const documents =
+        await this._integrationRepository.getOwnedContextDocuments(
+          orgId,
+          documentIds
+        );
+      if (documents.length !== documentIds.length) {
+        throw new BadRequestException(
+          'Channel context documents must belong to the organization'
+        );
+      }
+      if (documents.some((document) => parseSkillFilename(document.name))) {
+        throw new BadRequestException(
+          'Agent skills cannot be attached as channel context documents'
+        );
+      }
+    }
+
+    const assignments =
+      await this._integrationRepository.replaceIntegrationContextDocuments(
+        orgId,
+        integrationId,
+        documentIds
+      );
+    if (!assignments) {
+      throw new NotFoundException('Integration not found');
+    }
+    return this.toIntegrationContextDocuments(assignments);
+  }
+
+  private toIntegrationContextDocuments(
+    assignments: Array<{
+      contextDocument: {
+        id: string;
+        name: string;
+        fileSize: number;
+        updatedAt: Date;
+      };
+    }>
+  ) {
+    return [...assignments]
+      .filter(({ contextDocument }) => !parseSkillFilename(contextDocument.name))
+      .map(({ contextDocument }) => ({
+        id: contextDocument.id,
+        name: contextDocument.name,
+        fileSize: contextDocument.fileSize,
+        updatedAt: contextDocument.updatedAt,
+      }))
+      .sort(
+        (first, second) =>
+          first.name.localeCompare(second.name) || first.id.localeCompare(second.id)
+      );
   }
 
   checkPreviousConnections(org: string, id: string) {
@@ -1648,6 +1725,7 @@ export class IntegrationService {
     if (
       query.cursor?.startsWith('follower-lead:v1:') ||
       query.cursor?.startsWith('follower-lead:v2:') ||
+      query.cursor?.startsWith('follower-lead:v3:') ||
       query.cursor?.startsWith('follower-cultivate:v1:')
     ) {
       throw new HttpException('Invalid follower cursor', HttpStatus.BAD_REQUEST);
@@ -1901,6 +1979,8 @@ export class IntegrationService {
       ...(row.leadBridgeScore != null
         ? { leadBridgeScore: row.leadBridgeScore }
         : {}),
+      ...(row.leadFitScore != null ? { leadFitScore: row.leadFitScore } : {}),
+      ...(row.leadFitReason ? { leadFitReason: row.leadFitReason } : {}),
       ...this.mapLeadBridges(row.leadBridgesAsLead),
       ...(row.lastInboundAt
         ? { lastInteractionAt: row.lastInboundAt.toISOString() }
@@ -1918,6 +1998,7 @@ export class IntegrationService {
             direction,
             search: query.search,
             audience: 'lead',
+            leadFitScore: last.leadFitScore ?? null,
             leadBridgeScore: last.leadBridgeScore ?? null,
             lastInboundAt: last.lastInboundAt
               ? last.lastInboundAt.toISOString()
@@ -2743,8 +2824,8 @@ export class IntegrationService {
     search?: string;
     audience: 'lead';
   } & AudienceLeadCursor) {
-    return `follower-lead:v2:${Buffer.from(
-      JSON.stringify({ version: 2, ...cursor })
+    return `follower-lead:v3:${Buffer.from(
+      JSON.stringify({ version: 3, ...cursor })
     ).toString('base64url')}`;
   }
 
@@ -2854,20 +2935,22 @@ export class IntegrationService {
     search: string | undefined
   ): AudienceLeadCursor {
     try {
-      if (!value.startsWith('follower-lead:v2:')) throw new Error();
+      if (!value.startsWith('follower-lead:v3:')) throw new Error();
       const cursor = JSON.parse(
         Buffer.from(
-          value.slice('follower-lead:v2:'.length),
+          value.slice('follower-lead:v3:'.length),
           'base64url'
         ).toString('utf8')
       );
       if (
-        cursor?.version !== 2 ||
+        cursor?.version !== 3 ||
         cursor.organizationId !== organizationId ||
         cursor.integrationId !== integrationId ||
         cursor.direction !== direction ||
         cursor.search !== search ||
         cursor.audience !== 'lead' ||
+        (cursor.leadFitScore !== null &&
+          typeof cursor.leadFitScore !== 'number') ||
         (cursor.leadBridgeScore !== null &&
           typeof cursor.leadBridgeScore !== 'number') ||
         (cursor.lastInboundAt !== null &&
@@ -2878,6 +2961,7 @@ export class IntegrationService {
         throw new Error();
       }
       return {
+        leadFitScore: cursor.leadFitScore,
         leadBridgeScore: cursor.leadBridgeScore,
         lastInboundAt: cursor.lastInboundAt,
         externalId: cursor.externalId,
@@ -3123,6 +3207,7 @@ export class IntegrationService {
       'follower-projection:v1:',
       'follower-lead:v1:',
       'follower-lead:v2:',
+      'follower-lead:v3:',
       'follower-cultivate:v1:',
       'follower-ignored:v1:',
     ];
@@ -3633,6 +3718,41 @@ export class IntegrationService {
       ...(follower.isLead === true ? { isLead: true } : {}),
       ...(follower.engagedNotYet === true ? { engagedNotYet: true } : {}),
       ...(follower.isIgnored === true ? { isIgnored: true } : {}),
+      ...(follower.isCultivate === true ? { isCultivate: true } : {}),
+      ...(typeof follower.cultivateReason === 'string'
+        ? { cultivateReason: follower.cultivateReason }
+        : {}),
+      ...(typeof follower.suggestedAction === 'string'
+        ? { suggestedAction: follower.suggestedAction }
+        : {}),
+      ...(follower.leadBridgeScore === null ||
+        Number.isFinite(follower.leadBridgeScore)
+        ? { leadBridgeScore: follower.leadBridgeScore }
+        : {}),
+      ...(follower.leadFitScore === null || Number.isFinite(follower.leadFitScore)
+        ? { leadFitScore: follower.leadFitScore }
+        : {}),
+      ...(typeof follower.leadFitReason === 'string'
+        ? { leadFitReason: follower.leadFitReason }
+        : {}),
+      ...(Array.isArray(follower.leadBridges)
+        ? {
+          leadBridges: follower.leadBridges
+            .filter(
+              (bridge) =>
+                bridge &&
+                typeof bridge.externalId === 'string' &&
+                !!bridge.externalId
+            )
+            .map((bridge) => ({
+              externalId: bridge.externalId,
+              ...(typeof bridge.username === 'string'
+                ? { username: bridge.username }
+                : {}),
+              ...(Number.isFinite(bridge.grade) ? { grade: bridge.grade } : {}),
+            })),
+        }
+        : {}),
     };
   }
 

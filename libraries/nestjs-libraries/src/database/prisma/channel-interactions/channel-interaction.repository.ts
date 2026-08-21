@@ -35,7 +35,10 @@ import {
   relationshipGradeDueCutoff,
 } from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule';
 import { FOLLOWER_BOT_SCORE_SCHEDULE_INTERVAL_HOURS } from '@gitroom/nestjs-libraries/temporal/follower-bot-score.schedule';
-import { LEAD_BRIDGE_WARM_GRADE_THRESHOLD } from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
+import {
+  LEAD_BRIDGE_PER_SOURCE_CAP,
+  LEAD_BRIDGE_WARM_GRADE_THRESHOLD,
+} from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
 import {
   CULTIVATE_CANDIDATE_POOL_SIZE,
   CULTIVATE_DAILY_PICK_LIMIT,
@@ -142,6 +145,7 @@ export type LikesCountFollowersQuery = {
 };
 
 export type AudienceLeadCursor = {
+  leadFitScore: number | null;
   leadBridgeScore: number | null;
   lastInboundAt: string | null;
   externalId: string;
@@ -1653,8 +1657,13 @@ export class ChannelInteractionRepository {
     bridgeRelationshipGrade: number | null;
     leads: AudienceProfile[];
     discoveredAt?: Date;
+    maxApplied?: number;
   }) {
     const discoveredAt = params.discoveredAt ?? new Date();
+    const maxApplied = Math.max(
+      0,
+      params.maxApplied ?? LEAD_BRIDGE_PER_SOURCE_CAP
+    );
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(
         tx,
@@ -1670,10 +1679,11 @@ export class ChannelInteractionRepository {
         select: { externalId: true },
       });
       if (!bridge) {
-        return { applied: 0, skipped: params.leads.length };
+        return { applied: 0, skipped: params.leads.length, appliedExternalIds: [] as string[] };
       }
       let applied = 0;
       let skipped = 0;
+      const appliedExternalIds: string[] = [];
       for (const lead of params.leads) {
         if (
           !lead.externalId ||
@@ -1694,6 +1704,23 @@ export class ChannelInteractionRepository {
           skipped++;
           continue;
         }
+
+        const existingBridge = await tx.channelAudienceLeadBridge.findUnique({
+          where: {
+            organizationId_integrationId_leadExternalId_bridgeExternalId: {
+              organizationId: params.organizationId,
+              integrationId: params.integrationId,
+              leadExternalId: lead.externalId,
+              bridgeExternalId: params.bridgeExternalId,
+            },
+          },
+          select: { leadExternalId: true },
+        });
+        if (!existingBridge && applied >= maxApplied) {
+          skipped++;
+          continue;
+        }
+
         await this.upsertAudienceMember(
           tx,
           params.organizationId,
@@ -1741,9 +1768,12 @@ export class ChannelInteractionRepository {
             leadBridgeScore: aggregate._max.bridgeRelationshipGrade,
           },
         });
-        applied++;
+        if (!existingBridge) {
+          applied++;
+          appliedExternalIds.push(lead.externalId);
+        }
       }
-      return { applied, skipped };
+      return { applied, skipped, appliedExternalIds };
     });
   }
 
@@ -2851,6 +2881,7 @@ export class ChannelInteractionRepository {
           ),
         },
         orderBy: [
+          { leadFitScore: { sort: query.direction, nulls: 'last' } },
           { leadBridgeScore: { sort: query.direction, nulls: 'last' } },
           { lastInboundAt: { sort: query.direction, nulls: 'last' } },
           { externalId: query.direction },
@@ -2861,6 +2892,11 @@ export class ChannelInteractionRepository {
           inboundInteractionCount: true,
           lastInboundAt: true,
           leadBridgeScore: true,
+          leadFitScore: true,
+          leadFitReason: true,
+          leadFitConcerns: true,
+          leadFitMatchedTopics: true,
+          leadFitScoredAt: true,
           leadBridgesAsLead: {
             orderBy: [
               { bridgeRelationshipGrade: { sort: 'desc', nulls: 'last' } },
@@ -3598,6 +3634,7 @@ export class ChannelInteractionRepository {
     }
 
     const comparison = direction === 'desc' ? 'lt' : 'gt';
+    const fitScore = cursor.leadFitScore;
     const score = cursor.leadBridgeScore;
     const lastInboundAt =
       cursor.lastInboundAt == null ? null : new Date(cursor.lastInboundAt);
@@ -3619,21 +3656,121 @@ export class ChannelInteractionRepository {
           ],
         };
 
-    if (score == null) {
+    const bridgeTieBreak: Prisma.ChannelAudienceMemberWhereInput =
+      score == null
+        ? {
+          AND: [{ leadBridgeScore: null }, inboundTieBreak],
+        }
+        : {
+          OR: [
+            { leadBridgeScore: { [comparison]: score } },
+            {
+              AND: [{ leadBridgeScore: score }, inboundTieBreak],
+            },
+            ...(direction === 'desc' ? [{ leadBridgeScore: null }] : []),
+          ],
+        };
+
+    if (fitScore == null) {
       return {
-        AND: [{ leadBridgeScore: null }, inboundTieBreak],
+        AND: [{ leadFitScore: null }, bridgeTieBreak],
       };
     }
 
     return {
       OR: [
-        { leadBridgeScore: { [comparison]: score } },
+        { leadFitScore: { [comparison]: fitScore } },
         {
-          AND: [{ leadBridgeScore: score }, inboundTieBreak],
+          AND: [{ leadFitScore: fitScore }, bridgeTieBreak],
         },
-        ...(direction === 'desc' ? [{ leadBridgeScore: null }] : []),
+        ...(direction === 'desc' ? [{ leadFitScore: null }] : []),
       ],
     };
+  }
+
+  async updateAudienceLeadFit(params: {
+    organizationId: string;
+    integrationId: string;
+    externalId: string;
+    leadFitScore: number;
+    leadFitReason: string;
+    leadFitConcerns: string[];
+    leadFitMatchedTopics: string[];
+    leadFitModel: string;
+    leadFitVersion: number;
+    leadFitScoredAt?: Date;
+  }) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        params.organizationId,
+        params.integrationId
+      );
+      const result = await tx.channelAudienceMember.updateMany({
+        where: {
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          externalId: params.externalId,
+        },
+        data: {
+          leadFitScore: params.leadFitScore,
+          leadFitReason: params.leadFitReason,
+          leadFitConcerns: JSON.stringify(params.leadFitConcerns),
+          leadFitMatchedTopics: JSON.stringify(params.leadFitMatchedTopics),
+          leadFitModel: params.leadFitModel,
+          leadFitVersion: params.leadFitVersion,
+          leadFitScoredAt: params.leadFitScoredAt ?? new Date(),
+        },
+      });
+      return { updated: result.count };
+    });
+  }
+
+  async listUnscoredLeadExternalIds(params: {
+    organizationId: string;
+    integrationId: string;
+    externalIds: string[];
+  }) {
+    if (!params.externalIds.length) {
+      return [] as string[];
+    }
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        params.organizationId,
+        params.integrationId
+      );
+      const rows = await tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          externalId: { in: params.externalIds },
+          leadFitScoredAt: null,
+        },
+        select: {
+          externalId: true,
+          name: true,
+          username: true,
+          bio: true,
+          followersCount: true,
+          followingCount: true,
+          leadBridgesAsLead: {
+            orderBy: [
+              { bridgeRelationshipGrade: { sort: 'desc', nulls: 'last' } },
+              { lastSeenAt: 'desc' },
+            ],
+            take: 3,
+            select: {
+              bridgeRelationshipGrade: true,
+              bridgeMember: {
+                select: { username: true },
+              },
+            },
+          },
+        },
+      });
+      return rows;
+    });
   }
 
   private nullableGradeFollowerKeyset(

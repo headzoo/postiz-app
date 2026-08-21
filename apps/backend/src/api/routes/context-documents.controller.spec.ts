@@ -4,10 +4,13 @@ describe('ContextDocumentsController', () => {
   const organization = { id: 'org-1' } as any;
   const service = {
     listDocuments: jest.fn(),
+    createDocument: jest.fn(),
     uploadDocument: jest.fn(),
     listSkills: jest.fn(),
     getSkillBySlug: jest.fn(),
     getDocumentById: jest.fn(),
+    updateDocumentContent: jest.fn(),
+    renameDocument: jest.fn(),
     deleteDocument: jest.fn(),
   };
   const controller = new ContextDocumentsController(service as any);
@@ -29,6 +32,48 @@ describe('ContextDocumentsController', () => {
     expect(service.getSkillBySlug).toHaveBeenCalledWith(
       'org-1',
       'campaign-review'
+    );
+  });
+
+  it('delegates create, update, and rename to org-scoped services', async () => {
+    service.createDocument.mockResolvedValue({ id: 'doc-1', name: 'NOTES.md' });
+    service.updateDocumentContent.mockResolvedValue({
+      id: 'doc-1',
+      name: 'NOTES.md',
+    });
+    service.renameDocument.mockResolvedValue({
+      id: 'doc-1',
+      name: 'VOICE.md',
+    });
+
+    await expect(
+      controller.createDocument(organization, {
+        name: 'NOTES.md',
+        content: '',
+      })
+    ).resolves.toEqual({ id: 'doc-1', name: 'NOTES.md' });
+    await expect(
+      controller.updateDocument(organization, 'doc-1', {
+        content: '# Notes',
+      })
+    ).resolves.toEqual({ id: 'doc-1', name: 'NOTES.md' });
+    await expect(
+      controller.renameDocument(organization, 'doc-1', { name: 'VOICE.md' })
+    ).resolves.toEqual({ id: 'doc-1', name: 'VOICE.md' });
+
+    expect(service.createDocument).toHaveBeenCalledWith('org-1', {
+      name: 'NOTES.md',
+      content: '',
+    });
+    expect(service.updateDocumentContent).toHaveBeenCalledWith(
+      'org-1',
+      'doc-1',
+      '# Notes'
+    );
+    expect(service.renameDocument).toHaveBeenCalledWith(
+      'org-1',
+      'doc-1',
+      'VOICE.md'
     );
   });
 });

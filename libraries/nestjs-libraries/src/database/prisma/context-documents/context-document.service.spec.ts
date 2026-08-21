@@ -22,6 +22,9 @@ describe('ContextDocumentService', () => {
     findByName: jest.fn(),
     findSkillByCanonicalName: jest.fn(),
     upsertDocument: jest.fn(),
+    createDocument: jest.fn(),
+    updateDocumentContent: jest.fn(),
+    renameDocument: jest.fn(),
     deleteDocument: jest.fn(),
   });
 
@@ -324,5 +327,111 @@ describe('ContextDocumentService', () => {
       organizationId,
       sampleDocument.id
     );
+  });
+
+  it('creates a blank document and rejects duplicate names', async () => {
+    const { repository, service } = createService();
+    repository.findByName.mockResolvedValueOnce(null);
+    repository.createDocument.mockResolvedValue({
+      ...sampleDocument,
+      name: 'NOTES.md',
+      content: '',
+      fileSize: 0,
+    });
+
+    await expect(
+      service.createDocument(organizationId, { name: 'NOTES.md' })
+    ).resolves.toMatchObject({
+      id: 'doc-1',
+      name: 'NOTES.md',
+      fileSize: 0,
+    });
+    expect(repository.createDocument).toHaveBeenCalledWith(
+      organizationId,
+      'NOTES.md',
+      '',
+      0
+    );
+
+    repository.findByName.mockResolvedValueOnce(sampleDocument);
+    await expect(
+      service.createDocument(organizationId, { name: 'BRANDING.md' })
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('updates document content while preserving the document id', async () => {
+    const { repository, service } = createService();
+    const nextContent = '# Updated branding';
+    repository.findById.mockResolvedValue(sampleDocument);
+    repository.updateDocumentContent.mockResolvedValue({
+      ...sampleDocument,
+      content: nextContent,
+      fileSize: Buffer.byteLength(nextContent, 'utf8'),
+    });
+
+    await expect(
+      service.updateDocumentContent(
+        organizationId,
+        sampleDocument.id,
+        nextContent
+      )
+    ).resolves.toMatchObject({
+      id: 'doc-1',
+      name: 'BRANDING.md',
+      fileSize: Buffer.byteLength(nextContent, 'utf8'),
+    });
+    expect(repository.updateDocumentContent).toHaveBeenCalledWith(
+      organizationId,
+      sampleDocument.id,
+      nextContent,
+      Buffer.byteLength(nextContent, 'utf8')
+    );
+  });
+
+  it('renames a document while preserving id and rejecting conflicts', async () => {
+    const { repository, service } = createService();
+    repository.findById.mockResolvedValue(sampleDocument);
+    repository.findByName.mockResolvedValueOnce(null);
+    repository.renameDocument.mockResolvedValue({
+      ...sampleDocument,
+      name: 'VOICE.md',
+    });
+
+    await expect(
+      service.renameDocument(organizationId, sampleDocument.id, 'VOICE.md')
+    ).resolves.toMatchObject({
+      id: 'doc-1',
+      name: 'VOICE.md',
+    });
+    expect(repository.renameDocument).toHaveBeenCalledWith(
+      organizationId,
+      sampleDocument.id,
+      'VOICE.md'
+    );
+
+    repository.findByName.mockResolvedValueOnce({
+      ...sampleDocument,
+      id: 'other',
+      name: 'VOICE.md',
+    });
+    await expect(
+      service.renameDocument(organizationId, sampleDocument.id, 'VOICE.md')
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('rejects reserved skill names on create and rename', async () => {
+    const { repository, service } = createService();
+    repository.findById.mockResolvedValue(sampleDocument);
+
+    await expect(
+      service.createDocument(organizationId, {
+        name: 'followers.skill.md',
+        content: '# Skill',
+      })
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.renameDocument(organizationId, sampleDocument.id, 'followers.skill.md')
+    ).rejects.toThrow(BadRequestException);
   });
 });

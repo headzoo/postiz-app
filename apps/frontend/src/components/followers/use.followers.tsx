@@ -140,6 +140,8 @@ export type Follower = {
   engagedNotYet?: boolean;
   isIgnored?: boolean;
   leadBridgeScore?: number | null;
+  leadFitScore?: number | null;
+  leadFitReason?: string | null;
   leadBridges?: Array<{
     externalId: string;
     username?: string;

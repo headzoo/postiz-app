@@ -379,6 +379,19 @@ export const FollowerCard: FC<{
                     </span>
                   );
                 })}
+                {Number.isFinite(follower.leadFitScore) && (
+                  <span
+                    className="inline-flex w-fit shrink-0 items-center rounded-full border border-sky-500/40 px-[8px] py-[2px] text-[11px] font-[600] text-sky-500"
+                    title={
+                      follower.leadFitReason ||
+                      t('followers_lead_fit_title', 'Lead fit score')
+                    }
+                  >
+                    {t('followers_lead_fit', 'Fit {{score}}', {
+                      score: Math.round(follower.leadFitScore!),
+                    })}
+                  </span>
+                )}
                 {follower.engagedNotYet && (
                   <RelationshipTriageBadge
                     triage="engaged_not_yet"

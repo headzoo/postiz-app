@@ -64,6 +64,8 @@ const FOLLOWER_VIEW_BY_SLUG: Record<
   costly: { triage: 'over_invested' },
   quiet: { triage: 'quiet' },
   cultivate: { audience: 'cultivate' },
+  leads: { audience: 'lead' },
+  // Legacy bookmark slug; canonicalize to /followers/leads.
   lead: { audience: 'lead' },
   ignored: { audience: 'ignored' },
   bots: { isBot: true },
@@ -114,10 +116,10 @@ const TRIAGE_FILTER_OPTIONS: {
       defaultLabel: 'Quiet',
     },
     {
-      slug: 'lead',
+      slug: 'leads',
       audience: 'lead' as const,
-      key: 'followers_audience_lead',
-      defaultLabel: 'Lead',
+      key: 'followers_audience_leads',
+      defaultLabel: 'Leads',
     },
   ];
 
@@ -716,6 +718,15 @@ export const FollowersComponent: FC = () => {
       const legacyQuery = legacyParams.toString();
       router.replace(
         legacyQuery ? `/followers/bots?${legacyQuery}` : '/followers/bots'
+      );
+      return;
+    }
+    // Legacy bookmarks used /followers/lead; canonicalize to /followers/leads.
+    if (slug === 'lead') {
+      const legacyParams = new URLSearchParams(searchParams.toString());
+      const legacyQuery = legacyParams.toString();
+      router.replace(
+        legacyQuery ? `/followers/leads?${legacyQuery}` : '/followers/leads'
       );
       return;
     }

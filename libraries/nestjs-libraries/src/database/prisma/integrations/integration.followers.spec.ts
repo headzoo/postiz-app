@@ -2500,6 +2500,8 @@ describe('IntegrationService followers', () => {
           inboundInteractionCount: 2,
           lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
           leadBridgeScore: 4.2,
+          leadFitScore: 77,
+          leadFitReason: 'Matches tech audience',
           leadBridgesAsLead: [
             {
               bridgeExternalId: 'warm-1',
@@ -2526,6 +2528,8 @@ describe('IntegrationService followers', () => {
           lastInteractionAt: '2026-08-14T12:00:00.000Z',
           isLead: true,
           leadBridgeScore: 4.2,
+          leadFitScore: 77,
+          leadFitReason: 'Matches tech audience',
           leadBridges: [
             {
               externalId: 'warm-1',
@@ -2708,12 +2712,13 @@ describe('IntegrationService followers', () => {
   });
 
   it('rejects replaying a lead cursor under a follower triage filter', async () => {
-    const cursor = `follower-lead:v2:${Buffer.from(JSON.stringify({
-      version: 2,
+    const cursor = `follower-lead:v3:${Buffer.from(JSON.stringify({
+      version: 3,
       organizationId: 'org-a',
       integrationId: 'channel-a',
       direction: 'desc',
       audience: 'lead',
+      leadFitScore: 88,
       leadBridgeScore: 4,
       lastInboundAt: '2026-08-14T12:00:00.000Z',
       externalId: 'lead-1',

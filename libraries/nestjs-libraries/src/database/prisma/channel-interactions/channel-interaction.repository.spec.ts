@@ -85,6 +85,7 @@ const createHarness = () => {
     },
     channelAudienceLeadBridge: {
       upsert: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue(null),
       aggregate: jest.fn().mockResolvedValue({
         _max: { bridgeRelationshipGrade: null },
       }),
@@ -986,7 +987,7 @@ describe('ChannelInteractionRepository', () => {
         where: expect.objectContaining({
           gradeSnapshots: {
             none: {
-              formulaVersion: 2,
+              formulaVersion: 3,
               snapshotAt: { gt: new Date('2026-08-09T12:00:00.000Z') },
             },
           },
@@ -1181,7 +1182,7 @@ describe('ChannelInteractionRepository', () => {
     });
   });
 
-  it('requires a recent formula-v2 snapshot before a follower is current', async () => {
+  it('requires a recent formula-v3 snapshot before a follower is current', async () => {
     const { repository, tx } = createHarness();
     const snapshotAt = new Date('2026-08-12T12:00:00.000Z');
 
@@ -1194,7 +1195,7 @@ describe('ChannelInteractionRepository', () => {
         membershipState: ChannelAudienceMembership.FOLLOWER,
         gradeSnapshots: {
           none: {
-            formulaVersion: 2,
+            formulaVersion: 3,
             snapshotAt: { gt: new Date('2026-08-09T12:00:00.000Z') },
           },
         },
@@ -1217,7 +1218,7 @@ describe('ChannelInteractionRepository', () => {
         where: expect.objectContaining({
           gradeSnapshots: {
             none: {
-              formulaVersion: 2,
+              formulaVersion: 3,
               snapshotAt: { gt: new Date('2026-08-12T11:00:00.000Z') },
             },
           },
@@ -1242,7 +1243,7 @@ describe('ChannelInteractionRepository', () => {
         where: expect.objectContaining({
           gradeSnapshots: {
             none: {
-              formulaVersion: 2,
+              formulaVersion: 3,
               snapshotAt: { gt: new Date('2026-07-12T12:00:00.000Z') },
             },
           },
@@ -1759,6 +1760,7 @@ describe('ChannelInteractionRepository', () => {
           AND: [{ ignoredAt: null }],
         },
         orderBy: [
+          { leadFitScore: { sort: 'desc', nulls: 'last' } },
           { leadBridgeScore: { sort: 'desc', nulls: 'last' } },
           { lastInboundAt: { sort: 'desc', nulls: 'last' } },
           { externalId: 'desc' },
@@ -1766,6 +1768,44 @@ describe('ChannelInteractionRepository', () => {
         take: 3,
       })
     );
+  });
+
+  it('caps new lead bridges per warm source while refreshing existing ones', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst
+      .mockResolvedValueOnce({ externalId: 'warm-1' }) // bridge exists
+      .mockResolvedValueOnce(null) // lead-a membership
+      .mockResolvedValueOnce(null) // lead-b membership
+      .mockResolvedValueOnce(null); // lead-c membership
+    tx.channelAudienceLeadBridge.findUnique
+      .mockResolvedValueOnce(null) // lead-a new
+      .mockResolvedValueOnce({ leadExternalId: 'lead-b' }) // lead-b refresh
+      .mockResolvedValueOnce(null); // lead-c over cap
+    tx.channelAudienceLeadBridge.aggregate.mockResolvedValue({
+      _max: { bridgeRelationshipGrade: 4.1 },
+    });
+
+    await expect(
+      repository.applyLeadBridgeDiscoveries({
+        organizationId: 'org',
+        integrationId: 'integration',
+        bridgeExternalId: 'warm-1',
+        bridgeRelationshipGrade: 4.1,
+        maxApplied: 1,
+        leads: [
+          { externalId: 'lead-a', name: 'A' },
+          { externalId: 'lead-b', name: 'B' },
+          { externalId: 'lead-c', name: 'C' },
+        ],
+      })
+    ).resolves.toEqual({
+      applied: 1,
+      skipped: 1,
+      appliedExternalIds: ['lead-a'],
+    });
+
+    expect(tx.channelAudienceLeadBridge.upsert).toHaveBeenCalledTimes(2);
+    expect(tx.channelAudienceMember.upsert).toHaveBeenCalledTimes(2);
   });
 
   it('filters leads by username or name when search is set', async () => {
@@ -1816,12 +1856,13 @@ describe('ChannelInteractionRepository', () => {
     );
   });
 
-  it('uses bridge score and last inbound keyset pagination for leads', async () => {
+  it('uses fit score, bridge score and last inbound keyset pagination for leads', async () => {
     const { repository } = createHarness();
 
     expect(
       (repository as any).leadBridgeKeyset(
         {
+          leadFitScore: 90,
           leadBridgeScore: 4.5,
           lastInboundAt: '2026-08-14T12:00:00.000Z',
           externalId: 'lead-1',
@@ -1830,23 +1871,34 @@ describe('ChannelInteractionRepository', () => {
       )
     ).toEqual({
       OR: [
-        { leadBridgeScore: { lt: 4.5 } },
+        { leadFitScore: { lt: 90 } },
         {
           AND: [
-            { leadBridgeScore: 4.5 },
+            { leadFitScore: 90 },
             {
               OR: [
-                { lastInboundAt: { lt: new Date('2026-08-14T12:00:00.000Z') } },
+                { leadBridgeScore: { lt: 4.5 } },
                 {
-                  lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
-                  externalId: { lt: 'lead-1' },
+                  AND: [
+                    { leadBridgeScore: 4.5 },
+                    {
+                      OR: [
+                        { lastInboundAt: { lt: new Date('2026-08-14T12:00:00.000Z') } },
+                        {
+                          lastInboundAt: new Date('2026-08-14T12:00:00.000Z'),
+                          externalId: { lt: 'lead-1' },
+                        },
+                        { lastInboundAt: null },
+                      ],
+                    },
+                  ],
                 },
-                { lastInboundAt: null },
+                { leadBridgeScore: null },
               ],
             },
           ],
         },
-        { leadBridgeScore: null },
+        { leadFitScore: null },
       ],
     });
   });
@@ -2485,7 +2537,7 @@ describe('ChannelInteractionRepository', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           AND: expect.arrayContaining([
-            { relationshipFormulaVersion: 2 },
+            { relationshipFormulaVersion: 3 },
             { ignoredAt: null },
           ]),
         }),

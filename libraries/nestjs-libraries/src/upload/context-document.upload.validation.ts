@@ -97,6 +97,50 @@ export function decodeUtf8Fatal(buffer: Buffer): string {
   }
 }
 
+export function validateContextDocumentNameForWrite(originalName: string): string {
+  const name = normalizeContextDocumentName(originalName);
+  const skillSlug = parseSkillFilename(name);
+  if (isAttemptedSkillFilename(name) && !skillSlug) {
+    throw new BadRequestException(
+      'Agent skill filenames must use the format {slug}.skill.md, with lowercase letters, numbers, and hyphens in the slug.'
+    );
+  }
+  if (skillSlug && isReservedAgentCommandSlug(skillSlug)) {
+    throw new BadRequestException(
+      `Agent skill command /${skillSlug} is reserved and cannot be used.`
+    );
+  }
+  return name;
+}
+
+export function validateContextDocumentContent(
+  content: string,
+  options?: { allowEmpty?: boolean }
+): { content: string; fileSize: number } {
+  if (typeof content !== 'string') {
+    throw new BadRequestException('Document content is required.');
+  }
+
+  if (content.includes('\0')) {
+    throw new BadRequestException(
+      'The document contains invalid null bytes.'
+    );
+  }
+
+  const fileSize = Buffer.byteLength(content, 'utf8');
+  if (fileSize > CONTEXT_DOCUMENT_MAX_BYTES) {
+    throw new BadRequestException(
+      `The document exceeds the ${CONTEXT_DOCUMENT_MAX_BYTES} byte limit.`
+    );
+  }
+
+  if (!options?.allowEmpty && !content.trim()) {
+    throw new BadRequestException('The document content is empty.');
+  }
+
+  return { content, fileSize };
+}
+
 export function validateContextDocumentUpload(
   file?: Pick<Express.Multer.File, 'buffer' | 'size' | 'originalname'>
 ): ValidatedContextDocumentUpload {
@@ -125,33 +169,18 @@ export function validateContextDocumentUpload(
     );
   }
 
-  const name = normalizeContextDocumentName(file.originalname || '');
-  const skillSlug = parseSkillFilename(name);
-  if (isAttemptedSkillFilename(name) && !skillSlug) {
-    throw new BadRequestException(
-      'Agent skill filenames must use the format {slug}.skill.md, with lowercase letters, numbers, and hyphens in the slug.'
-    );
-  }
-  if (skillSlug && isReservedAgentCommandSlug(skillSlug)) {
-    throw new BadRequestException(
-      `Agent skill command /${skillSlug} is reserved and cannot be used.`
-    );
-  }
+  const name = validateContextDocumentNameForWrite(file.originalname || '');
   const content = decodeUtf8Fatal(file.buffer);
 
   if (!content.trim()) {
     throw new BadRequestException('The uploaded file is empty.');
   }
 
-  if (content.includes('\0')) {
-    throw new BadRequestException(
-      'The uploaded file contains invalid null bytes.'
-    );
-  }
+  const validated = validateContextDocumentContent(content);
 
   return {
     name,
-    content,
-    fileSize,
+    content: validated.content,
+    fileSize: validated.fileSize,
   };
 }

@@ -9,19 +9,28 @@ import { ContextDocumentLibrary } from './context-document.library';
 const mutate = jest.fn();
 const uploadDocument = jest.fn();
 const deleteDocument = jest.fn();
+const createDocument = jest.fn();
+const updateDocument = jest.fn();
+const renameDocument = jest.fn();
 const decisionOpen = jest.fn();
+const openModal = jest.fn();
+const closeAll = jest.fn();
+const closeCurrent = jest.fn();
 
-jest.mock('react-markdown', () => ({
-  __esModule: true,
-  default: ({ children }: any) => <>{children}</>,
-}));
-jest.mock('remark-gfm', () => ({}));
 jest.mock('@mantine/hooks', () => ({
   useClickOutside: () => React.createRef<HTMLDivElement>(),
 }));
 jest.mock('@gitroom/react/form/button', () => ({
-  Button: ({ children, loading: _loading, ...props }: any) => (
+  Button: ({ children, loading: _loading, secondary: _secondary, ...props }: any) => (
     <button {...props}>{children}</button>
+  ),
+}));
+jest.mock('@gitroom/react/form/input', () => ({
+  Input: ({ label, value, onChange, name }: any) => (
+    <label>
+      {label}
+      <input name={name} value={value} onChange={onChange} />
+    </label>
   ),
 }));
 jest.mock('@gitroom/react/toaster/toaster', () => ({
@@ -37,7 +46,7 @@ jest.mock('@gitroom/frontend/components/layout/loading', () => ({
 }));
 jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
   useDecisionModal: () => ({ open: decisionOpen }),
-  useModals: () => ({ openModal: jest.fn() }),
+  useModals: () => ({ openModal, closeAll, closeCurrent }),
 }));
 jest.mock('./use.context-document.list', () => ({
   useContextDocumentList: () => ({
@@ -66,6 +75,15 @@ jest.mock('./use.context-document.list', () => ({
         isLarge: false,
         skill: { slug: 'followers', command: '/followers', conflict: true },
       },
+      {
+        id: 'doc-1',
+        organizationId: 'org-1',
+        name: 'BRANDING.md',
+        fileSize: 20,
+        createdAt: '2026-01-01',
+        updatedAt: '2026-01-01',
+        isLarge: false,
+      },
     ],
     isLoading: false,
     mutate,
@@ -77,8 +95,27 @@ jest.mock('./use.context-document.upload', () => ({
 jest.mock('./use.context-document.delete', () => ({
   useContextDocumentDelete: () => deleteDocument,
 }));
+jest.mock('./use.context-document.create', () => ({
+  useContextDocumentCreate: () => createDocument,
+}));
+jest.mock('./use.context-document.update', () => ({
+  useContextDocumentUpdate: () => updateDocument,
+}));
+jest.mock('./use.context-document.rename', () => ({
+  useContextDocumentRename: () => renameDocument,
+}));
 jest.mock('./use.context-document.content', () => ({
-  useContextDocumentContent: () => ({}),
+  useContextDocumentContent: () => ({
+    data: {
+      id: 'doc-1',
+      name: 'BRANDING.md',
+      content: '# Branding',
+      fileSize: 10,
+      updatedAt: '2026-01-01',
+      isLarge: false,
+    },
+    isLoading: false,
+  }),
 }));
 
 describe('ContextDocumentLibrary', () => {
@@ -87,6 +124,17 @@ describe('ContextDocumentLibrary', () => {
     decisionOpen.mockResolvedValue(true);
     uploadDocument.mockResolvedValue({ id: 'skill-1' });
     deleteDocument.mockResolvedValue({ id: 'reserved-1' });
+    createDocument.mockResolvedValue({
+      id: 'new-1',
+      name: 'NOTES.md',
+      fileSize: 0,
+      organizationId: 'org-1',
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+      isLarge: false,
+    });
+    updateDocument.mockResolvedValue({ id: 'doc-1', name: 'BRANDING.md' });
+    renameDocument.mockResolvedValue({ id: 'doc-1', name: 'VOICE.md' });
   });
 
   it('shows skill commands and marks reserved legacy skills as conflicts', () => {
@@ -95,6 +143,103 @@ describe('ContextDocumentLibrary', () => {
     expect(screen.getByText('Skill · /campaign-review')).toBeTruthy();
     expect(screen.getByText('Skill conflict · /followers')).toBeTruthy();
     expect(screen.getByText(/cannot be invoked/i)).toBeTruthy();
+  });
+
+  it('opens the editable document modal when a document card is clicked', () => {
+    render(<ContextDocumentLibrary />);
+
+    fireEvent.click(screen.getByText('BRANDING.md'));
+
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'BRANDING.md',
+      })
+    );
+  });
+
+  it('does not open reserved skill conflict documents', () => {
+    render(<ContextDocumentLibrary />);
+
+    fireEvent.click(screen.getByText('followers.skill.md'));
+
+    expect(openModal).not.toHaveBeenCalled();
+  });
+
+  it('opens a rename modal from the document actions menu', () => {
+    render(<ContextDocumentLibrary />);
+    const actions = screen.getAllByLabelText('Document actions');
+    fireEvent.click(actions[2]);
+    fireEvent.click(screen.getByText('Rename'));
+
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Rename document',
+      })
+    );
+  });
+
+  it('opens the new document modal from the create button', () => {
+    render(<ContextDocumentLibrary />);
+
+    fireEvent.click(screen.getByText('+ New document'));
+
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'New document',
+      })
+    );
+  });
+
+  it('creates a document from the name modal and opens the editor', async () => {
+    openModal.mockImplementation(({ children }) => {
+      if (React.isValidElement(children)) {
+        render(children);
+      }
+    });
+
+    render(<ContextDocumentLibrary />);
+    fireEvent.click(screen.getByText('+ New document'));
+
+    const input = screen.getByLabelText('Filename');
+    fireEvent.change(input, { target: { value: 'NOTES.md' } });
+    fireEvent.click(screen.getByText('Create'));
+
+    await waitFor(() =>
+      expect(createDocument).toHaveBeenCalledWith({
+        name: 'NOTES.md',
+        content: '',
+      })
+    );
+    await waitFor(() =>
+      expect(openModal).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'NOTES.md',
+        })
+      )
+    );
+  });
+
+  it('saves edited document content from the editor modal', async () => {
+    openModal.mockImplementation(({ children }) => {
+      if (React.isValidElement(children)) {
+        render(children);
+      }
+    });
+
+    render(<ContextDocumentLibrary />);
+    fireEvent.click(screen.getByText('BRANDING.md'));
+
+    const editor = await screen.findByLabelText('Document content');
+    fireEvent.change(editor, { target: { value: '# Updated branding' } });
+    fireEvent.click(screen.getByText('Save'));
+
+    await waitFor(() =>
+      expect(updateDocument).toHaveBeenCalledWith(
+        'doc-1',
+        '# Updated branding',
+        'BRANDING.md'
+      )
+    );
   });
 
   it('confirms replacement and refreshes the library after a skill upload', async () => {

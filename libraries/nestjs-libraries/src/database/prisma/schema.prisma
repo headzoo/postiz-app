@@ -459,6 +459,7 @@ model Integration {
   channelAnalyticsSyncState           ChannelAnalyticsSyncState?
   postHttpLogs                        PostHttpLog[]
   webhookHttpLogs                     WebhookHttpLog[]
+  contextDocuments                    IntegrationContextDocument[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -896,15 +897,16 @@ model PipelineSlotExecution {
 }
 
 model ContextDocument {
-  id                  String                    @id @default(uuid())
-  organizationId      String
-  name                String
-  content             String
-  fileSize            Int
-  createdAt           DateTime                  @default(now())
-  updatedAt           DateTime                  @updatedAt
-  organization        Organization              @relation(fields: [organizationId], references: [id])
-  pipelineAssignments PipelineContextDocument[]
+  id                     String                       @id @default(uuid())
+  organizationId         String
+  name                   String
+  content                String
+  fileSize               Int
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  organization           Organization                 @relation(fields: [organizationId], references: [id])
+  pipelineAssignments    PipelineContextDocument[]
+  integrationAssignments IntegrationContextDocument[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -920,6 +922,18 @@ model PipelineContextDocument {
 
   @@id([pipelineId, contextDocumentId])
   @@index([contextDocumentId, pipelineId])
+}
+
+model IntegrationContextDocument {
+  integrationId     String
+  contextDocumentId String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  integration       Integration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  contextDocument   ContextDocument @relation(fields: [contextDocumentId], references: [id], onDelete: Cascade)
+
+  @@id([integrationId, contextDocumentId])
+  @@index([contextDocumentId, integrationId])
 }
 
 model Sets {
@@ -1303,6 +1317,13 @@ model ChannelAudienceMember {
   lastInboundAt                  DateTime?
   lastOutboundAt                 DateTime?
   leadBridgeScore                Float?
+  leadFitScore                   Float?
+  leadFitReason                  String?
+  leadFitConcerns                String?
+  leadFitMatchedTopics           String?
+  leadFitModel                   String?
+  leadFitVersion                 Int?
+  leadFitScoredAt                DateTime?
   relationshipGrade              Float?
   relationshipEffortScore        Int?
   relationshipReciprocationScore Int?
@@ -1340,6 +1361,7 @@ model ChannelAudienceMember {
   @@index([integrationId, membershipState, likesCount, externalId])
   @@index([integrationId, membershipState, lastInboundAt, externalId], map: "ChannelAudienceMember_lead_inbound_keyset_idx")
   @@index([integrationId, membershipState, leadBridgeScore, lastInboundAt, externalId], map: "ChannelAudienceMember_lead_bridge_keyset_idx")
+  @@index([integrationId, membershipState, leadFitScore, leadBridgeScore, lastInboundAt, externalId], map: "ChannelAudienceMember_lead_fit_keyset_idx")
   @@index([integrationId, membershipState, relationshipGrade, externalId])
   @@index([integrationId, membershipState, relationshipEffortScore, externalId], map: "ChannelAudienceMember_rel_effort_keyset_idx")
   @@index([integrationId, membershipState, relationshipReciprocationScore, externalId], map: "ChannelAudienceMember_rel_reciprocation_keyset_idx")

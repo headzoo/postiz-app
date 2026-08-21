@@ -81,7 +81,25 @@ export class ChannelLeadBridgeActivity {
       return { skipped: true as const, processed: 0, applied: 0 };
     }
     const live = await this.withRefreshedToken(integration, provider);
-    return this._channelInteractionService.crawlLeadBridgesForIntegration(live);
+    const result =
+      await this._channelInteractionService.crawlLeadBridgesForIntegration(live);
+    if (
+      !result.skipped &&
+      'appliedExternalIds' in result &&
+      Array.isArray(result.appliedExternalIds) &&
+      result.appliedExternalIds.length
+    ) {
+      try {
+        await this._channelInteractionService.scoreLeadFitBatch({
+          organizationId: live.organizationId,
+          integrationId: live.id,
+          externalIds: result.appliedExternalIds,
+        });
+      } catch {
+        // Fit scoring is best-effort; discovery already succeeded.
+      }
+    }
+    return result;
   }
 
   private getIntegration(candidate: ChannelLeadBridgeCandidate) {

@@ -1,9 +1,11 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
   Param,
   Post,
+  Put,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -14,15 +16,28 @@ import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.reque
 import { Organization } from '@prisma/client';
 import { ContextDocumentService } from '@gitroom/nestjs-libraries/database/prisma/context-documents/context-document.service';
 import { CONTEXT_DOCUMENT_MAX_BYTES } from '@gitroom/nestjs-libraries/upload/context-document.upload.validation';
+import {
+  CreateContextDocumentDto,
+  RenameContextDocumentDto,
+  UpdateContextDocumentContentDto,
+} from '@gitroom/nestjs-libraries/dtos/context-documents/context-document.dto';
 
 @ApiTags('Context Documents')
 @Controller('/context-documents')
 export class ContextDocumentsController {
-  constructor(private _contextDocumentService: ContextDocumentService) {}
+  constructor(private _contextDocumentService: ContextDocumentService) { }
 
   @Get('/')
   listDocuments(@GetOrgFromRequest() org: Organization) {
     return this._contextDocumentService.listDocuments(org.id);
+  }
+
+  @Post('/')
+  createDocument(
+    @GetOrgFromRequest() org: Organization,
+    @Body() body: CreateContextDocumentDto
+  ) {
+    return this._contextDocumentService.createDocument(org.id, body);
   }
 
   @Post('/upload')
@@ -60,6 +75,28 @@ export class ContextDocumentsController {
     @Param('id') id: string
   ) {
     return this._contextDocumentService.getDocumentById(org.id, id);
+  }
+
+  @Put('/:id')
+  updateDocument(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: UpdateContextDocumentContentDto
+  ) {
+    return this._contextDocumentService.updateDocumentContent(
+      org.id,
+      id,
+      body.content
+    );
+  }
+
+  @Put('/:id/rename')
+  renameDocument(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: RenameContextDocumentDto
+  ) {
+    return this._contextDocumentService.renameDocument(org.id, id, body.name);
   }
 
   @Delete('/:id')

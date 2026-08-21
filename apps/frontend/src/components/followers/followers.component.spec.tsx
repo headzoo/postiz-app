@@ -278,6 +278,12 @@ describe('follower page href helpers', () => {
       audience: undefined,
       isBot: undefined,
     });
+    expect(parseFollowerViewPath('/followers/leads')).toEqual({
+      slug: 'leads',
+      triage: undefined,
+      audience: 'lead',
+      isBot: undefined,
+    });
     expect(parseFollowerViewPath('/followers/lead')).toEqual({
       slug: 'lead',
       triage: undefined,
@@ -443,8 +449,8 @@ describe('FollowersComponent', () => {
     expect(screen.getByRole('link', { name: 'Quiet' }).getAttribute('href')).toBe(
       '/followers/quiet'
     );
-    expect(screen.getByRole('link', { name: /^Lead$/ }).getAttribute('href')).toBe(
-      '/followers/lead'
+    expect(screen.getByRole('link', { name: /^Leads$/ }).getAttribute('href')).toBe(
+      '/followers/leads'
     );
     expect(screen.getByRole('link', { name: 'Ignored' }).getAttribute('href')).toBe(
       '/followers/ignored'
@@ -485,8 +491,8 @@ describe('FollowersComponent', () => {
     );
   });
 
-  it('hydrates the lead audience from /followers/lead and clears triage', () => {
-    mockPathname = '/followers/lead';
+  it('hydrates the lead audience from /followers/leads and clears triage', () => {
+    mockPathname = '/followers/leads';
     render(<FollowersComponent />);
 
     expect(useFollowersMock).toHaveBeenLastCalledWith(
@@ -495,6 +501,13 @@ describe('FollowersComponent', () => {
         triage: undefined,
       })
     );
+  });
+
+  it('redirects legacy /followers/lead to /followers/leads', () => {
+    mockPathname = '/followers/lead';
+    render(<FollowersComponent />);
+
+    expect(replace).toHaveBeenCalledWith('/followers/leads');
   });
 
   it('hydrates the ignored audience from /followers/ignored', () => {
@@ -666,13 +679,13 @@ describe('FollowersComponent', () => {
   });
 
   it('shows a lead-specific empty state', () => {
-    mockPathname = '/followers/lead';
+    mockPathname = '/followers/leads';
     render(<FollowersComponent />);
 
     expect(screen.getByText('No leads on this channel')).toBeTruthy();
     expect(
       screen.getByText(
-        'Leads are people who interacted with this channel but do not currently follow it.'
+        'Leads are people who interacted with this channel but do not currently follow it, plus prospects discovered through warm followers’ networks.'
       )
     ).toBeTruthy();
   });

@@ -14,7 +14,7 @@ const metadataSelect = {
 export class ContextDocumentRepository {
   constructor(
     private _contextDocument: PrismaRepository<'contextDocument'>
-  ) {}
+  ) { }
 
   listMetadata(organizationId: string) {
     return this._contextDocument.model.contextDocument.findMany({
@@ -89,6 +89,52 @@ export class ContextDocumentRepository {
     });
   }
 
+  createDocument(
+    organizationId: string,
+    name: string,
+    content: string,
+    fileSize: number
+  ) {
+    return this._contextDocument.model.contextDocument.create({
+      data: {
+        organizationId,
+        name,
+        content,
+        fileSize,
+      },
+    });
+  }
+
+  updateDocumentContent(
+    organizationId: string,
+    id: string,
+    content: string,
+    fileSize: number
+  ) {
+    return this._contextDocument.model.contextDocument.update({
+      where: {
+        id,
+        organizationId,
+      },
+      data: {
+        content,
+        fileSize,
+      },
+    });
+  }
+
+  renameDocument(organizationId: string, id: string, name: string) {
+    return this._contextDocument.model.contextDocument.update({
+      where: {
+        id,
+        organizationId,
+      },
+      data: {
+        name,
+      },
+    });
+  }
+
   deleteDocument(organizationId: string, id: string) {
     return this._contextDocument.model.contextDocument.delete({
       where: {
@@ -119,6 +165,55 @@ export class ContextDocumentRepository {
           },
         },
       },
+    });
+  }
+
+  findAttachedToIntegration(
+    organizationId: string,
+    integrationId: string,
+    selector: { documentId?: string; name?: string }
+  ) {
+    return this._contextDocument.model.contextDocument.findFirst({
+      where: {
+        organizationId,
+        ...(selector.documentId
+          ? { id: selector.documentId }
+          : { name: selector.name }),
+        integrationAssignments: {
+          some: {
+            integrationId,
+            integration: {
+              organizationId,
+              deletedAt: null,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  listAttachedToIntegration(organizationId: string, integrationId: string) {
+    return this._contextDocument.model.contextDocument.findMany({
+      where: {
+        organizationId,
+        integrationAssignments: {
+          some: {
+            integrationId,
+            integration: {
+              organizationId,
+              deletedAt: null,
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        fileSize: true,
+        updatedAt: true,
+        content: true,
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });
   }
 }
