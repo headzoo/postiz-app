@@ -14,7 +14,10 @@ import { ErrorsService } from '@gitroom/nestjs-libraries/database/prisma/errors/
 import { AdminStatsService } from '@gitroom/nestjs-libraries/database/prisma/admin-stats/admin-stats.service';
 import { AdminUsersService } from '@gitroom/nestjs-libraries/database/prisma/admin-users/admin-users.service';
 import { RelationshipGradeScheduleService } from '@gitroom/nestjs-libraries/temporal/relationship-grade.schedule.service';
+import { FollowerBotScoreScheduleService } from '@gitroom/nestjs-libraries/temporal/follower-bot-score.schedule.service';
+import { AdminScheduleWorkflowService } from '@gitroom/nestjs-libraries/temporal/admin-schedule.workflow.service';
 import { RelationshipGradeScheduleDto } from '@gitroom/nestjs-libraries/dtos/admin/relationship-grade.schedule.dto';
+import { FollowerBotScoreScheduleDto } from '@gitroom/nestjs-libraries/dtos/admin/follower-bot-score.schedule.dto';
 import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
 import dayjs from 'dayjs';
 
@@ -26,7 +29,9 @@ export class AdminController {
     private _errorsService: ErrorsService,
     private _adminStatsService: AdminStatsService,
     private _adminUsersService: AdminUsersService,
-    private _relationshipGradeScheduleService: RelationshipGradeScheduleService
+    private _relationshipGradeScheduleService: RelationshipGradeScheduleService,
+    private _followerBotScoreScheduleService: FollowerBotScoreScheduleService,
+    private _adminScheduleWorkflowService: AdminScheduleWorkflowService
   ) { }
 
   private assertSuperAdmin(user: User) {
@@ -122,5 +127,74 @@ export class AdminController {
   async triggerRelationshipGradeSchedule(@GetUserFromRequest() user: User) {
     this.assertSuperAdmin(user);
     return this._relationshipGradeScheduleService.trigger();
+  }
+
+  @Get('/schedule/follower-bot-scores')
+  async getFollowerBotScoreSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._followerBotScoreScheduleService.getStatus();
+  }
+
+  @Put('/schedule/follower-bot-scores')
+  @RequireAdminStepUp('fresh')
+  async updateFollowerBotScoreSchedule(
+    @GetUserFromRequest() user: User,
+    @Body() body: FollowerBotScoreScheduleDto
+  ) {
+    this.assertSuperAdmin(user);
+    try {
+      return await this._followerBotScoreScheduleService.update(body);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new HttpException(error.message, 400);
+      }
+      throw error;
+    }
+  }
+
+  @Post('/schedule/follower-bot-scores/trigger')
+  @RequireAdminStepUp('fresh')
+  async triggerFollowerBotScoreSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._followerBotScoreScheduleService.trigger();
+  }
+
+  @Get('/schedule/missing-post-recovery')
+  async getMissingPostRecoverySchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.getMissingPostRecoveryStatus();
+  }
+
+  @Post('/schedule/missing-post-recovery/trigger')
+  @RequireAdminStepUp('fresh')
+  async triggerMissingPostRecoverySchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.triggerMissingPostRecovery();
+  }
+
+  @Get('/schedule/post-workflows')
+  async getPostWorkflowSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.getPostWorkflowStatus();
+  }
+
+  @Post('/schedule/post-workflows/trigger')
+  @RequireAdminStepUp('fresh')
+  async triggerPostWorkflowSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.triggerPostWorkflowTick();
+  }
+
+  @Get('/schedule/autopost-workflows')
+  async getAutopostWorkflowSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.getAutopostWorkflowStatus();
+  }
+
+  @Post('/schedule/autopost-workflows/trigger')
+  @RequireAdminStepUp('fresh')
+  async triggerAutopostWorkflowSchedule(@GetUserFromRequest() user: User) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleWorkflowService.triggerAutopostWorkflows();
   }
 }

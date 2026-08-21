@@ -8,6 +8,7 @@ import {
 import { TemporalService } from 'nestjs-temporal-core';
 import { RelationshipGradeScheduleService } from './relationship-grade.schedule.service';
 import { FollowerBotScoreScheduleService } from './follower-bot-score.schedule.service';
+import { AdminScheduleWorkflowService } from './admin-schedule.workflow.service';
 
 @Injectable()
 export class InfiniteWorkflowRegister implements OnModuleInit {
@@ -193,6 +194,7 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
     InfiniteWorkflowRegister,
     RelationshipGradeScheduleService,
     FollowerBotScoreScheduleService,
+    AdminScheduleWorkflowService,
   ],
   get exports() {
     return this.providers;

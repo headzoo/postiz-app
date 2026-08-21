@@ -26,10 +26,107 @@ interface ScheduleResponse {
   note?: string;
 }
 
+interface BotScoreScheduleResponse {
+  scheduleId: string;
+  exists: boolean;
+  paused: boolean;
+  cadence: { intervalHours: number };
+  nextRunTimes: string[];
+  note?: string;
+}
+
+interface WorkflowCadence {
+  unit: 'second' | 'hour';
+  interval: number;
+  label: string;
+}
+
+interface WorkflowStatusResponse {
+  workflowId: string;
+  exists: boolean;
+  status: string;
+  cadence: WorkflowCadence;
+  startedAt?: string;
+  note?: string;
+  activeCount?: number;
+}
+
 const useRelationshipGradeSchedule = () => {
   const fetch = useFetch();
   return useSWR<ScheduleResponse>(
     '/admin/schedule/relationship-grades',
+    async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error('Failed to load schedule');
+      }
+      return res.json();
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
+  );
+};
+
+const useFollowerBotScoreSchedule = () => {
+  const fetch = useFetch();
+  return useSWR<BotScoreScheduleResponse>(
+    '/admin/schedule/follower-bot-scores',
+    async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error('Failed to load schedule');
+      }
+      return res.json();
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
+  );
+};
+
+const useMissingPostRecoverySchedule = () => {
+  const fetch = useFetch();
+  return useSWR<WorkflowStatusResponse>(
+    '/admin/schedule/missing-post-recovery',
+    async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error('Failed to load schedule');
+      }
+      return res.json();
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
+  );
+};
+
+const usePostWorkflowSchedule = () => {
+  const fetch = useFetch();
+  return useSWR<WorkflowStatusResponse>(
+    '/admin/schedule/post-workflows',
+    async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error('Failed to load schedule');
+      }
+      return res.json();
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+    }
+  );
+};
+
+const useAutopostWorkflowSchedule = () => {
+  const fetch = useFetch();
+  return useSWR<WorkflowStatusResponse>(
+    '/admin/schedule/autopost-workflows',
     async (url: string) => {
       const res = await fetch(url);
       if (!res.ok) {
@@ -60,32 +157,53 @@ const formatCadence = (cadence: ScheduleCadence) => {
   return `Every ${cadence.interval} month(s) on day ${cadence.dayOfMonth || 1} at ${time} UTC`;
 };
 
+const formatBotScoreCadence = (intervalHours: number) =>
+  intervalHours === 1 ? 'Every hour' : `Every ${intervalHours} hours`;
+
 export const AdminScheduleComponent: FC = () => {
   const user = useUser();
   const t = useT();
   const fetch = useFetch();
-  const { data, isLoading, error, mutate } = useRelationshipGradeSchedule();
+  const relationship = useRelationshipGradeSchedule();
+  const botScores = useFollowerBotScoreSchedule();
+  const missingPosts = useMissingPostRecoverySchedule();
+  const postWorkflows = usePostWorkflowSchedule();
+  const autopostWorkflows = useAutopostWorkflowSchedule();
+
   const [unit, setUnit] = useState<ScheduleUnit>('day');
   const [interval, setInterval] = useState(3);
   const [timeOfDay, setTimeOfDay] = useState('00:00');
   const [dayOfMonth, setDayOfMonth] = useState(1);
-  const [saving, setSaving] = useState(false);
-  const [triggering, setTriggering] = useState(false);
+  const [botIntervalHours, setBotIntervalHours] = useState(6);
+  const [savingGrades, setSavingGrades] = useState(false);
+  const [savingBotScores, setSavingBotScores] = useState(false);
+  const [triggeringGrades, setTriggeringGrades] = useState(false);
+  const [triggeringBotScores, setTriggeringBotScores] = useState(false);
+  const [triggeringMissing, setTriggeringMissing] = useState(false);
+  const [triggeringPosts, setTriggeringPosts] = useState(false);
+  const [triggeringAutopost, setTriggeringAutopost] = useState(false);
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
-    if (!data?.cadence) {
+    if (!relationship.data?.cadence) {
       return;
     }
-    setUnit(data.cadence.unit);
-    setInterval(data.cadence.interval);
-    setTimeOfDay(data.cadence.timeOfDay || '00:00');
-    setDayOfMonth(data.cadence.dayOfMonth || 1);
-  }, [data]);
+    setUnit(relationship.data.cadence.unit);
+    setInterval(relationship.data.cadence.interval);
+    setTimeOfDay(relationship.data.cadence.timeOfDay || '00:00');
+    setDayOfMonth(relationship.data.cadence.dayOfMonth || 1);
+  }, [relationship.data]);
 
-  const save = useCallback(async () => {
+  useEffect(() => {
+    if (!botScores.data?.cadence) {
+      return;
+    }
+    setBotIntervalHours(botScores.data.cadence.intervalHours);
+  }, [botScores.data]);
+
+  const saveGrades = useCallback(async () => {
     setFormError('');
-    setSaving(true);
+    setSavingGrades(true);
     try {
       const res = await fetch('/admin/schedule/relationship-grades', {
         method: 'PUT',
@@ -99,19 +217,19 @@ export const AdminScheduleComponent: FC = () => {
       if (!res.ok) {
         throw new Error('Failed to save schedule');
       }
-      await mutate(await res.json(), false);
+      await relationship.mutate(await res.json(), false);
     } catch {
       setFormError(
         t('admin_schedule_save_error', 'Could not save this schedule. Try again.')
       );
     } finally {
-      setSaving(false);
+      setSavingGrades(false);
     }
-  }, [dayOfMonth, fetch, interval, mutate, t, timeOfDay, unit]);
+  }, [dayOfMonth, fetch, interval, relationship, t, timeOfDay, unit]);
 
-  const trigger = useCallback(async () => {
+  const triggerGrades = useCallback(async () => {
     setFormError('');
-    setTriggering(true);
+    setTriggeringGrades(true);
     try {
       const res = await fetch('/admin/schedule/relationship-grades/trigger', {
         method: 'POST',
@@ -119,7 +237,7 @@ export const AdminScheduleComponent: FC = () => {
       if (!res.ok) {
         throw new Error('Failed to trigger schedule');
       }
-      await mutate(await res.json(), false);
+      await relationship.mutate(await res.json(), false);
     } catch {
       setFormError(
         t(
@@ -128,9 +246,122 @@ export const AdminScheduleComponent: FC = () => {
         )
       );
     } finally {
-      setTriggering(false);
+      setTriggeringGrades(false);
     }
-  }, [fetch, mutate, t]);
+  }, [fetch, relationship, t]);
+
+  const saveBotScores = useCallback(async () => {
+    setFormError('');
+    setSavingBotScores(true);
+    try {
+      const res = await fetch('/admin/schedule/follower-bot-scores', {
+        method: 'PUT',
+        body: JSON.stringify({ intervalHours: botIntervalHours }),
+      });
+      if (!res.ok) {
+        throw new Error('Failed to save schedule');
+      }
+      await botScores.mutate(await res.json(), false);
+    } catch {
+      setFormError(
+        t('admin_schedule_save_error', 'Could not save this schedule. Try again.')
+      );
+    } finally {
+      setSavingBotScores(false);
+    }
+  }, [botIntervalHours, botScores, fetch, t]);
+
+  const triggerBotScores = useCallback(async () => {
+    setFormError('');
+    setTriggeringBotScores(true);
+    try {
+      const res = await fetch('/admin/schedule/follower-bot-scores/trigger', {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to trigger schedule');
+      }
+      await botScores.mutate(await res.json(), false);
+    } catch {
+      setFormError(
+        t(
+          'admin_schedule_bot_trigger_error',
+          'Could not trigger a bot score update. Try again.'
+        )
+      );
+    } finally {
+      setTriggeringBotScores(false);
+    }
+  }, [botScores, fetch, t]);
+
+  const triggerMissing = useCallback(async () => {
+    setFormError('');
+    setTriggeringMissing(true);
+    try {
+      const res = await fetch('/admin/schedule/missing-post-recovery/trigger', {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to trigger schedule');
+      }
+      await missingPosts.mutate(await res.json(), false);
+    } catch {
+      setFormError(
+        t(
+          'admin_schedule_missing_trigger_error',
+          'Could not trigger a missing-post scan. Try again.'
+        )
+      );
+    } finally {
+      setTriggeringMissing(false);
+    }
+  }, [fetch, missingPosts, t]);
+
+  const triggerPosts = useCallback(async () => {
+    setFormError('');
+    setTriggeringPosts(true);
+    try {
+      const res = await fetch('/admin/schedule/post-workflows/trigger', {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to trigger schedule');
+      }
+      await postWorkflows.mutate(await res.json(), false);
+    } catch {
+      setFormError(
+        t(
+          'admin_schedule_post_trigger_error',
+          'Could not trigger a post scheduler tick. Try again.'
+        )
+      );
+    } finally {
+      setTriggeringPosts(false);
+    }
+  }, [fetch, postWorkflows, t]);
+
+  const triggerAutopost = useCallback(async () => {
+    setFormError('');
+    setTriggeringAutopost(true);
+    try {
+      const res = await fetch('/admin/schedule/autopost-workflows/trigger', {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        throw new Error('Failed to trigger schedule');
+      }
+      await autopostWorkflows.mutate(await res.json(), false);
+    } catch {
+      setFormError(
+        t(
+          'admin_schedule_autopost_trigger_error',
+          'Could not force-run active autoposts. Try again.'
+        )
+      );
+    } finally {
+      setTriggeringAutopost(false);
+    }
+  }, [autopostWorkflows, fetch, t]);
 
   if (!user?.isSuperAdmin) {
     return (
@@ -140,11 +371,23 @@ export const AdminScheduleComponent: FC = () => {
     );
   }
 
-  if (isLoading) {
+  if (
+    relationship.isLoading ||
+    botScores.isLoading ||
+    missingPosts.isLoading ||
+    postWorkflows.isLoading ||
+    autopostWorkflows.isLoading
+  ) {
     return <LoadingComponent />;
   }
 
-  if (error) {
+  if (
+    relationship.error ||
+    botScores.error ||
+    missingPosts.error ||
+    postWorkflows.error ||
+    autopostWorkflows.error
+  ) {
     return (
       <div className="text-red-400">
         {t('admin_schedule_load_error', 'Failed to load schedule.')}
@@ -159,8 +402,8 @@ export const AdminScheduleComponent: FC = () => {
       </div>
       <p className="text-[14px] opacity-70">
         {t(
-          'admin_schedule_grade_help',
-          'Choose how often Temporal updates relationship grades. Hourly is the most frequent option.'
+          'admin_schedule_help',
+          'Configure Temporal schedules and trigger operational workflows.'
         )}
       </p>
 
@@ -169,22 +412,22 @@ export const AdminScheduleComponent: FC = () => {
           {t('admin_schedule_grade_title', 'Relationship grades')}
         </div>
         <div className="text-[13px] opacity-70">
-          {data?.exists
+          {relationship.data?.exists
             ? t('admin_schedule_active', 'Temporal schedule is active.')
             : t(
               'admin_schedule_missing',
               'No Temporal schedule exists yet. Saving will create one.'
             )}
         </div>
-        {data?.cadence ? (
+        {relationship.data?.cadence ? (
           <div className="text-[13px]">
-            {formatCadence(data.cadence)}
+            {formatCadence(relationship.data.cadence)}
           </div>
         ) : null}
-        {data?.nextRunTimes?.length ? (
+        {relationship.data?.nextRunTimes?.length ? (
           <div className="text-[13px]">
             {t('admin_schedule_next_run', 'Next run')}:{' '}
-            {new Date(data.nextRunTimes[0]).toLocaleString()}
+            {new Date(relationship.data.nextRunTimes[0]).toLocaleString()}
           </div>
         ) : null}
 
@@ -254,17 +497,149 @@ export const AdminScheduleComponent: FC = () => {
           )}
         </div>
 
-        {formError && <div className="text-[13px] text-red-400">{formError}</div>}
-
         <div className="flex flex-wrap gap-[12px]">
-          <Button disabled={saving} onClick={save}>
+          <Button disabled={savingGrades} onClick={saveGrades}>
             {t('save', 'Save')}
           </Button>
-          <Button secondary disabled={triggering} onClick={trigger}>
+          <Button secondary disabled={triggeringGrades} onClick={triggerGrades}>
             {t('admin_schedule_trigger_now', 'Trigger now')}
           </Button>
         </div>
       </div>
+
+      <div className="border border-newTableBorder rounded-[8px] p-[16px] bg-newBgColorInner flex flex-col gap-[12px]">
+        <div className="text-[16px] font-[600]">
+          {t('admin_schedule_bot_title', 'Follower bot scores')}
+        </div>
+        <div className="text-[13px] opacity-70">
+          {botScores.data?.exists
+            ? t('admin_schedule_active', 'Temporal schedule is active.')
+            : t(
+              'admin_schedule_missing',
+              'No Temporal schedule exists yet. Saving will create one.'
+            )}
+        </div>
+        {botScores.data?.cadence ? (
+          <div className="text-[13px]">
+            {formatBotScoreCadence(botScores.data.cadence.intervalHours)}
+          </div>
+        ) : null}
+        {botScores.data?.nextRunTimes?.length ? (
+          <div className="text-[13px]">
+            {t('admin_schedule_next_run', 'Next run')}:{' '}
+            {new Date(botScores.data.nextRunTimes[0]).toLocaleString()}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap gap-[12px] items-end">
+          <label className="flex flex-col gap-[6px] w-[160px]" htmlFor="admin-schedule-bot-interval">
+            <span className="text-[12px] opacity-70">
+              {t('admin_schedule_interval_hours', 'Interval (hours)')}
+            </span>
+            <input
+              id="admin-schedule-bot-interval"
+              type="number"
+              min={1}
+              max={168}
+              value={botIntervalHours}
+              onChange={(event) => setBotIntervalHours(Number(event.target.value))}
+              className="bg-newBgColorInner h-[38px] border border-newTableBorder rounded-[8px] px-[10px] text-[14px] text-textColor"
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-wrap gap-[12px]">
+          <Button disabled={savingBotScores} onClick={saveBotScores}>
+            {t('save', 'Save')}
+          </Button>
+          <Button secondary disabled={triggeringBotScores} onClick={triggerBotScores}>
+            {t('admin_schedule_trigger_now', 'Trigger now')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="border border-newTableBorder rounded-[8px] p-[16px] bg-newBgColorInner flex flex-col gap-[12px]">
+        <div className="text-[16px] font-[600]">
+          {t('admin_schedule_missing_title', 'Missing post recovery')}
+        </div>
+        <div className="text-[13px] opacity-70">
+          {missingPosts.data?.exists
+            ? t(
+              'admin_schedule_workflow_running',
+              'Recovery workflow is present.'
+            )
+            : t(
+              'admin_schedule_workflow_missing',
+              'Recovery workflow is not running.'
+            )}
+        </div>
+        <div className="text-[13px]">
+          {missingPosts.data?.cadence?.label || 'Every hour (fixed in workflow)'}
+        </div>
+        <div className="text-[13px]">
+          {t('admin_schedule_status', 'Status')}: {missingPosts.data?.status}
+        </div>
+        <div className="flex flex-wrap gap-[12px]">
+          <Button secondary disabled={triggeringMissing} onClick={triggerMissing}>
+            {t('admin_schedule_trigger_scan_now', 'Trigger scan now')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="border border-newTableBorder rounded-[8px] p-[16px] bg-newBgColorInner flex flex-col gap-[12px]">
+        <div className="text-[16px] font-[600]">
+          {t('admin_schedule_post_title', 'Post workflows')}
+        </div>
+        <div className="text-[13px] opacity-70">
+          {t(
+            'admin_schedule_post_help',
+            'Shows the global pipeline scheduler that dispatches due post slots.'
+          )}
+        </div>
+        <div className="text-[13px]">
+          {postWorkflows.data?.cadence?.label ||
+            'Every 30 seconds (fixed in workflow)'}
+        </div>
+        <div className="text-[13px]">
+          {t('admin_schedule_status', 'Status')}: {postWorkflows.data?.status}
+        </div>
+        <div className="flex flex-wrap gap-[12px]">
+          <Button secondary disabled={triggeringPosts} onClick={triggerPosts}>
+            {t('admin_schedule_trigger_tick_now', 'Trigger scheduler tick now')}
+          </Button>
+        </div>
+      </div>
+
+      <div className="border border-newTableBorder rounded-[8px] p-[16px] bg-newBgColorInner flex flex-col gap-[12px]">
+        <div className="text-[16px] font-[600]">
+          {t('admin_schedule_autopost_title', 'Autopost workflows')}
+        </div>
+        <div className="text-[13px] opacity-70">
+          {t(
+            'admin_schedule_autopost_help',
+            'Force-running active autoposts may generate content or posts for every active configuration.'
+          )}
+        </div>
+        <div className="text-[13px]">
+          {autopostWorkflows.data?.cadence?.label ||
+            'Every hour per active autopost (fixed in workflow)'}
+        </div>
+        <div className="text-[13px]">
+          {t('admin_schedule_active_autoposts', 'Active autoposts')}:{' '}
+          {autopostWorkflows.data?.activeCount ?? 0}
+        </div>
+        <div className="flex flex-wrap gap-[12px]">
+          <Button
+            secondary
+            disabled={triggeringAutopost}
+            onClick={triggerAutopost}
+          >
+            {t('admin_schedule_force_run_autoposts', 'Force run all active')}
+          </Button>
+        </div>
+      </div>
+
+      {formError && <div className="text-[13px] text-red-400">{formError}</div>}
     </div>
   );
 };

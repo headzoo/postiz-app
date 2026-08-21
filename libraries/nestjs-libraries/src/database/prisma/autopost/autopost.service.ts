@@ -70,7 +70,7 @@ export class AutopostService {
     private _integrationService: IntegrationService,
     private _postsService: PostsService,
     private _pipelineManager: PipelineManager
-  ) {}
+  ) { }
 
   async stopAll(org: string) {
     const getAll = (await this.getAutoposts(org)).filter((f) => f.active);
@@ -255,9 +255,9 @@ export class AutopostService {
         url: findLast.link,
         description: striptags(
           findLast?.['content:encoded'] ||
-            findLast?.content ||
-            findLast?.description ||
-            ''
+          findLast?.content ||
+          findLast?.description ||
+          ''
         )
           .replace(/\n/g, ' ')
           .trim(),
@@ -385,13 +385,13 @@ export class AutopostService {
           image: !state.image
             ? []
             : [
-                {
-                  id: makeId(10),
-                  name: makeId(10),
-                  path: state.image,
-                  organizationId: state.integrations[0].organizationId,
-                },
-              ],
+              {
+                id: makeId(10),
+                name: makeId(10),
+                path: state.image,
+                organizationId: state.integrations[0].organizationId,
+              },
+            ],
         },
       ],
     }));
@@ -431,6 +431,14 @@ export class AutopostService {
 
   async updateUrl(state: WorkflowChannelsState) {
     await this._autopostsRepository.updateUrl(state.id, state.load.url);
+  }
+
+  countActiveAutoposts() {
+    return this._autopostsRepository.countActiveAutoposts();
+  }
+
+  listActiveAutopostIds(after?: string, take = 50) {
+    return this._autopostsRepository.listActiveAutopostIds(after, take);
   }
 
   async startAutopost(id: string) {
