@@ -37,6 +37,7 @@ import {
   sinkOutboundPublish,
 } from '@gitroom/nestjs-libraries/integrations/publish.file.sink';
 import { PostRulesExecutionService } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.execution.service';
+import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
 
 // Drops fields the workflow and downstream activities never read — biggest wins are `error` (grows per retry) and `childrenPost` (Prisma side-loads it on every recursive row).
 function slimPost(post: any) {
@@ -79,7 +80,8 @@ export class PostActivity {
     private _temporalService: TemporalService,
     private _subscriptionService: SubscriptionService,
     private _pipelinePlugService: PipelinePlugService,
-    private _postRulesExecutionService: PostRulesExecutionService
+    private _postRulesExecutionService: PostRulesExecutionService,
+    private _adminScheduleLogService: AdminScheduleLogService
   ) { }
 
   @ActivityMethod()
@@ -120,6 +122,14 @@ export class PostActivity {
           ]),
         });
     }
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'missing-post-recovery',
+      message:
+        list.length > 0
+          ? `Missing post recovery poked ${list.length} post(s)`
+          : 'Missing post recovery found no posts to poke',
+      meta: { poked: list.length },
+    });
   }
 
   @ActivityMethod()

@@ -10,6 +10,7 @@ import { RefreshToken } from '@gitroom/nestjs-libraries/integrations/social.abst
 import { SocialProvider } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { Integration } from '@prisma/client';
 import { timer } from '@gitroom/helpers/utils/timer';
+import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
 
 export type ChannelLeadBridgeCandidate = {
   id: string;
@@ -27,7 +28,8 @@ export class ChannelLeadBridgeActivity {
     private _channelInteractionService: ChannelInteractionService,
     private _integrationService: IntegrationService,
     private _integrationManager: IntegrationManager,
-    private _refreshIntegrationService: RefreshIntegrationService
+    private _refreshIntegrationService: RefreshIntegrationService,
+    private _adminScheduleLogService: AdminScheduleLogService
   ) { }
 
   @ActivityMethod()
@@ -60,6 +62,24 @@ export class ChannelLeadBridgeActivity {
       this._logger.log(
         `Lead bridge scan found no eligible channels (scanned ${result.candidates.length}, after=${request.after ?? 'start'})`
       );
+      await this._adminScheduleLogService.append({
+        scheduleKey: 'lead-bridge',
+        message: `Lead bridge scan found no eligible channels (scanned ${result.candidates.length})`,
+        meta: {
+          scanned: result.candidates.length,
+          after: request.after ?? null,
+        },
+      });
+    } else {
+      await this._adminScheduleLogService.append({
+        scheduleKey: 'lead-bridge',
+        message: `Lead bridge selected channel ${candidates[0].id} (${candidates[0].providerIdentifier})`,
+        meta: {
+          integrationId: candidates[0].id,
+          providerIdentifier: candidates[0].providerIdentifier,
+          scanned: result.candidates.length,
+        },
+      });
     }
     return {
       candidates,
@@ -95,6 +115,11 @@ export class ChannelLeadBridgeActivity {
         result
       )}`
     );
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'lead-bridge',
+      message: `Lead bridge crawl for ${live.id} (${integration.providerIdentifier})`,
+      meta: { integrationId: live.id, result },
+    });
     try {
       const backfill =
         await this._channelInteractionService.scoreUnscoredLeadsForIntegration({
@@ -104,12 +129,30 @@ export class ChannelLeadBridgeActivity {
       this._logger.log(
         `Lead fit scoring for integration ${live.id}: scored ${backfill.scored}/${backfill.candidates} unscored lead(s)`
       );
+      await this._adminScheduleLogService.append({
+        scheduleKey: 'lead-bridge',
+        message: `Lead fit scoring for ${live.id}: scored ${backfill.scored}/${backfill.candidates}`,
+        meta: {
+          integrationId: live.id,
+          scored: backfill.scored,
+          candidates: backfill.candidates,
+        },
+      });
     } catch (error) {
       // Fit scoring is best-effort; discovery already succeeded.
       this._logger.error(
         `Lead fit scoring failed for integration ${live.id}`,
         error instanceof Error ? error.stack : String(error)
       );
+      await this._adminScheduleLogService.append({
+        scheduleKey: 'lead-bridge',
+        level: 'ERROR',
+        message: `Lead fit scoring failed for ${live.id}`,
+        meta: {
+          integrationId: live.id,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
     }
     return result;
   }

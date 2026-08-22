@@ -9,6 +9,7 @@ import { AdminScheduleComponent } from './admin-schedule.component';
 const mockUseSWR = jest.fn();
 const mockMutate = jest.fn();
 const mockFetch = jest.fn();
+const mockOpenModal = jest.fn();
 
 jest.mock('swr', () => ({
   __esModule: true,
@@ -29,6 +30,16 @@ jest.mock('@gitroom/react/translation/get.transation.service.client', () => ({
 
 jest.mock('@gitroom/frontend/components/layout/loading', () => ({
   LoadingComponent: () => <div>Loading</div>,
+}));
+
+jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
+  useModals: () => ({ openModal: mockOpenModal }),
+}));
+
+jest.mock('@gitroom/frontend/components/admin/admin-schedule.logs.modal', () => ({
+  AdminScheduleLogsModal: ({ keySlug }: { keySlug: string }) => (
+    <div>Logs modal {keySlug}</div>
+  ),
 }));
 
 const scheduleByKey: Record<string, unknown> = {
@@ -95,6 +106,7 @@ describe('AdminScheduleComponent', () => {
     mockUseSWR.mockReset();
     mockMutate.mockReset();
     mockFetch.mockReset();
+    mockOpenModal.mockReset();
     mockUseSWR.mockImplementation((key: string) => ({
       data: scheduleByKey[key],
       isLoading: false,
@@ -104,6 +116,21 @@ describe('AdminScheduleComponent', () => {
       ok: true,
       json: async () => ({ exists: true }),
     });
+  });
+
+  it('renders a Logs button for each schedule section', () => {
+    render(<AdminScheduleComponent />);
+    expect(screen.getAllByRole('button', { name: 'Logs' })).toHaveLength(6);
+  });
+
+  it('opens the logs modal for lead discovery', () => {
+    render(<AdminScheduleComponent />);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Logs' })[2]);
+    expect(mockOpenModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        children: expect.anything(),
+      })
+    );
   });
 
   it('renders the current relationship grade schedule', () => {

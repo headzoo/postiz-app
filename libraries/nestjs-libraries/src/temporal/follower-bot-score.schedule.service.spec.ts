@@ -6,9 +6,12 @@ describe('FollowerBotScoreScheduleService', () => {
     create: jest.Mock;
     getHandle: jest.Mock;
   }) =>
-    new FollowerBotScoreScheduleService({
-      client: { getRawClient: () => ({ schedule }) },
-    } as any);
+    new FollowerBotScoreScheduleService(
+      {
+        client: { getRawClient: () => ({ schedule }) },
+      } as any,
+      { append: jest.fn().mockResolvedValue(undefined) } as any
+    );
 
   it('creates a default schedule when none exists', async () => {
     const create = jest.fn().mockResolvedValue(undefined);

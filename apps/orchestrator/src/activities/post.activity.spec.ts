@@ -112,7 +112,9 @@ const activity = (overrides: {
     } as any,
     {} as any,
     {} as any,
-    {} as any
+    {} as any,
+    {} as any,
+    { append: jest.fn().mockResolvedValue(undefined) } as any
   );
 
 describe('PostActivity.sendWebhooks', () => {
@@ -213,7 +215,9 @@ describe('PostActivity.editPost', () => {
       {} as any,
       {} as any,
       {} as any,
-      {} as any
+      {} as any,
+      {} as any,
+      { append: jest.fn().mockResolvedValue(undefined) } as any
     );
 
     const { stripHtmlValidation } = jest.requireMock(
@@ -282,7 +286,8 @@ describe('PostActivity V108 legacy plug compatibility', () => {
       {} as any,
       {} as any,
       { resolveGlobalPlugs } as any,
-      {} as any
+      {} as any,
+      { append: jest.fn().mockResolvedValue(undefined) } as any
     );
 
     await expect(
@@ -313,7 +318,8 @@ describe('PostActivity V108 legacy plug compatibility', () => {
       {} as any,
       {} as any,
       {} as any,
-      {} as any
+      {} as any,
+      { append: jest.fn().mockResolvedValue(undefined) } as any
     );
 
     await expect(instance.processPlugV107(payload)).resolves.toBe(true);

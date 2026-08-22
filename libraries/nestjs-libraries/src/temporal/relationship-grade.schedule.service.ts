@@ -11,6 +11,7 @@ import {
   normalizeRelationshipGradeSchedule,
   toRelationshipGradeScheduleSpec,
 } from './relationship-grade.schedule';
+import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
 
 export type RelationshipGradeScheduleStatus = {
   scheduleId: string;
@@ -25,7 +26,10 @@ export type RelationshipGradeScheduleStatus = {
 export class RelationshipGradeScheduleService {
   private readonly _logger = new Logger(RelationshipGradeScheduleService.name);
 
-  constructor(private _temporalService: TemporalService) { }
+  constructor(
+    private _temporalService: TemporalService,
+    private _adminScheduleLogService: AdminScheduleLogService
+  ) { }
 
   async install() {
     await this.terminateLegacyWorkflow();
@@ -81,10 +85,23 @@ export class RelationshipGradeScheduleService {
       }));
     } catch (error) {
       if (!this.isMissing(error)) {
+        await this._adminScheduleLogService.append({
+          scheduleKey: 'relationship-grades',
+          level: 'ERROR',
+          message: 'Failed to update relationship grade schedule',
+          meta: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
         throw error;
       }
       await this.create(config);
     }
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'relationship-grades',
+      message: 'Relationship grade schedule updated',
+      meta: { cadence: config },
+    });
     return this.getStatus();
   }
 
@@ -93,11 +110,23 @@ export class RelationshipGradeScheduleService {
       await this.getHandle().trigger(ScheduleOverlapPolicy.SKIP);
     } catch (error) {
       if (!this.isMissing(error)) {
+        await this._adminScheduleLogService.append({
+          scheduleKey: 'relationship-grades',
+          level: 'ERROR',
+          message: 'Failed to trigger relationship grade schedule',
+          meta: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
         throw error;
       }
       await this.create(DEFAULT_RELATIONSHIP_GRADE_SCHEDULE);
       await this.getHandle().trigger(ScheduleOverlapPolicy.SKIP);
     }
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'relationship-grades',
+      message: 'Relationship grade schedule triggered',
+    });
     return this.getStatus();
   }
 
@@ -121,6 +150,15 @@ export class RelationshipGradeScheduleService {
       });
     } catch (error) {
       if (!this.isAlreadyRunning(error)) {
+        this._logger.error('Failed to create relationship grade schedule', error);
+        await this._adminScheduleLogService.append({
+          scheduleKey: 'relationship-grades',
+          level: 'ERROR',
+          message: 'Failed to create relationship grade schedule',
+          meta: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
         throw error;
       }
     }

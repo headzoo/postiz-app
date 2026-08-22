@@ -18,6 +18,8 @@ import { FollowerBotScoreScheduleService } from '@gitroom/nestjs-libraries/tempo
 import { AdminScheduleWorkflowService } from '@gitroom/nestjs-libraries/temporal/admin-schedule.workflow.service';
 import { RelationshipGradeScheduleDto } from '@gitroom/nestjs-libraries/dtos/admin/relationship-grade.schedule.dto';
 import { FollowerBotScoreScheduleDto } from '@gitroom/nestjs-libraries/dtos/admin/follower-bot-score.schedule.dto';
+import { AdminScheduleLogsQueryDto } from '@gitroom/nestjs-libraries/dtos/admin/admin-schedule-logs.query.dto';
+import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
 import { RequireAdminStepUp } from '@gitroom/backend/services/auth/admin-step-up.decorator';
 import dayjs from 'dayjs';
 
@@ -31,7 +33,8 @@ export class AdminController {
     private _adminUsersService: AdminUsersService,
     private _relationshipGradeScheduleService: RelationshipGradeScheduleService,
     private _followerBotScoreScheduleService: FollowerBotScoreScheduleService,
-    private _adminScheduleWorkflowService: AdminScheduleWorkflowService
+    private _adminScheduleWorkflowService: AdminScheduleWorkflowService,
+    private _adminScheduleLogService: AdminScheduleLogService
   ) { }
 
   private assertSuperAdmin(user: User) {
@@ -103,6 +106,15 @@ export class AdminController {
   async getRelationshipGradeSchedule(@GetUserFromRequest() user: User) {
     this.assertSuperAdmin(user);
     return this._relationshipGradeScheduleService.getStatus();
+  }
+
+  @Get('/schedule/logs')
+  async listScheduleLogs(
+    @GetUserFromRequest() user: User,
+    @Query() query: AdminScheduleLogsQueryDto
+  ) {
+    this.assertSuperAdmin(user);
+    return this._adminScheduleLogService.list(query.key, query.limit);
   }
 
   @Put('/schedule/relationship-grades')

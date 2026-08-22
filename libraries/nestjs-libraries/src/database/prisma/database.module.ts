@@ -65,6 +65,8 @@ import { ChannelInteractionRepository } from '@gitroom/nestjs-libraries/database
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
 import { LogsRepository } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.repository';
 import { LogsService } from '@gitroom/nestjs-libraries/database/prisma/logs/logs.service';
+import { AdminScheduleLogRepository } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.repository';
+import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
 import { ChannelAnalyticsRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.repository';
 import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.service';
 import { AdminPasskeyRepository } from '@gitroom/nestjs-libraries/database/prisma/admin-passkeys/admin-passkey.repository';
@@ -147,6 +149,8 @@ import { PostRulesExecutionService } from '@gitroom/nestjs-libraries/database/pr
     ChannelAnalyticsService,
     LogsRepository,
     LogsService,
+    AdminScheduleLogRepository,
+    AdminScheduleLogService,
     PostRulesRepository,
     PostRulesService,
     PostRulesExecutionRepository,

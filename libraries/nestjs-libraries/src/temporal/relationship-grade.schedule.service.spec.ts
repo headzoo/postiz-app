@@ -8,9 +8,12 @@ describe('RelationshipGradeScheduleService', () => {
   }, workflow: {
     getHandle: jest.Mock;
   }) =>
-    new RelationshipGradeScheduleService({
-      client: { getRawClient: () => ({ schedule, workflow }) },
-    } as any);
+    new RelationshipGradeScheduleService(
+      {
+        client: { getRawClient: () => ({ schedule, workflow }) },
+      } as any,
+      { append: jest.fn().mockResolvedValue(undefined) } as any
+    );
 
   it('creates a default schedule when none exists', async () => {
     const create = jest.fn().mockResolvedValue(undefined);

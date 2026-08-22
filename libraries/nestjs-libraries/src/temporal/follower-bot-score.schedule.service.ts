@@ -10,6 +10,7 @@ import {
   normalizeFollowerBotScoreSchedule,
   toFollowerBotScoreScheduleSpec,
 } from './follower-bot-score.schedule';
+import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
 
 export type FollowerBotScoreScheduleStatus = {
   scheduleId: string;
@@ -24,7 +25,10 @@ export type FollowerBotScoreScheduleStatus = {
 export class FollowerBotScoreScheduleService {
   private readonly _logger = new Logger(FollowerBotScoreScheduleService.name);
 
-  constructor(private _temporalService: TemporalService) { }
+  constructor(
+    private _temporalService: TemporalService,
+    private _adminScheduleLogService: AdminScheduleLogService
+  ) { }
 
   async install() {
     try {
@@ -80,10 +84,23 @@ export class FollowerBotScoreScheduleService {
       }));
     } catch (error) {
       if (!this.isMissing(error)) {
+        await this._adminScheduleLogService.append({
+          scheduleKey: 'follower-bot-scores',
+          level: 'ERROR',
+          message: 'Failed to update follower bot score schedule',
+          meta: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
         throw error;
       }
       await this.create(config);
     }
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'follower-bot-scores',
+      message: 'Follower bot score schedule updated',
+      meta: { cadence: config },
+    });
     return this.getStatus();
   }
 
@@ -92,11 +109,23 @@ export class FollowerBotScoreScheduleService {
       await this.getHandle().trigger(ScheduleOverlapPolicy.SKIP);
     } catch (error) {
       if (!this.isMissing(error)) {
+        await this._adminScheduleLogService.append({
+          scheduleKey: 'follower-bot-scores',
+          level: 'ERROR',
+          message: 'Failed to trigger follower bot score schedule',
+          meta: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
         throw error;
       }
       await this.create(DEFAULT_FOLLOWER_BOT_SCORE_SCHEDULE);
       await this.getHandle().trigger(ScheduleOverlapPolicy.SKIP);
     }
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'follower-bot-scores',
+      message: 'Follower bot score schedule triggered',
+    });
     return this.getStatus();
   }
 
@@ -121,6 +150,14 @@ export class FollowerBotScoreScheduleService {
     } catch (error) {
       if (!this.isAlreadyRunning(error)) {
         this._logger.error('Failed to create follower bot score schedule', error);
+        await this._adminScheduleLogService.append({
+          scheduleKey: 'follower-bot-scores',
+          level: 'ERROR',
+          message: 'Failed to create follower bot score schedule',
+          meta: {
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
         throw error;
       }
     }

@@ -1,15 +1,22 @@
 import { AdminScheduleWorkflowService } from './admin-schedule.workflow.service';
 
 describe('AdminScheduleWorkflowService', () => {
-  const createService = (workflow: {
-    getHandle: jest.Mock;
-    start: jest.Mock;
-  }, autopostRepository: { countActiveAutoposts: jest.Mock }) =>
+  const createService = (
+    workflow: {
+      getHandle: jest.Mock;
+      start: jest.Mock;
+    },
+    autopostRepository: { countActiveAutoposts: jest.Mock },
+    adminScheduleLogService: { append: jest.Mock } = {
+      append: jest.fn().mockResolvedValue(undefined),
+    }
+  ) =>
     new AdminScheduleWorkflowService(
       {
         client: { getRawClient: () => ({ workflow }) },
       } as any,
-      autopostRepository as any
+      autopostRepository as any,
+      adminScheduleLogService as any
     );
 
   it('describes the missing post recovery workflow', async () => {
@@ -38,12 +45,14 @@ describe('AdminScheduleWorkflowService', () => {
       startTime: new Date('2026-08-21T00:00:00.000Z'),
     });
     const start = jest.fn().mockResolvedValue(undefined);
+    const append = jest.fn().mockResolvedValue(undefined);
     const service = createService(
       {
         getHandle: jest.fn().mockReturnValue({ describe }),
         start,
       },
-      { countActiveAutoposts: jest.fn() }
+      { countActiveAutoposts: jest.fn() },
+      { append }
     );
 
     await service.triggerMissingPostRecovery();
@@ -51,6 +60,11 @@ describe('AdminScheduleWorkflowService', () => {
       'missingPostRecoveryWorkflowV1',
       expect.objectContaining({
         taskQueue: 'main',
+      })
+    );
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scheduleKey: 'missing-post-recovery',
       })
     );
   });

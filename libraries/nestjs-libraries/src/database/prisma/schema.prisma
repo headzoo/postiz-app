@@ -2000,6 +2000,21 @@ enum WebhookHttpLogSource {
   TEST
 }
 
+enum AdminScheduleLogKey {
+  RELATIONSHIP_GRADES
+  FOLLOWER_BOT_SCORES
+  LEAD_BRIDGE
+  MISSING_POST_RECOVERY
+  POST_WORKFLOWS
+  AUTOPOST_WORKFLOWS
+}
+
+enum AdminScheduleLogLevel {
+  INFO
+  WARN
+  ERROR
+}
+
 model PostHttpLog {
   id              String       @id @default(uuid())
   organizationId  String
@@ -2051,4 +2066,15 @@ model WebhookHttpLog {
   @@index([organizationId, createdAt])
   @@index([webhookId])
   @@index([direction])
+}
+
+model AdminScheduleLog {
+  id          String                @id @default(uuid())
+  scheduleKey AdminScheduleLogKey
+  level       AdminScheduleLogLevel
+  message     String
+  meta        String                @default("{}")
+  createdAt   DateTime              @default(now())
+
+  @@index([scheduleKey, createdAt])
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { TemporalService } from 'nestjs-temporal-core';
 import { AutopostRepository } from '@gitroom/nestjs-libraries/database/prisma/autopost/autopost.repository';
+import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import {
   AUTOPOST_ADMIN_TRIGGER_WORKFLOW_ID_PREFIX,
@@ -42,7 +43,8 @@ export type AutopostWorkflowStatus = AdminWorkflowStatus & {
 export class AdminScheduleWorkflowService {
   constructor(
     private _temporalService: TemporalService,
-    private _autopostRepository: AutopostRepository
+    private _autopostRepository: AutopostRepository,
+    private _adminScheduleLogService: AdminScheduleLogService
   ) { }
 
   async getMissingPostRecoveryStatus(): Promise<AdminWorkflowStatus> {
@@ -54,11 +56,17 @@ export class AdminScheduleWorkflowService {
   }
 
   async triggerMissingPostRecovery() {
+    const workflowId = `${MISSING_POST_RECOVERY_WORKFLOW_ID_PREFIX}-${makeId(8)}`;
     await this.startOneShot(
       MISSING_POST_RECOVERY_WORKFLOW_TYPE,
-      `${MISSING_POST_RECOVERY_WORKFLOW_ID_PREFIX}-${makeId(8)}`,
+      workflowId,
       [{}]
     );
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'missing-post-recovery',
+      message: 'Missing post recovery scan triggered',
+      meta: { workflowId },
+    });
     return this.getMissingPostRecoveryStatus();
   }
 
@@ -71,11 +79,17 @@ export class AdminScheduleWorkflowService {
   }
 
   async triggerPostWorkflowTick() {
+    const workflowId = `${PIPELINE_SCHEDULER_TICK_WORKFLOW_ID_PREFIX}-${makeId(8)}`;
     await this.startOneShot(
       PIPELINE_SCHEDULER_TICK_WORKFLOW_TYPE,
-      `${PIPELINE_SCHEDULER_TICK_WORKFLOW_ID_PREFIX}-${makeId(8)}`,
+      workflowId,
       [{}]
     );
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'post-workflows',
+      message: 'Pipeline scheduler tick triggered',
+      meta: { workflowId },
+    });
     return this.getPostWorkflowStatus();
   }
 
@@ -98,11 +112,17 @@ export class AdminScheduleWorkflowService {
   }
 
   async triggerAutopostWorkflows() {
+    const workflowId = `${AUTOPOST_ADMIN_TRIGGER_WORKFLOW_ID_PREFIX}-${makeId(8)}`;
     await this.startOneShot(
       AUTOPOST_ADMIN_TRIGGER_WORKFLOW_TYPE,
-      `${AUTOPOST_ADMIN_TRIGGER_WORKFLOW_ID_PREFIX}-${makeId(8)}`,
+      workflowId,
       [{}]
     );
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'autopost-workflows',
+      message: 'Force-run of all active autoposts triggered',
+      meta: { workflowId },
+    });
     return this.getAutopostWorkflowStatus();
   }
 
@@ -120,6 +140,11 @@ export class AdminScheduleWorkflowService {
       {},
     ]);
     await this.signalWorkflow(LEAD_BRIDGE_WORKFLOW_ID, 'channelLeadBridge');
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'lead-bridge',
+      message: 'Lead discovery workflow signaled',
+      meta: { workflowId: LEAD_BRIDGE_WORKFLOW_ID },
+    });
     return this.getLeadBridgeStatus();
   }
 

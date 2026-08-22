@@ -8,6 +8,9 @@ import { Button } from '@gitroom/react/form/button';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
+import { useModals } from '@gitroom/frontend/components/layout/new-modal';
+import { AdminScheduleLogsModal } from '@gitroom/frontend/components/admin/admin-schedule.logs.modal';
+import { AdminScheduleLogSlug } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.slugs';
 
 type ScheduleUnit = 'hour' | 'day' | 'month';
 
@@ -184,6 +187,7 @@ export const AdminScheduleComponent: FC = () => {
   const t = useT();
   const toaster = useToaster();
   const fetch = useFetch();
+  const modal = useModals();
   const relationship = useRelationshipGradeSchedule();
   const botScores = useFollowerBotScoreSchedule();
   const missingPosts = useMissingPostRecoverySchedule();
@@ -205,6 +209,20 @@ export const AdminScheduleComponent: FC = () => {
   const [triggeringAutopost, setTriggeringAutopost] = useState(false);
   const [triggeringLeadBridge, setTriggeringLeadBridge] = useState(false);
   const [formError, setFormError] = useState('');
+
+  const openLogs = useCallback(
+    (keySlug: AdminScheduleLogSlug) => {
+      modal.openModal({
+        closeOnClickOutside: true,
+        withCloseButton: false,
+        classNames: {
+          modal: 'w-[100%] max-w-[900px] text-textColor',
+        },
+        children: <AdminScheduleLogsModal keySlug={keySlug} />,
+      });
+    },
+    [modal]
+  );
 
   useEffect(() => {
     if (!relationship.data?.cadence) {
@@ -593,6 +611,12 @@ export const AdminScheduleComponent: FC = () => {
           <Button secondary disabled={triggeringGrades} onClick={triggerGrades}>
             {t('admin_schedule_trigger_now', 'Trigger now')}
           </Button>
+          <Button
+            secondary
+            onClick={() => openLogs('relationship-grades')}
+          >
+            {t('admin_schedule_logs', 'Logs')}
+          </Button>
         </div>
       </div>
 
@@ -644,6 +668,12 @@ export const AdminScheduleComponent: FC = () => {
           <Button secondary disabled={triggeringBotScores} onClick={triggerBotScores}>
             {t('admin_schedule_trigger_now', 'Trigger now')}
           </Button>
+          <Button
+            secondary
+            onClick={() => openLogs('follower-bot-scores')}
+          >
+            {t('admin_schedule_logs', 'Logs')}
+          </Button>
         </div>
       </div>
 
@@ -677,6 +707,9 @@ export const AdminScheduleComponent: FC = () => {
           >
             {t('admin_schedule_trigger_now', 'Trigger now')}
           </Button>
+          <Button secondary onClick={() => openLogs('lead-bridge')}>
+            {t('admin_schedule_logs', 'Logs')}
+          </Button>
         </div>
       </div>
 
@@ -705,6 +738,12 @@ export const AdminScheduleComponent: FC = () => {
           <Button secondary disabled={triggeringMissing} onClick={triggerMissing}>
             {t('admin_schedule_trigger_scan_now', 'Trigger scan now')}
           </Button>
+          <Button
+            secondary
+            onClick={() => openLogs('missing-post-recovery')}
+          >
+            {t('admin_schedule_logs', 'Logs')}
+          </Button>
         </div>
       </div>
 
@@ -728,6 +767,9 @@ export const AdminScheduleComponent: FC = () => {
         <div className="flex flex-wrap gap-[12px]">
           <Button secondary disabled={triggeringPosts} onClick={triggerPosts}>
             {t('admin_schedule_trigger_tick_now', 'Trigger scheduler tick now')}
+          </Button>
+          <Button secondary onClick={() => openLogs('post-workflows')}>
+            {t('admin_schedule_logs', 'Logs')}
           </Button>
         </div>
       </div>
@@ -757,6 +799,9 @@ export const AdminScheduleComponent: FC = () => {
             onClick={triggerAutopost}
           >
             {t('admin_schedule_force_run_autoposts', 'Force run all active')}
+          </Button>
+          <Button secondary onClick={() => openLogs('autopost-workflows')}>
+            {t('admin_schedule_logs', 'Logs')}
           </Button>
         </div>
       </div>
