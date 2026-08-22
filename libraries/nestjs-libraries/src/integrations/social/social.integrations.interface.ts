@@ -830,6 +830,16 @@ export interface SocialProvider
     externalId: string,
     query: MemberPostsQuery
   ): Promise<MemberPostsPage>;
+  /**
+   * Resolve a pasted profile URL to a Follower whose `id` matches what
+   * `followers()` stores. Return null when the URL is not for this provider
+   * or the account cannot be found.
+   */
+  resolveAudienceProfileFromUrl?(
+    accessToken: string,
+    integration: Integration,
+    url: string
+  ): Promise<Follower | null>;
   postLikers?(
     integration: Integration,
     accessToken: string,

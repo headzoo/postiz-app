@@ -1,5 +1,6 @@
 import {
   AuthTokenDetails,
+  Follower,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -49,6 +50,10 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
 
   private mastodonInstanceUrl() {
     return new URL(process.env.MASTODON_URL || 'https://mastodon.social');
+  }
+
+  protected resolveMastodonInstanceUrl(_integration?: Integration) {
+    return this.mastodonInstanceUrl();
   }
 
   private httpUrl(value: unknown) {
@@ -196,6 +201,107 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
       hasMore: !!this.encodeFollowerCursor(
         this.followerLink(response.headers.get('link'), 'next')
       ),
+    };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    accessToken: string,
+    integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const target = this.parseMastodonProfileTarget(url, integration);
+    if (!target) {
+      return null;
+    }
+    try {
+      const lookupUrl = new URL('/api/v1/accounts/lookup', target.instance);
+      lookupUrl.searchParams.set('acct', target.acct);
+      const response = await this.fetch(lookupUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const account = (await response.json()) as any;
+      if (!account?.id) {
+        return null;
+      }
+      return {
+        id: String(account.id),
+        name: account.display_name || account.acct || String(account.id),
+        ...(account.acct ? { username: account.acct } : {}),
+        ...(this.httpUrl(account.avatar)
+          ? { picture: this.httpUrl(account.avatar) }
+          : {}),
+        ...(this.httpUrl(account.url)
+          ? { profileUrl: this.httpUrl(account.url) }
+          : {}),
+        ...(account.note
+          ? {
+              bio: String(account.note)
+                .replace(/<[^>]*>/g, '')
+                .trim(),
+            }
+          : {}),
+        ...(Number.isFinite(Number(account.followers_count))
+          ? { followersCount: Number(account.followers_count) }
+          : {}),
+        ...(Number.isFinite(Number(account.following_count))
+          ? { followingCount: Number(account.following_count) }
+          : {}),
+        ...(account.created_at ? { accountCreatedAt: account.created_at } : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseMastodonProfileTarget(
+    raw: string,
+    integration: Integration
+  ): { instance: URL; acct: string } | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    const connected = this.resolveMastodonInstanceUrl(integration);
+    if (trimmed.includes('@') && !trimmed.includes('/')) {
+      const [local, domain] = trimmed.split('@');
+      if (!local || !domain) {
+        return null;
+      }
+      return {
+        instance: connected,
+        acct: `${local}@${domain}`,
+      };
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const atSegment = segments.find((segment) => segment.startsWith('@'));
+    if (!atSegment) {
+      return null;
+    }
+    const local = decodeURIComponent(atSegment).replace(/^@/, '');
+    if (!local) {
+      return null;
+    }
+    const instance = new URL(`${parsed.protocol}//${parsed.host}`);
+    const sameHost =
+      instance.hostname.replace(/^www\./i, '').toLowerCase() ===
+      connected.hostname.replace(/^www\./i, '').toLowerCase();
+    return {
+      instance: connected,
+      acct: sameHost ? local : `${local}@${instance.hostname}`,
     };
   }
 

@@ -2,6 +2,7 @@ import {
   AuthTokenDetails,
   ChannelNoticeCategory,
   ChannelNoticeStatus,
+  Follower,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -349,6 +350,80 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
       ...(data.cursor ? { nextCursor: data.cursor } : {}),
       hasMore: !!data.cursor,
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    _accessToken: string,
+    integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const actor = this.parseBlueskyProfileActor(url);
+    if (!actor) {
+      return null;
+    }
+    try {
+      const agent = await this.getAgent(integration);
+      const { data: profile } = await agent.getProfile({ actor });
+      if (!profile?.did) {
+        return null;
+      }
+      const isHttpUrl = (value?: string) => {
+        try {
+          return value && /^https?:$/.test(new URL(value).protocol)
+            ? value
+            : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      return {
+        id: profile.did,
+        name: profile.displayName || profile.handle,
+        username: profile.handle,
+        ...(isHttpUrl(profile.avatar) ? { picture: profile.avatar } : {}),
+        profileUrl: `https://bsky.app/profile/${encodeURIComponent(
+          profile.handle
+        )}`,
+        ...(profile.description ? { bio: profile.description } : {}),
+        ...(profile.createdAt ? { accountCreatedAt: profile.createdAt } : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseBlueskyProfileActor(raw: string): string | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (trimmed.startsWith('did:')) {
+      return trimmed;
+    }
+    if (
+      !/^https?:\/\//i.test(trimmed) &&
+      !trimmed.includes('/') &&
+      trimmed.includes('.')
+    ) {
+      return trimmed;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'bsky.app') {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (segments[0] !== 'profile' || !segments[1]) {
+      return null;
+    }
+    return decodeURIComponent(segments[1]);
   }
 
   async memberPosts(

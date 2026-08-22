@@ -1036,6 +1036,102 @@ export class IntegrationService {
     }
   }
 
+  async importFollowerListMemberFromUrl(
+    org: Organization,
+    user: User,
+    integrationId: string,
+    listId: string,
+    url: string
+  ) {
+    const trimmedUrl = typeof url === 'string' ? url.trim() : '';
+    if (!trimmedUrl || trimmedUrl.length > 2048) {
+      throw new HttpException('Invalid profile URL', HttpStatus.BAD_REQUEST);
+    }
+
+    const integration = await this._integrationRepository.getIntegrationById(
+      org.id,
+      integrationId
+    );
+    if (!integration) {
+      throw new HttpException('Integration not found', HttpStatus.NOT_FOUND);
+    }
+    if (
+      integration.disabled ||
+      integration.deletedAt ||
+      integration.type !== 'social'
+    ) {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+
+    let provider: SocialProvider;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+    if (!provider?.followers) {
+      throw new HttpException('Followers are unavailable', HttpStatus.BAD_REQUEST);
+    }
+    if (!provider.resolveAudienceProfileFromUrl) {
+      throw new HttpException(
+        'Importing by URL is not supported for this channel',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    const liveIntegration = { ...integration };
+    if (
+      !!liveIntegration.tokenExpiration &&
+      dayjs(liveIntegration.tokenExpiration).isBefore(dayjs())
+    ) {
+      const data = await this._refreshIntegrationService.refresh(liveIntegration);
+      if (!data || !data.accessToken) {
+        throw new HttpException(
+          'Followers are temporarily unavailable',
+          HttpStatus.SERVICE_UNAVAILABLE
+        );
+      }
+      liveIntegration.token = data.accessToken;
+      if (provider.refreshWait) {
+        await timer(10000);
+      }
+    }
+
+    let profile: Follower | null;
+    try {
+      profile = await provider.resolveAudienceProfileFromUrl(
+        liveIntegration.token,
+        liveIntegration,
+        trimmedUrl
+      );
+    } catch {
+      throw new HttpException(
+        'Could not resolve this profile URL',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+    if (!profile) {
+      throw new HttpException(
+        'Profile not found or URL does not match this channel',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
+    try {
+      return await this._channelInteractionService.importFollowerListMember(
+        org.id,
+        integrationId,
+        listId,
+        profile,
+        user.id
+      );
+    } catch (error) {
+      this.rethrowFollowerListError(error);
+    }
+  }
+
   async removeFollowerListMember(
     org: Organization,
     integrationId: string,

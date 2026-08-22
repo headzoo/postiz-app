@@ -26,3 +26,11 @@ export class FollowerListMemberDto {
   @MaxLength(512)
   externalId!: string;
 }
+
+export class ImportFollowerListMemberDto {
+  @Transform(trimString)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2048)
+  url!: string;
+}

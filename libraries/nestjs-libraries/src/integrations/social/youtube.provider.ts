@@ -4,6 +4,7 @@ import {
   ChannelAnalyticsCapturePage,
   ChannelAnalyticsCaptureRequest,
   paginateDailyAnalyticsCapture,
+  Follower,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -149,6 +150,99 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
         : {}),
       hasMore: !!response.data.nextPageToken,
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    accessToken: string,
+    _integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const target = this.parseYoutubeChannelTarget(url);
+    if (!target) {
+      return null;
+    }
+    const { client, youtube } = clientAndYoutube();
+    client.setCredentials({ access_token: accessToken });
+    try {
+      const response = await youtube(client).channels.list({
+        part: ['snippet', 'statistics'],
+        ...(target.kind === 'id'
+          ? { id: [target.value] }
+          : { forHandle: target.value }),
+      });
+      const channel = response.data.items?.[0];
+      if (!channel?.id) {
+        return null;
+      }
+      const picture =
+        channel.snippet?.thumbnails?.high?.url ||
+        channel.snippet?.thumbnails?.medium?.url ||
+        channel.snippet?.thumbnails?.default?.url;
+      return {
+        id: channel.id,
+        name: channel.snippet?.title || channel.id,
+        ...(channel.snippet?.customUrl
+          ? { username: channel.snippet.customUrl }
+          : {}),
+        ...(picture ? { picture } : {}),
+        profileUrl: `https://www.youtube.com/channel/${encodeURIComponent(
+          channel.id
+        )}`,
+        ...(channel.snippet?.description
+          ? { bio: channel.snippet.description }
+          : {}),
+        ...(Number.isFinite(Number(channel.statistics?.subscriberCount))
+          ? { followersCount: Number(channel.statistics?.subscriberCount) }
+          : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseYoutubeChannelTarget(
+    raw: string
+  ): { kind: 'id' | 'handle'; value: string } | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (/^UC[\w-]{20,}$/.test(trimmed)) {
+      return { kind: 'id', value: trimmed };
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    if (
+      host !== 'youtube.com' &&
+      host !== 'm.youtube.com' &&
+      host !== 'youtu.be'
+    ) {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (!segments.length) {
+      return null;
+    }
+    if (segments[0] === 'channel' && segments[1]) {
+      return { kind: 'id', value: decodeURIComponent(segments[1]) };
+    }
+    if (segments[0].startsWith('@')) {
+      return {
+        kind: 'handle',
+        value: decodeURIComponent(segments[0]).replace(/^@/, ''),
+      };
+    }
+    if ((segments[0] === 'c' || segments[0] === 'user') && segments[1]) {
+      return { kind: 'handle', value: decodeURIComponent(segments[1]) };
+    }
+    return null;
   }
 
   profileUrl(integration: Integration) {

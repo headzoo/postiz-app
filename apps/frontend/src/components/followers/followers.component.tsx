@@ -14,6 +14,7 @@ import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
 import { FollowerCard } from '@gitroom/frontend/components/followers/follower.card';
 import { FollowerDetailModal } from '@gitroom/frontend/components/followers/follower.detail.modal';
 import { FollowerListCreateModal } from '@gitroom/frontend/components/followers/follower.list.create.modal';
+import { FollowerListAddModal } from '@gitroom/frontend/components/followers/follower.list.add.modal';
 import { useModals } from '@gitroom/frontend/components/layout/new-modal';
 import { PlusIcon } from '@gitroom/frontend/components/ui/icons';
 import {
@@ -797,6 +798,7 @@ export const FollowersComponent: FC = () => {
   const {
     createList,
     addMember,
+    importMemberFromUrl,
     removeMember,
     ignoreTriage,
     ignoreFollower,
@@ -1037,6 +1039,24 @@ export const FollowersComponent: FC = () => {
     });
   }, [createList, modal, t]);
 
+  const openAddToListModal = useCallback(() => {
+    if (!urlListId) {
+      return;
+    }
+    modal.openModal({
+      title: t('followers_list_add_title', 'Add to list'),
+      children: (close) => (
+        <FollowerListAddModal
+          close={close}
+          listName={activeList?.name}
+          onImport={async (url) => {
+            await importMemberFromUrl(urlListId, url);
+          }}
+        />
+      ),
+    });
+  }, [activeList?.name, importMemberFromUrl, modal, t, urlListId]);
+
   if (isLoadingChannels || isLoadingIntegrations) {
     return (
       <div className="bg-newBgColorInner p-[20px] flex flex-1 flex-col gap-[15px] transition-all items-center justify-center">
@@ -1125,7 +1145,7 @@ export const FollowersComponent: FC = () => {
           <p className="text-[14px] text-textItemBlur max-w-[520px]">
             {t(
               'followers_list_empty_description',
-              'Add people from their cards using the + button next to their triage label.'
+              'Use + Add to paste a profile URL, or add people from their cards using the + button next to their triage label.'
             )}
           </p>
         </div>
@@ -1561,6 +1581,19 @@ export const FollowersComponent: FC = () => {
             <PlusIcon size={14} />
           </button>
         </div>
+
+        {urlListId && (
+          <div>
+            <button
+              type="button"
+              onClick={openAddToListModal}
+              className="inline-flex items-center gap-[6px] rounded-[8px] border border-newBorder bg-newBgColorInner px-[10px] py-[6px] text-[13px] text-textItemBlur hover:bg-newTableHeader hover:text-newTextColor"
+            >
+              <PlusIcon size={14} />
+              {t('followers_list_add_button', 'Add')}
+            </button>
+          </div>
+        )}
 
         {isInteractionsSort && (
           <TrackingNotice tracking={tracking} showFreshness={isTrackingReady} />

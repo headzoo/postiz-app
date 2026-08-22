@@ -1,5 +1,6 @@
 import {
   AuthTokenDetails,
+  Follower,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -127,6 +128,100 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
         : {}),
       hasMore: nextOffset < response?.count,
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    accessToken: string,
+    _integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const target = this.parseVkProfileTarget(url);
+    if (!target) {
+      return null;
+    }
+    try {
+      const apiUrl = new URL('https://api.vk.com/method/users.get');
+      apiUrl.search = new URLSearchParams({
+        user_ids: target,
+        fields: 'screen_name,photo_200,status,counters',
+        access_token: accessToken,
+        v: '5.251',
+      }).toString();
+      const { response } = await (await this.fetch(apiUrl.toString())).json();
+      const account = Array.isArray(response) ? response[0] : undefined;
+      if (!account?.id) {
+        return null;
+      }
+      return {
+        id: String(account.id),
+        name:
+          [account.first_name, account.last_name].filter(Boolean).join(' ') ||
+          account.screen_name ||
+          String(account.id),
+        ...(account.screen_name ? { username: account.screen_name } : {}),
+        ...(this.httpUrl(account.photo_200)
+          ? { picture: this.httpUrl(account.photo_200) }
+          : {}),
+        ...(account.screen_name
+          ? {
+              profileUrl: `https://vk.com/${encodeURIComponent(
+                account.screen_name
+              )}`,
+            }
+          : {
+              profileUrl: `https://vk.com/id${encodeURIComponent(
+                String(account.id)
+              )}`,
+            }),
+        ...(account.status ? { bio: account.status } : {}),
+        ...(Number.isFinite(Number(account.counters?.followers))
+          ? { followersCount: Number(account.counters.followers) }
+          : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseVkProfileTarget(raw: string): string | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (/^\d+$/.test(trimmed)) {
+      return trimmed;
+    }
+    if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes('/')) {
+      return /^[A-Za-z0-9._-]{1,64}$/.test(trimmed) ? trimmed : null;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'vk.com' && host !== 'm.vk.com' && host !== 'vk.ru') {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (!segments.length) {
+      return null;
+    }
+    const slug = decodeURIComponent(segments[0]);
+    if (/^id\d+$/i.test(slug)) {
+      return slug.slice(2);
+    }
+    if (
+      slug.toLowerCase().startsWith('club') ||
+      slug.toLowerCase().startsWith('public') ||
+      slug.toLowerCase().startsWith('event')
+    ) {
+      return null;
+    }
+    return /^[A-Za-z0-9._-]{1,64}$/.test(slug) ? slug : null;
   }
 
   maxLength() {

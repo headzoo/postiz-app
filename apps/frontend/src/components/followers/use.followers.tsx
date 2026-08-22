@@ -974,6 +974,55 @@ export const useFollowerListMutations = (integrationId?: string) => {
     [fetch, integrationId, mutateCache]
   );
 
+  const importMemberFromUrl = useCallback(
+    async (listId: string, url: string) => {
+      if (!integrationId) {
+        throw new Error('Channel is required');
+      }
+      const response = await fetch(
+        `/followers/${integrationId}/lists/${listId}/members/import`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ url }),
+        }
+      );
+      if (!response.ok) {
+        let message = 'Failed to import profile into list';
+        try {
+          const body = await response.json();
+          if (typeof body?.message === 'string') {
+            message = body.message;
+          } else if (Array.isArray(body?.message) && body.message[0]) {
+            message = String(body.message[0]);
+          }
+        } catch {
+          // keep default message
+        }
+        throw new Error(message);
+      }
+      const imported = (await response.json()) as {
+        externalId?: string;
+      };
+      const externalId = imported?.externalId;
+      if (externalId) {
+        await mutateCache(
+          (key) => isFollowerListCacheKey(integrationId, key),
+          (page: FollowerPage | undefined) =>
+            applyListMembershipToFollowerPage(page, externalId, listId, true),
+          { revalidate: true }
+        );
+      } else {
+        await mutateCache(
+          (key) => isFollowerListCacheKey(integrationId, key),
+          undefined,
+          { revalidate: true }
+        );
+      }
+      return imported;
+    },
+    [fetch, integrationId, mutateCache]
+  );
+
   const removeMember = useCallback(
     async (listId: string, externalId: string) => {
       if (!integrationId) {
@@ -1091,6 +1140,7 @@ export const useFollowerListMutations = (integrationId?: string) => {
   return {
     createList,
     addMember,
+    importMemberFromUrl,
     removeMember,
     ignoreTriage,
     ignoreFollower,

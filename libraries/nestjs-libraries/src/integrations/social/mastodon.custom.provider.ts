@@ -76,15 +76,24 @@ export class MastodonCustomProvider extends MastodonProvider {
 
   // The user's instance URL, saved encrypted at connection time. Falls back to
   // the default instance for legacy integrations that predate storing it.
-  private instanceUrl(integration?: Integration) {
+  protected resolveMastodonInstanceUrl(integration?: Integration) {
     try {
       const { instanceUrl } = JSON.parse(
         AuthService.fixedDecryption(integration?.customInstanceDetails || '')
       );
-      return instanceUrl || process.env.MASTODON_URL || 'https://mastodon.social';
-    } catch (err) {
-      return process.env.MASTODON_URL || 'https://mastodon.social';
+      return new URL(
+        instanceUrl || process.env.MASTODON_URL || 'https://mastodon.social'
+      );
+    } catch {
+      return new URL(process.env.MASTODON_URL || 'https://mastodon.social');
     }
+  }
+
+  private instanceUrl(integration?: Integration) {
+    return this.resolveMastodonInstanceUrl(integration).toString().replace(
+      /\/$/,
+      ''
+    );
   }
 
   override profileUrl(integration: Integration) {

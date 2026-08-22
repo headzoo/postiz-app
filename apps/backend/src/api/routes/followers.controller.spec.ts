@@ -29,6 +29,7 @@ describe('FollowersController', () => {
     unignoreFollowerMember: jest.fn(),
     createFollowerList: jest.fn(),
     listFollowerLists: jest.fn(),
+    importFollowerListMemberFromUrl: jest.fn(),
   };
   const controller = new FollowersController(service as any);
 
@@ -456,5 +457,51 @@ describe('FollowersController', () => {
         expect.objectContaining({ property: 'direction' }),
       ])
     );
+  });
+
+  it('delegates importing a list member from a profile URL', async () => {
+    const imported = {
+      externalId: '42',
+      name: 'Harbor',
+      username: 'HarborClient',
+      profileUrl: 'https://x.com/HarborClient',
+      picture: null as string | null,
+    };
+    service.importFollowerListMemberFromUrl.mockResolvedValue(imported);
+    const controllerWithImport = new FollowersController(service as any);
+
+    await expect(
+      controllerWithImport.importFollowerListMember(
+        org,
+        user,
+        'channel-a',
+        'list-1',
+        { url: 'https://x.com/HarborClient' }
+      )
+    ).resolves.toEqual(imported);
+    expect(service.importFollowerListMemberFromUrl).toHaveBeenCalledWith(
+      org,
+      user,
+      'channel-a',
+      'list-1',
+      'https://x.com/HarborClient'
+    );
+  });
+
+  it('validates import URL length and rejects empty values', async () => {
+    const { ImportFollowerListMemberDto } = await import(
+      '@gitroom/nestjs-libraries/dtos/integrations/follower-list.dto'
+    );
+    const valid = Object.assign(new ImportFollowerListMemberDto(), {
+      url: 'https://x.com/HarborClient',
+    });
+    const empty = Object.assign(new ImportFollowerListMemberDto(), { url: '' });
+    const tooLong = Object.assign(new ImportFollowerListMemberDto(), {
+      url: `https://x.com/${'a'.repeat(2100)}`,
+    });
+
+    await expect(validate(valid)).resolves.toHaveLength(0);
+    await expect(validate(empty)).resolves.not.toHaveLength(0);
+    await expect(validate(tooLong)).resolves.not.toHaveLength(0);
   });
 });

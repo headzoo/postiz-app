@@ -23,6 +23,7 @@ const replace = jest.fn();
 const push = jest.fn();
 const useFollowersMock = jest.fn();
 const useCopilotReadableMock = jest.fn();
+const importMemberFromUrlMock = jest.fn();
 let mockPathname = '/followers';
 let mockSearchParams = new URLSearchParams();
 let followersPage = {
@@ -227,6 +228,7 @@ jest.mock('@gitroom/frontend/components/followers/use.followers', () => {
     useFollowerListMutations: () => ({
       createList: jest.fn(),
       addMember: jest.fn(),
+      importMemberFromUrl: importMemberFromUrlMock,
       removeMember: jest.fn(),
       ignoreTriage: jest.fn(),
       ignoreFollower: jest.fn(),
@@ -366,6 +368,7 @@ describe('FollowersComponent', () => {
     push.mockClear();
     useFollowersMock.mockReset();
     useCopilotReadableMock.mockReset();
+    importMemberFromUrlMock.mockReset();
     mockPathname = '/followers';
     mockSearchParams = new URLSearchParams();
     deepLinkIsIgnored = false;
@@ -662,6 +665,36 @@ describe('FollowersComponent', () => {
     render(<FollowersComponent />);
 
     expect(screen.getByText('No followers in this list')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Use + Add to paste a profile URL, or add people from their cards using the + button next to their triage label.'
+      )
+    ).toBeTruthy();
+  });
+
+  it('shows an Add button for custom lists and opens the import modal', () => {
+    mockSearchParams = new URLSearchParams('listId=list-1');
+    followersPage = {
+      items: [{ id: 'follower-1', name: 'Alex Example' }],
+      hasMore: false,
+      total: 1,
+    };
+
+    render(<FollowersComponent />);
+
+    const addButton = screen.getByRole('button', { name: 'Add' });
+    expect(addButton).toBeTruthy();
+    fireEvent.click(addButton);
+    expect(openModal).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Add to list',
+      })
+    );
+  });
+
+  it('hides the Add button when no custom list is selected', () => {
+    render(<FollowersComponent />);
+    expect(screen.queryByRole('button', { name: 'Add' })).toBeNull();
   });
 
   it('shows a triage-specific empty state when a filter has no matches', () => {

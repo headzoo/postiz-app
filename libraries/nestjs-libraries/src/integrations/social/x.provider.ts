@@ -17,6 +17,7 @@ import {
   ChannelInteractionSubscriptionReconciliationResult,
   ChannelInteractionTrackingFailureCategory,
   DesiredChannelInteractionSubscription,
+  Follower,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -2006,6 +2007,112 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       ...(nextCursor ? { nextCursor } : {}),
       hasMore: !!nextCursor,
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    accessToken: string,
+    _integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const handle = this.parseXProfileHandle(url);
+    if (!handle) {
+      return null;
+    }
+
+    const client = await this.getClient(accessToken);
+    try {
+      const data = await client.v2.userByUsername(handle, {
+        'user.fields': [
+          'created_at',
+          'description',
+          'profile_image_url',
+          'public_metrics',
+          'username',
+        ],
+      });
+      const user = data?.data;
+      if (!user?.id || !user.username) {
+        return null;
+      }
+      const isHttpUrl = (value?: string) => {
+        try {
+          return value && /^https?:$/.test(new URL(value).protocol)
+            ? value
+            : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      return {
+        id: user.id,
+        name: user.name || user.username,
+        username: user.username,
+        ...(isHttpUrl(user.profile_image_url)
+          ? { picture: user.profile_image_url }
+          : {}),
+        profileUrl: `https://x.com/${encodeURIComponent(user.username)}`,
+        ...(user.description ? { bio: user.description } : {}),
+        ...(user.public_metrics?.followers_count !== undefined
+          ? { followersCount: user.public_metrics.followers_count }
+          : {}),
+        ...(user.public_metrics?.following_count !== undefined
+          ? { followingCount: user.public_metrics.following_count }
+          : {}),
+        ...(user.created_at ? { accountCreatedAt: user.created_at } : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseXProfileHandle(raw: string): string | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes('/')) {
+      return /^[A-Za-z0-9_]{1,15}$/.test(trimmed) ? trimmed : null;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'x.com' && host !== 'twitter.com') {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (!segments.length) {
+      return null;
+    }
+    const reserved = new Set([
+      'i',
+      'home',
+      'explore',
+      'search',
+      'settings',
+      'messages',
+      'notifications',
+      'compose',
+      'intent',
+      'hashtag',
+      'share',
+    ]);
+    if (segments[0] === 'i' && segments[1] === 'user' && segments[2]) {
+      return null;
+    }
+    if (reserved.has(segments[0].toLowerCase())) {
+      return null;
+    }
+    if (segments[1]?.toLowerCase() === 'status') {
+      return null;
+    }
+    const handle = decodeURIComponent(segments[0]).replace(/^@/, '');
+    return /^[A-Za-z0-9_]{1,15}$/.test(handle) ? handle : null;
   }
 
   async memberPosts(

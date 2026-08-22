@@ -1,5 +1,6 @@
 import {
   AuthTokenDetails,
+  Follower,
   FollowerQuery,
   FollowerSort,
   PostDetails,
@@ -170,6 +171,84 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
         : {}),
       hasMore: Number.isSafeInteger(total) && nextOffset < (total as number),
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    accessToken: string,
+    _integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const blogName = this.parseTumblrBlogName(url);
+    if (!blogName) {
+      return null;
+    }
+    try {
+      const response = await this.fetch(
+        `${TUMBLR_API_URL}/blog/${encodeURIComponent(blogName)}/info`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'User-Agent': TUMBLR_USER_AGENT,
+          },
+        },
+        this.identifier
+      );
+      if (!response.ok) {
+        return null;
+      }
+      const body = (await response.json()) as {
+        response?: { blog?: { name?: string; title?: string; url?: string } };
+      };
+      const blog = body.response?.blog;
+      const name = blog?.name || blogName;
+      if (!name) {
+        return null;
+      }
+      return {
+        id: name,
+        name: blog?.title || name,
+        username: name,
+        ...(blog?.url ? { profileUrl: blog.url } : {
+          profileUrl: `https://${encodeURIComponent(name)}.tumblr.com/`,
+        }),
+        picture: this.getAvatarUrl(name),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseTumblrBlogName(raw: string): string | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes('/')) {
+      return /^[A-Za-z0-9-]{1,64}$/.test(trimmed) ? trimmed : null;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (host.endsWith('.tumblr.com')) {
+      const name = host.slice(0, -'.tumblr.com'.length).replace(/^www\./, '');
+      return name && name !== 'www' ? name : null;
+    }
+    if (host === 'tumblr.com' || host === 'www.tumblr.com') {
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      if (segments[0] === 'blog' && segments[1]) {
+        return decodeURIComponent(segments[1]);
+      }
+      if (segments[0]) {
+        return decodeURIComponent(segments[0]);
+      }
+    }
+    return null;
   }
 
   override async checkValidity(

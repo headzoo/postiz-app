@@ -1,5 +1,6 @@
 import {
   AuthTokenDetails,
+  Follower,
   FollowerQuery,
   FollowerSort,
   PostDetails,
@@ -111,6 +112,101 @@ export class TwitchProvider extends SocialAbstract implements SocialProvider {
         : {}),
       hasMore: !!body.pagination?.cursor,
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    accessToken: string,
+    _integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const login = this.parseTwitchLogin(url);
+    if (!login) {
+      return null;
+    }
+    try {
+      const params = new URLSearchParams({ login });
+      const response = await this.fetch(
+        `https://api.twitch.tv/helix/users?${params.toString()}`,
+        {
+          headers: this.twitchHeaders(accessToken),
+        },
+        this.identifier
+      );
+      if (!response.ok) {
+        return null;
+      }
+      const body = (await response.json()) as {
+        data?: Array<{
+          id?: string;
+          login?: string;
+          display_name?: string;
+          profile_image_url?: string;
+          description?: string;
+        }>;
+      };
+      const user = Array.isArray(body.data) ? body.data[0] : undefined;
+      if (!user?.id) {
+        return null;
+      }
+      const username = user.login || login;
+      return {
+        id: String(user.id),
+        name: user.display_name || username || String(user.id),
+        ...(username ? { username } : {}),
+        ...(user.profile_image_url ? { picture: user.profile_image_url } : {}),
+        ...(username
+          ? {
+              profileUrl: `https://www.twitch.tv/${encodeURIComponent(
+                username
+              )}`,
+            }
+          : {}),
+        ...(user.description ? { bio: user.description } : {}),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private parseTwitchLogin(raw: string): string | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes('/')) {
+      return /^[A-Za-z0-9_]{1,64}$/.test(trimmed) ? trimmed.toLowerCase() : null;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'twitch.tv' && host !== 'm.twitch.tv') {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (!segments.length) {
+      return null;
+    }
+    const reserved = new Set([
+      'directory',
+      'videos',
+      'settings',
+      'inventory',
+      'subscriptions',
+      'wallet',
+      'p',
+      'popout',
+    ]);
+    if (reserved.has(segments[0].toLowerCase())) {
+      return null;
+    }
+    const login = decodeURIComponent(segments[0]);
+    return /^[A-Za-z0-9_]{1,64}$/.test(login) ? login.toLowerCase() : null;
   }
 
   async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {

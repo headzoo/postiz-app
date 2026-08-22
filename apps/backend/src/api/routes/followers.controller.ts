@@ -22,6 +22,7 @@ import {
 import {
   CreateFollowerListDto,
   FollowerListMemberDto,
+  ImportFollowerListMemberDto,
   UpdateFollowerListDto,
 } from '@gitroom/nestjs-libraries/dtos/integrations/follower-list.dto';
 import { IgnoreFollowerTriageDto } from '@gitroom/nestjs-libraries/dtos/integrations/follower-triage-ignore.dto';
@@ -252,6 +253,23 @@ export class FollowersController {
       integrationId,
       listId,
       body.externalId
+    );
+  }
+
+  @Post('/:integrationId/lists/:listId/members/import')
+  importFollowerListMember(
+    @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
+    @Param('integrationId') integrationId: string,
+    @Param('listId') listId: string,
+    @Body() body: ImportFollowerListMemberDto
+  ) {
+    return this._integrationService.importFollowerListMemberFromUrl(
+      org,
+      user,
+      integrationId,
+      listId,
+      body.url
     );
   }
 

@@ -1710,6 +1710,37 @@ export class ChannelInteractionService {
     }
   }
 
+  async importFollowerListMember(
+    organizationId: string,
+    integrationId: string,
+    listId: string,
+    follower: Follower,
+    createdByUserId?: string
+  ) {
+    this.validateBoundedString(listId, 'listId', MAX_ID_LENGTH);
+    const profile = this.validateFollower(follower);
+    const result = await this._repository.upsertImportedAudienceMemberAndAddToList(
+      organizationId,
+      integrationId,
+      listId,
+      profile,
+      createdByUserId
+    );
+    if ('missing' in result) {
+      if (result.missing === 'list') {
+        throw new NotFoundException('Follower list was not found');
+      }
+      throw new NotFoundException('Follower was not found');
+    }
+    return {
+      externalId: result.member.externalId,
+      name: result.member.name,
+      username: result.member.username,
+      profileUrl: profile.profileUrl ?? null,
+      picture: profile.picture ?? null,
+    };
+  }
+
   async removeFollowerListMember(
     organizationId: string,
     integrationId: string,

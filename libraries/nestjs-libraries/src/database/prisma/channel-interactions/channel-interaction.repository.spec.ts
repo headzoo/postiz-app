@@ -2860,6 +2860,73 @@ describe('ChannelInteractionRepository', () => {
     );
   });
 
+  it('imports a profile into the audience and adds list membership', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceList.findFirst.mockResolvedValue({ id: 'list-1' });
+    tx.channelAudienceMember.upsert.mockResolvedValue({});
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      externalId: '42',
+      name: 'Harbor',
+      username: 'HarborClient',
+      bio: null,
+      followersCount: null,
+      followingCount: null,
+      leadFitScore: null,
+      leadFitReason: null,
+      leadFitMatchedTopics: null,
+    });
+    tx.channelAudienceListMember.upsert.mockResolvedValue({});
+
+    await expect(
+      repository.upsertImportedAudienceMemberAndAddToList(
+        'org',
+        'integration',
+        'list-1',
+        {
+          externalId: '42',
+          name: 'Harbor',
+          username: 'HarborClient',
+          profileUrl: 'https://x.com/HarborClient',
+        },
+        'user-a'
+      )
+    ).resolves.toEqual({
+      ok: true,
+      member: {
+        externalId: '42',
+        name: 'Harbor',
+        username: 'HarborClient',
+      },
+    });
+    expect(tx.channelAudienceMember.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          integrationId_externalId: {
+            integrationId: 'integration',
+            externalId: '42',
+          },
+        },
+        create: expect.objectContaining({
+          organizationId: 'org',
+          integrationId: 'integration',
+          externalId: '42',
+          name: 'Harbor',
+          username: 'HarborClient',
+          profileUrl: 'https://x.com/HarborClient',
+        }),
+        update: expect.objectContaining({
+          name: 'Harbor',
+          username: 'HarborClient',
+          profileUrl: 'https://x.com/HarborClient',
+        }),
+      })
+    );
+    expect(tx.channelAudienceMember.upsert.mock.calls[0][0].create).not.toHaveProperty(
+      'membershipState'
+    );
+    expect(tx.channelAudienceListMember.upsert).toHaveBeenCalled();
+  });
+
   it('lists lead-fit feedback examples and drops accepted rows that were also rejected', async () => {
     const { repository, tx } = createHarness();
     tx.channelAudienceLeadFitFeedback.findMany

@@ -1,5 +1,6 @@
 import {
   AuthTokenDetails,
+  Follower,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -106,6 +107,119 @@ export class FarcasterProvider
       ...(nextCursor ? { nextCursor } : {}),
       hasMore: !!nextCursor,
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    _accessToken: string,
+    _integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const target = this.parseFarcasterProfileTarget(url);
+    if (!target) {
+      return null;
+    }
+    try {
+      const isHttpUrl = (value?: string) => {
+        try {
+          return value && /^https?:$/.test(new URL(value).protocol)
+            ? value
+            : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      const mapUser = (user: {
+        fid: number;
+        display_name?: string;
+        username?: string;
+        pfp_url?: string;
+        profile?: { bio?: { text?: string } };
+        follower_count?: number;
+        following_count?: number;
+        score?: number;
+        registered_at?: string;
+      }): Follower => ({
+        id: String(user.fid),
+        name: user.display_name || user.username || String(user.fid),
+        ...(user.username ? { username: user.username } : {}),
+        ...(isHttpUrl(user.pfp_url) ? { picture: user.pfp_url } : {}),
+        ...(user.username
+          ? {
+              profileUrl: `https://warpcast.com/${encodeURIComponent(
+                user.username
+              )}`,
+            }
+          : {}),
+        ...(user.profile?.bio?.text ? { bio: user.profile.bio.text } : {}),
+        ...(user.follower_count !== undefined
+          ? { followersCount: user.follower_count }
+          : {}),
+        ...(user.following_count !== undefined
+          ? { followingCount: user.following_count }
+          : {}),
+        ...(user.score !== undefined ? { influenceScore: user.score } : {}),
+        ...(user.registered_at
+          ? { accountCreatedAt: user.registered_at }
+          : {}),
+      });
+
+      if (target.kind === 'fid') {
+        const response = await client.fetchBulkUsers({ fids: [target.value] });
+        const user = response.users?.[0];
+        return user ? mapUser(user) : null;
+      }
+
+      const response = await client.lookupUserByUsername({
+        username: target.value,
+      });
+      const user = response.user;
+      return user ? mapUser(user) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private parseFarcasterProfileTarget(
+    raw: string
+  ):
+    | { kind: 'username'; value: string }
+    | { kind: 'fid'; value: number }
+    | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (/^\d+$/.test(trimmed)) {
+      const fid = Number(trimmed);
+      return Number.isSafeInteger(fid) && fid > 0
+        ? { kind: 'fid', value: fid }
+        : null;
+    }
+    if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes('/')) {
+      return /^[A-Za-z0-9._-]{1,64}$/.test(trimmed)
+        ? { kind: 'username', value: trimmed }
+        : null;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'warpcast.com' && host !== 'farcaster.xyz') {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (!segments.length) {
+      return null;
+    }
+    const username = decodeURIComponent(segments[0]).replace(/^@/, '');
+    return /^[A-Za-z0-9._-]{1,64}$/.test(username)
+      ? { kind: 'username', value: username }
+      : null;
   }
 
   override async checkValidity(

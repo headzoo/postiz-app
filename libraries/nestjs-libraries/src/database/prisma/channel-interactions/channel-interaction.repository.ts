@@ -2727,6 +2727,120 @@ export class ChannelInteractionRepository {
     });
   }
 
+  async upsertImportedAudienceMemberAndAddToList(
+    organizationId: string,
+    integrationId: string,
+    listId: string,
+    profile: AudienceProfile,
+    createdByUserId?: string
+  ) {
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      const list = await tx.channelAudienceList.findFirst({
+        where: { id: listId, organizationId, integrationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!list) {
+        return { missing: 'list' as const };
+      }
+
+      const profileData = {
+        ...(profile.name !== undefined ? { name: profile.name } : {}),
+        ...(profile.username !== undefined ? { username: profile.username } : {}),
+        ...(profile.picture !== undefined ? { picture: profile.picture } : {}),
+        ...(profile.profileUrl !== undefined
+          ? { profileUrl: profile.profileUrl }
+          : {}),
+        ...(profile.bio !== undefined ? { bio: profile.bio } : {}),
+        ...(profile.followersCount !== undefined
+          ? { followersCount: profile.followersCount }
+          : {}),
+        ...(profile.followingCount !== undefined
+          ? { followingCount: profile.followingCount }
+          : {}),
+        ...(profile.followedAt !== undefined
+          ? { followedAt: profile.followedAt }
+          : {}),
+        ...(profile.accountCreatedAt !== undefined
+          ? { accountCreatedAt: profile.accountCreatedAt }
+          : {}),
+      };
+
+      await tx.channelAudienceMember.upsert({
+        where: {
+          integrationId_externalId: {
+            integrationId,
+            externalId: profile.externalId,
+          },
+        },
+        create: {
+          organizationId,
+          integrationId,
+          externalId: profile.externalId,
+          ...profileData,
+        },
+        update: profileData,
+      });
+
+      const member = await tx.channelAudienceMember.findFirst({
+        where: {
+          organizationId,
+          integrationId,
+          externalId: profile.externalId,
+        },
+        select: {
+          externalId: true,
+          name: true,
+          username: true,
+          bio: true,
+          followersCount: true,
+          followingCount: true,
+          leadFitScore: true,
+          leadFitReason: true,
+          leadFitMatchedTopics: true,
+        },
+      });
+      if (!member) {
+        return { missing: 'member' as const };
+      }
+
+      await tx.channelAudienceListMember.upsert({
+        where: {
+          listId_counterpartyExternalId: {
+            listId,
+            counterpartyExternalId: profile.externalId,
+          },
+        },
+        create: {
+          organizationId,
+          integrationId,
+          listId,
+          counterpartyExternalId: profile.externalId,
+        },
+        update: {},
+      });
+      await this.upsertLeadFitFeedback(tx, {
+        organizationId,
+        integrationId,
+        externalId: profile.externalId,
+        source: 'list_add',
+        verdict: 'accepted',
+        reasons: [],
+        listId,
+        createdByUserId,
+        member,
+      });
+      return {
+        ok: true as const,
+        member: {
+          externalId: member.externalId,
+          name: member.name,
+          username: member.username,
+        },
+      };
+    });
+  }
+
   async removeAudienceListMember(
     organizationId: string,
     integrationId: string,

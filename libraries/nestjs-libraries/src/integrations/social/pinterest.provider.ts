@@ -4,6 +4,7 @@ import {
   ChannelAnalyticsCapturePage,
   ChannelAnalyticsCaptureRequest,
   paginateDailyAnalyticsCapture,
+  Follower,
   FollowerPage,
   FollowerQuery,
   FollowerSort,
@@ -211,6 +212,92 @@ export class PinterestProvider
       ...(page.bookmark ? { nextCursor: String(page.bookmark) } : {}),
       hasMore: !!page.bookmark,
     };
+  }
+
+  async resolveAudienceProfileFromUrl(
+    accessToken: string,
+    _integration: Integration,
+    url: string
+  ): Promise<Follower | null> {
+    const username = this.parsePinterestUsername(url);
+    if (!username) {
+      return null;
+    }
+    try {
+      const response = await this.fetch(
+        `https://api.pinterest.com/v5/user_account/${encodeURIComponent(
+          username
+        )}`,
+        {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      if (response.ok) {
+        const account = (await response.json()) as {
+          username?: string;
+          profile_image?: string;
+        };
+        if (account?.username) {
+          return {
+            id: account.username,
+            name: account.username,
+            username: account.username,
+            ...(account.profile_image ? { picture: account.profile_image } : {}),
+            profileUrl: `https://www.pinterest.com/${encodeURIComponent(
+              account.username
+            )}`,
+          };
+        }
+      }
+    } catch {
+      // Fall through to username-only profile; Pinterest audience ids are usernames.
+    }
+    return {
+      id: username,
+      name: username,
+      username,
+      profileUrl: `https://www.pinterest.com/${encodeURIComponent(username)}`,
+    };
+  }
+
+  private parsePinterestUsername(raw: string): string | null {
+    const trimmed = raw.trim().replace(/^@/, '');
+    if (!trimmed) {
+      return null;
+    }
+    if (!/^https?:\/\//i.test(trimmed) && !trimmed.includes('/')) {
+      return /^[A-Za-z0-9._-]{1,64}$/.test(trimmed) ? trimmed : null;
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(
+        /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+      );
+    } catch {
+      return null;
+    }
+    const host = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+    if (host !== 'pinterest.com' && !host.endsWith('.pinterest.com')) {
+      return null;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    if (!segments.length) {
+      return null;
+    }
+    const reserved = new Set([
+      'pin',
+      'search',
+      'ideas',
+      'settings',
+      'login',
+      'signup',
+    ]);
+    if (reserved.has(segments[0].toLowerCase())) {
+      return null;
+    }
+    const username = decodeURIComponent(segments[0]);
+    return /^[A-Za-z0-9._-]{1,64}$/.test(username) ? username : null;
   }
 
   async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {
