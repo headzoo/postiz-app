@@ -6,6 +6,14 @@ import {
   ChannelInteractionWindow,
 } from '@prisma/client';
 import { ChannelInteractionRepository } from './channel-interaction.repository';
+import { LEAD_FIT_MIN_SCORE } from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
+
+const leadFitVisibility = {
+  OR: [
+    { leadFitScore: null },
+    { leadFitScore: { gte: LEAD_FIT_MIN_SCORE } },
+  ],
+};
 
 const event = (overrides: Record<string, any> = {}) => ({
   providerEventKey: 'event-1',
@@ -1757,7 +1765,7 @@ describe('ChannelInteractionRepository', () => {
               OR: expect.any(Array),
             }),
           },
-          AND: [{ ignoredAt: null }],
+          AND: [{ ignoredAt: null }, leadFitVisibility],
         },
         orderBy: [
           { leadFitScore: { sort: 'desc', nulls: 'last' } },

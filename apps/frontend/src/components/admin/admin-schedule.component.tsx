@@ -6,6 +6,7 @@ import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useUser } from '@gitroom/frontend/components/layout/user.context';
 import { Button } from '@gitroom/react/form/button';
 import { LoadingComponent } from '@gitroom/frontend/components/layout/loading';
+import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 
 type ScheduleUnit = 'hour' | 'day' | 'month';
@@ -181,6 +182,7 @@ const formatBotScoreCadence = (intervalHours: number) =>
 export const AdminScheduleComponent: FC = () => {
   const user = useUser();
   const t = useT();
+  const toaster = useToaster();
   const fetch = useFetch();
   const relationship = useRelationshipGradeSchedule();
   const botScores = useFollowerBotScoreSchedule();
@@ -258,17 +260,24 @@ export const AdminScheduleComponent: FC = () => {
         throw new Error('Failed to trigger schedule');
       }
       await relationship.mutate(await res.json(), false);
-    } catch {
-      setFormError(
+      toaster.show(
         t(
-          'admin_schedule_trigger_error',
-          'Could not trigger a grade update. Try again.'
-        )
+          'admin_schedule_trigger_success',
+          'Grade update triggered. The workflow is now running.'
+        ),
+        'success'
       );
+    } catch {
+      const message = t(
+        'admin_schedule_trigger_error',
+        'Could not trigger a grade update. Try again.'
+      );
+      setFormError(message);
+      toaster.show(message, 'warning');
     } finally {
       setTriggeringGrades(false);
     }
-  }, [fetch, relationship, t]);
+  }, [fetch, relationship, t, toaster]);
 
   const saveBotScores = useCallback(async () => {
     setFormError('');
@@ -302,17 +311,24 @@ export const AdminScheduleComponent: FC = () => {
         throw new Error('Failed to trigger schedule');
       }
       await botScores.mutate(await res.json(), false);
-    } catch {
-      setFormError(
+      toaster.show(
         t(
-          'admin_schedule_bot_trigger_error',
-          'Could not trigger a bot score update. Try again.'
-        )
+          'admin_schedule_bot_trigger_success',
+          'Bot score update triggered. The workflow is now running.'
+        ),
+        'success'
       );
+    } catch {
+      const message = t(
+        'admin_schedule_bot_trigger_error',
+        'Could not trigger a bot score update. Try again.'
+      );
+      setFormError(message);
+      toaster.show(message, 'warning');
     } finally {
       setTriggeringBotScores(false);
     }
-  }, [botScores, fetch, t]);
+  }, [botScores, fetch, t, toaster]);
 
   const triggerMissing = useCallback(async () => {
     setFormError('');
@@ -325,17 +341,24 @@ export const AdminScheduleComponent: FC = () => {
         throw new Error('Failed to trigger schedule');
       }
       await missingPosts.mutate(await res.json(), false);
-    } catch {
-      setFormError(
+      toaster.show(
         t(
-          'admin_schedule_missing_trigger_error',
-          'Could not trigger a missing-post scan. Try again.'
-        )
+          'admin_schedule_missing_trigger_success',
+          'Missing-post scan triggered. The workflow is now running.'
+        ),
+        'success'
       );
+    } catch {
+      const message = t(
+        'admin_schedule_missing_trigger_error',
+        'Could not trigger a missing-post scan. Try again.'
+      );
+      setFormError(message);
+      toaster.show(message, 'warning');
     } finally {
       setTriggeringMissing(false);
     }
-  }, [fetch, missingPosts, t]);
+  }, [fetch, missingPosts, t, toaster]);
 
   const triggerPosts = useCallback(async () => {
     setFormError('');
@@ -348,17 +371,24 @@ export const AdminScheduleComponent: FC = () => {
         throw new Error('Failed to trigger schedule');
       }
       await postWorkflows.mutate(await res.json(), false);
-    } catch {
-      setFormError(
+      toaster.show(
         t(
-          'admin_schedule_post_trigger_error',
-          'Could not trigger a post scheduler tick. Try again.'
-        )
+          'admin_schedule_post_trigger_success',
+          'Scheduler tick triggered. Due post slots are being dispatched.'
+        ),
+        'success'
       );
+    } catch {
+      const message = t(
+        'admin_schedule_post_trigger_error',
+        'Could not trigger a post scheduler tick. Try again.'
+      );
+      setFormError(message);
+      toaster.show(message, 'warning');
     } finally {
       setTriggeringPosts(false);
     }
-  }, [fetch, postWorkflows, t]);
+  }, [fetch, postWorkflows, t, toaster]);
 
   const triggerAutopost = useCallback(async () => {
     setFormError('');
@@ -371,17 +401,24 @@ export const AdminScheduleComponent: FC = () => {
         throw new Error('Failed to trigger schedule');
       }
       await autopostWorkflows.mutate(await res.json(), false);
-    } catch {
-      setFormError(
+      toaster.show(
         t(
-          'admin_schedule_autopost_trigger_error',
-          'Could not force-run active autoposts. Try again.'
-        )
+          'admin_schedule_autopost_trigger_success',
+          'Active autoposts are now being force-run.'
+        ),
+        'success'
       );
+    } catch {
+      const message = t(
+        'admin_schedule_autopost_trigger_error',
+        'Could not force-run active autoposts. Try again.'
+      );
+      setFormError(message);
+      toaster.show(message, 'warning');
     } finally {
       setTriggeringAutopost(false);
     }
-  }, [autopostWorkflows, fetch, t]);
+  }, [autopostWorkflows, fetch, t, toaster]);
 
   const triggerLeadBridge = useCallback(async () => {
     setFormError('');
@@ -394,17 +431,24 @@ export const AdminScheduleComponent: FC = () => {
         throw new Error('Failed to trigger schedule');
       }
       await leadBridge.mutate(await res.json(), false);
-    } catch {
-      setFormError(
+      toaster.show(
         t(
-          'admin_schedule_lead_bridge_trigger_error',
-          'Could not trigger lead discovery. Try again.'
-        )
+          'admin_schedule_lead_bridge_trigger_success',
+          'Lead discovery triggered. The workflow is now running.'
+        ),
+        'success'
       );
+    } catch {
+      const message = t(
+        'admin_schedule_lead_bridge_trigger_error',
+        'Could not trigger lead discovery. Try again.'
+      );
+      setFormError(message);
+      toaster.show(message, 'warning');
     } finally {
       setTriggeringLeadBridge(false);
     }
-  }, [fetch, leadBridge, t]);
+  }, [fetch, leadBridge, t, toaster]);
 
   if (!user?.isSuperAdmin) {
     return (

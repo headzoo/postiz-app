@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Activity, ActivityMethod } from 'nestjs-temporal-core';
 import dayjs from 'dayjs';
 import { ChannelInteractionRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
@@ -20,6 +20,8 @@ export type ChannelLeadBridgeCandidate = {
 @Injectable()
 @Activity()
 export class ChannelLeadBridgeActivity {
+  private readonly _logger = new Logger(ChannelLeadBridgeActivity.name);
+
   constructor(
     private _repository: ChannelInteractionRepository,
     private _channelInteractionService: ChannelInteractionService,
@@ -54,6 +56,11 @@ export class ChannelLeadBridgeActivity {
         break;
       }
     }
+    if (!candidates.length) {
+      this._logger.log(
+        `Lead bridge scan found no eligible channels (scanned ${result.candidates.length}, after=${request.after ?? 'start'})`
+      );
+    }
     return {
       candidates,
       scanned: result.candidates.length,
@@ -83,21 +90,26 @@ export class ChannelLeadBridgeActivity {
     const live = await this.withRefreshedToken(integration, provider);
     const result =
       await this._channelInteractionService.crawlLeadBridgesForIntegration(live);
-    if (
-      !result.skipped &&
-      'appliedExternalIds' in result &&
-      Array.isArray(result.appliedExternalIds) &&
-      result.appliedExternalIds.length
-    ) {
-      try {
-        await this._channelInteractionService.scoreLeadFitBatch({
+    this._logger.log(
+      `Lead bridge crawl for integration ${live.id} (${integration.providerIdentifier}): ${JSON.stringify(
+        result
+      )}`
+    );
+    try {
+      const backfill =
+        await this._channelInteractionService.scoreUnscoredLeadsForIntegration({
           organizationId: live.organizationId,
           integrationId: live.id,
-          externalIds: result.appliedExternalIds,
         });
-      } catch {
-        // Fit scoring is best-effort; discovery already succeeded.
-      }
+      this._logger.log(
+        `Lead fit scoring for integration ${live.id}: scored ${backfill.scored}/${backfill.candidates} unscored lead(s)`
+      );
+    } catch (error) {
+      // Fit scoring is best-effort; discovery already succeeded.
+      this._logger.error(
+        `Lead fit scoring failed for integration ${live.id}`,
+        error instanceof Error ? error.stack : String(error)
+      );
     }
     return result;
   }

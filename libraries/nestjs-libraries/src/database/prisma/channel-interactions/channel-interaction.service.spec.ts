@@ -73,6 +73,7 @@ const createRepository = () => ({
   rankCultivateCandidates: jest.fn().mockReturnValue([]),
   upsertCultivatePicks: jest.fn().mockResolvedValue({ count: 0 }),
   listUnscoredLeadExternalIds: jest.fn().mockResolvedValue([]),
+  listUnscoredLeadCandidatesForIntegration: jest.fn().mockResolvedValue([]),
   updateAudienceLeadFit: jest.fn().mockResolvedValue({ count: 0 }),
   getStoredFollowerAudienceCounts: jest.fn().mockResolvedValue({
     categories: {},
@@ -1880,5 +1881,86 @@ describe('ChannelInteractionService', () => {
       })
     ).resolves.toEqual({ scored: 0, skipped: 1 });
     expect(repository.updateAudienceLeadFit).not.toHaveBeenCalled();
+  });
+
+  it('scores backlog leads for an integration regardless of a provided id list', async () => {
+    const repository = createRepository();
+    repository.listUnscoredLeadCandidatesForIntegration.mockResolvedValue([
+      {
+        externalId: 'inbound-1',
+        name: 'Inbound One',
+        username: 'inboundone',
+        bio: 'Anti-MAGA atheist maker',
+        followersCount: 300,
+        followingCount: 120,
+        leadBridgesAsLead: [],
+      },
+    ]);
+    const openaiService = {
+      scoreLeadFit: jest.fn().mockResolvedValue({
+        score: 12,
+        reason: 'Directly opposes the channel stance',
+        concerns: ['political mismatch'],
+        matchedTopics: [],
+        model: 'gpt-4.1',
+        version: 1,
+      }),
+    };
+    const contextDocumentService = {
+      listAttachedDocumentsForIntegration: jest
+        .fn()
+        .mockResolvedValue([{ name: 'audience.md', content: 'Atheist, anti-MAGA.' }]),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      undefined,
+      undefined,
+      undefined,
+      openaiService as any,
+      contextDocumentService as any
+    );
+
+    await expect(
+      service.scoreUnscoredLeadsForIntegration({
+        organizationId: 'org',
+        integrationId: 'integration',
+      })
+    ).resolves.toEqual({ scored: 1, candidates: 1 });
+    expect(
+      repository.listUnscoredLeadCandidatesForIntegration
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org',
+        integrationId: 'integration',
+      })
+    );
+    expect(repository.updateAudienceLeadFit).toHaveBeenCalledWith(
+      expect.objectContaining({ externalId: 'inbound-1', leadFitScore: 12 })
+    );
+  });
+
+  it('does not score when no attached documents and no backlog exist', async () => {
+    const repository = createRepository();
+    repository.listUnscoredLeadCandidatesForIntegration.mockResolvedValue([]);
+    const openaiService = { scoreLeadFit: jest.fn() };
+    const contextDocumentService = {
+      listAttachedDocumentsForIntegration: jest.fn(),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      undefined,
+      undefined,
+      undefined,
+      openaiService as any,
+      contextDocumentService as any
+    );
+
+    await expect(
+      service.scoreUnscoredLeadsForIntegration({
+        organizationId: 'org',
+        integrationId: 'integration',
+      })
+    ).resolves.toEqual({ scored: 0, candidates: 0 });
+    expect(openaiService.scoreLeadFit).not.toHaveBeenCalled();
   });
 });

@@ -38,6 +38,7 @@ import { FOLLOWER_BOT_SCORE_SCHEDULE_INTERVAL_HOURS } from '@gitroom/nestjs-libr
 import {
   LEAD_BRIDGE_PER_SOURCE_CAP,
   LEAD_BRIDGE_WARM_GRADE_THRESHOLD,
+  LEAD_FIT_MIN_SCORE,
 } from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
 import {
   CULTIVATE_CANDIDATE_POOL_SIZE,
@@ -2877,6 +2878,7 @@ export class ChannelInteractionRepository {
           ...this.audienceListFilters(
             this.audienceSearchFilter(query.search),
             this.ignoredVisibilityFilter(query.ignoredVisibility),
+            this.leadFitVisibilityFilter(),
             this.leadBridgeKeyset(query.cursor, query.direction)
           ),
         },
@@ -3400,6 +3402,7 @@ export class ChannelInteractionRepository {
         ],
         ignoredAt: null,
         triageIgnores: { none: this.activeTriageIgnoreWhere('lead') },
+        AND: [this.leadFitVisibilityFilter()],
       };
     }
     if (category === 'ignored') {
@@ -3446,6 +3449,15 @@ export class ChannelInteractionRepository {
       return { ignoredAt: { not: null } };
     }
     return { ignoredAt: null };
+  }
+
+  private leadFitVisibilityFilter(): Prisma.ChannelAudienceMemberWhereInput {
+    return {
+      OR: [
+        { leadFitScore: null },
+        { leadFitScore: { gte: LEAD_FIT_MIN_SCORE } },
+      ],
+    };
   }
 
   private ignoredAudienceKeyset(
@@ -3760,29 +3772,88 @@ export class ChannelInteractionRepository {
           externalId: { in: params.externalIds },
           leadFitScoredAt: null,
         },
-        select: {
-          externalId: true,
-          name: true,
-          username: true,
-          bio: true,
-          followersCount: true,
-          followingCount: true,
-          leadBridgesAsLead: {
-            orderBy: [
-              { bridgeRelationshipGrade: { sort: 'desc', nulls: 'last' } },
-              { lastSeenAt: 'desc' },
-            ],
-            take: 3,
-            select: {
-              bridgeRelationshipGrade: true,
-              bridgeMember: {
-                select: { username: true },
-              },
-            },
-          },
-        },
+        select: this.leadFitCandidateSelect,
       });
     });
+  }
+
+  async listUnscoredLeadCandidatesForIntegration(params: {
+    organizationId: string;
+    integrationId: string;
+    limit: number;
+  }): Promise<
+    Array<{
+      externalId: string;
+      name: string | null;
+      username: string | null;
+      bio: string | null;
+      followersCount: number | null;
+      followingCount: number | null;
+      leadBridgesAsLead: Array<{
+        bridgeRelationshipGrade: number | null;
+        bridgeMember: { username: string | null };
+      }>;
+    }>
+  > {
+    const take = Math.max(0, params.limit);
+    if (!take) {
+      return [];
+    }
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        params.organizationId,
+        params.integrationId
+      );
+      return tx.channelAudienceMember.findMany({
+        where: {
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          membershipState: {
+            in: [
+              ChannelAudienceMembership.UNKNOWN,
+              ChannelAudienceMembership.NOT_FOLLOWER,
+            ],
+          },
+          OR: [
+            { inboundInteractionCount: { gt: 0 } },
+            { leadBridgesAsLead: { some: {} } },
+          ],
+          triageIgnores: { none: this.activeTriageIgnoreWhere('lead') },
+          leadFitScoredAt: null,
+        },
+        orderBy: [
+          { lastInboundAt: { sort: 'desc', nulls: 'last' } },
+          { externalId: 'desc' },
+        ],
+        take,
+        select: this.leadFitCandidateSelect,
+      });
+    });
+  }
+
+  private get leadFitCandidateSelect() {
+    return {
+      externalId: true,
+      name: true,
+      username: true,
+      bio: true,
+      followersCount: true,
+      followingCount: true,
+      leadBridgesAsLead: {
+        orderBy: [
+          { bridgeRelationshipGrade: { sort: 'desc', nulls: 'last' } },
+          { lastSeenAt: 'desc' },
+        ],
+        take: 3,
+        select: {
+          bridgeRelationshipGrade: true,
+          bridgeMember: {
+            select: { username: true },
+          },
+        },
+      },
+    } satisfies Prisma.ChannelAudienceMemberSelect;
   }
 
   private nullableGradeFollowerKeyset(

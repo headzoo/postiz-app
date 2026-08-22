@@ -28,6 +28,14 @@ For users, the value is simple: build the queue, configure the rhythm, and avoid
 
 ![Autopost schedule configuration](/images/features/autopost.png)
 
+## Rules
+
+Rules let teams automate post lifecycle actions based on engagement signals and timing windows. Instead of manually checking every post after publication, users can define conditions and follow-up actions that run automatically.
+
+Examples include reposting high-performing content, removing underperforming items, and publishing follow-up or reply content when engagement thresholds are met.
+
+![Rules automation configuration](/images/features/rules.png)
+
 ## Agents And Assisted Creation
 
 Post++ includes agent-driven workflows for helping users create, refine, and adapt content. These features are meant to reduce blank-page work and help teams move faster from idea to scheduled post.
@@ -49,6 +57,8 @@ The goal is practical decision-making: publish, measure, learn, and improve the 
 Post++ includes audience tooling for understanding and organizing follower relationships. Users can review audience members, triage interactions, keep notes, maintain lists, and use relationship grades to prioritize who needs attention.
 
 This turns social activity into a lightweight relationship workflow, especially for creators, founders, sales teams, and community managers who need to remember context over time.
+
+AI-assisted lead generation helps teams identify high-intent prospects from audience and interaction signals, then prioritize who to engage next.
 
 ![Followers and audience tools](/images/features/followers.png)
 

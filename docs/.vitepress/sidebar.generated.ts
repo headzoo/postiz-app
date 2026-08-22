@@ -25,6 +25,10 @@ export const sidebar: DefaultTheme.SidebarItem[] =
         "link": "/features#autopost"
       },
       {
+        "text": "Rules",
+        "link": "/features#rules"
+      },
+      {
         "text": "Agents And Assisted Creation",
         "link": "/features#agents-and-assisted-creation"
       },

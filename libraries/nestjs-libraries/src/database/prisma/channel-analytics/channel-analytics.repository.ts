@@ -33,7 +33,7 @@ export class ChannelAnalyticsRepository {
     >,
     private _integration: PrismaRepository<'integration'>,
     private _transaction: PrismaTransaction
-  ) {}
+  ) { }
 
   async listDueCandidates(
     providerIdentifiers: string[],
@@ -341,13 +341,28 @@ export class ChannelAnalyticsRepository {
           previousSnapshotAt: true,
         },
       });
-    if (
-      !dailyPoint ||
-      !dailyPoint.currentSnapshotAt ||
-      !dailyPoint.previousSnapshotAt
-    ) {
+    if (!dailyPoint) {
+      return { dailyPointTotal: null, hasProvenance: false, contributors: [] };
+    }
+    // Daily points captured before the provenance columns existed have a null
+    // bound pair. The underlying per-post snapshots are still retained, so we
+    // reconstruct the bounding pair on read and let the equality check below
+    // fail closed if it cannot be reconciled.
+    const bounds =
+      dailyPoint.currentSnapshotAt && dailyPoint.previousSnapshotAt
+        ? {
+          currentSnapshotAt: dailyPoint.currentSnapshotAt,
+          previousSnapshotAt: dailyPoint.previousSnapshotAt,
+        }
+        : await this.reconstructSnapshotPair(
+          organizationId,
+          integrationId,
+          metricKey,
+          day
+        );
+    if (!bounds.currentSnapshotAt || !bounds.previousSnapshotAt) {
       return {
-        dailyPointTotal: dailyPoint?.value.toNumber() ?? null,
+        dailyPointTotal: dailyPoint.value.toNumber(),
         hasProvenance: false,
         contributors: [],
       };
@@ -358,7 +373,7 @@ export class ChannelAnalyticsRepository {
           organizationId,
           integrationId,
           metricKey,
-          snapshotAt: dailyPoint.currentSnapshotAt,
+          snapshotAt: bounds.currentSnapshotAt,
         },
         select: { externalPostId: true, value: true },
       }),
@@ -367,7 +382,7 @@ export class ChannelAnalyticsRepository {
           organizationId,
           integrationId,
           metricKey,
-          snapshotAt: dailyPoint.previousSnapshotAt,
+          snapshotAt: bounds.previousSnapshotAt,
         },
         select: { externalPostId: true, value: true },
       }),
@@ -404,6 +419,45 @@ export class ChannelAnalyticsRepository {
       dailyPointTotal: dailyPoint.value.toNumber(),
       hasProvenance: true,
       contributors,
+    };
+  }
+
+  private async reconstructSnapshotPair(
+    organizationId: string,
+    integrationId: string,
+    metricKey: string,
+    day: Date
+  ) {
+    const nextDay = utcDay(day);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    const current =
+      await this._analytics.model.channelAnalyticsPostMetricSnapshot.findFirst({
+        where: {
+          organizationId,
+          integrationId,
+          metricKey,
+          snapshotAt: { gte: day, lt: nextDay },
+        },
+        orderBy: { snapshotAt: 'desc' },
+        select: { snapshotAt: true },
+      });
+    if (!current) {
+      return { currentSnapshotAt: null, previousSnapshotAt: null };
+    }
+    const previous =
+      await this._analytics.model.channelAnalyticsPostMetricSnapshot.findFirst({
+        where: {
+          organizationId,
+          integrationId,
+          metricKey,
+          snapshotAt: { lt: current.snapshotAt },
+        },
+        orderBy: { snapshotAt: 'desc' },
+        select: { snapshotAt: true },
+      });
+    return {
+      currentSnapshotAt: current.snapshotAt,
+      previousSnapshotAt: previous?.snapshotAt ?? null,
     };
   }
 
@@ -537,19 +591,19 @@ export class ChannelAnalyticsRepository {
       state.pendingCoverageEndDay;
     const coverage = hasPendingCoverage
       ? mergeCoverage(
-          state?.coverageStartDay,
-          state?.coverageEndDay,
-          state.pendingCoverageStartDay,
-          state.pendingCoverageEndDay
-        )
+        state?.coverageStartDay,
+        state?.coverageEndDay,
+        state.pendingCoverageStartDay,
+        state.pendingCoverageEndDay
+      )
       : coveredDay
-      ? mergeCoverage(
+        ? mergeCoverage(
           state?.coverageStartDay,
           state?.coverageEndDay,
           coveredDay,
           coveredDay
         )
-      : undefined;
+        : undefined;
     return tx.channelAnalyticsSyncState.upsert({
       where: { integrationId },
       create: {
@@ -558,10 +612,10 @@ export class ChannelAnalyticsRepository {
         lastSuccessfulSnapshotAt: snapshotAt,
         ...(coverage
           ? {
-              coverageStartDay: coverage.startDay,
-              coverageEndDay: coverage.endDay,
-              lastCoveredDay: coverage.endDay,
-            }
+            coverageStartDay: coverage.startDay,
+            coverageEndDay: coverage.endDay,
+            lastCoveredDay: coverage.endDay,
+          }
           : {}),
         nextAttemptAt: nextUtcDay(snapshotAt),
       },
@@ -569,17 +623,17 @@ export class ChannelAnalyticsRepository {
         lastSuccessfulSnapshotAt: snapshotAt,
         ...(coverage
           ? {
-              coverageStartDay: coverage.startDay,
-              coverageEndDay: coverage.endDay,
-              lastCoveredDay: coverage.endDay,
-            }
+            coverageStartDay: coverage.startDay,
+            coverageEndDay: coverage.endDay,
+            lastCoveredDay: coverage.endDay,
+          }
           : {}),
         ...(hasPendingCoverage
           ? {
-              pendingCoverageSnapshotAt: null,
-              pendingCoverageStartDay: null,
-              pendingCoverageEndDay: null,
-            }
+            pendingCoverageSnapshotAt: null,
+            pendingCoverageStartDay: null,
+            pendingCoverageEndDay: null,
+          }
           : {}),
         nextAttemptAt: nextUtcDay(snapshotAt),
         failureCount: 0,

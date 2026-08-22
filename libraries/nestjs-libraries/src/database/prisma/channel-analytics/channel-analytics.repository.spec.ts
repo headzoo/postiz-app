@@ -678,13 +678,16 @@ describe('ChannelAnalyticsRepository', () => {
     );
   });
 
-  it('treats legacy daily points without a bound pair as unavailable', async () => {
+  it('treats legacy daily points without retained snapshots as unavailable', async () => {
     const { repository, analytics } = createHarness();
     analytics.channelAnalyticsDailyPoint.findFirst.mockResolvedValue({
       value: new Prisma.Decimal(5),
       currentSnapshotAt: null,
       previousSnapshotAt: null,
     });
+    analytics.channelAnalyticsPostMetricSnapshot.findFirst.mockResolvedValue(
+      null
+    );
 
     await expect(
       repository.getMetricDayContributors(
@@ -695,6 +698,109 @@ describe('ChannelAnalyticsRepository', () => {
       )
     ).resolves.toMatchObject({
       dailyPointTotal: 5,
+      hasProvenance: false,
+      contributors: [],
+    });
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).not.toHaveBeenCalled();
+  });
+
+  it('reconstructs the bound pair for legacy daily points from retained snapshots', async () => {
+    const { repository, analytics } = createHarness();
+    const currentSnapshotAt = new Date('2026-08-15T18:00:00Z');
+    const previousSnapshotAt = new Date('2026-08-14T18:00:00Z');
+    analytics.channelAnalyticsDailyPoint.findFirst.mockResolvedValue({
+      value: new Prisma.Decimal(4),
+      currentSnapshotAt: null,
+      previousSnapshotAt: null,
+    });
+    analytics.channelAnalyticsPostMetricSnapshot.findFirst
+      .mockResolvedValueOnce({ snapshotAt: currentSnapshotAt })
+      .mockResolvedValueOnce({ snapshotAt: previousSnapshotAt });
+    analytics.channelAnalyticsPostMetricSnapshot.findMany
+      .mockResolvedValueOnce([
+        { externalPostId: 'a', value: new Prisma.Decimal(5) },
+        { externalPostId: 'b', value: new Prisma.Decimal(4) },
+      ])
+      .mockResolvedValueOnce([
+        { externalPostId: 'a', value: new Prisma.Decimal(3) },
+        { externalPostId: 'b', value: new Prisma.Decimal(2) },
+      ]);
+
+    const result = await repository.getMetricDayContributors(
+      'org',
+      'integration',
+      'like_count',
+      new Date('2026-08-15T00:00:00Z')
+    );
+
+    expect(result.hasProvenance).toBe(true);
+    expect(result.dailyPointTotal).toBe(4);
+    expect(
+      result.contributors.map((contributor) => [
+        contributor.externalPostId,
+        contributor.delta.toNumber(),
+      ])
+    ).toEqual([
+      ['a', 2],
+      ['b', 2],
+    ]);
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findFirst
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          snapshotAt: {
+            gte: new Date('2026-08-15T00:00:00Z'),
+            lt: new Date('2026-08-16T00:00:00Z'),
+          },
+        }),
+        orderBy: { snapshotAt: 'desc' },
+      })
+    );
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findFirst
+    ).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({
+          snapshotAt: { lt: currentSnapshotAt },
+        }),
+        orderBy: { snapshotAt: 'desc' },
+      })
+    );
+    expect(
+      analytics.channelAnalyticsPostMetricSnapshot.findMany
+    ).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({ snapshotAt: currentSnapshotAt }),
+      })
+    );
+  });
+
+  it('fails closed for legacy daily points with only a single retained snapshot', async () => {
+    const { repository, analytics } = createHarness();
+    analytics.channelAnalyticsDailyPoint.findFirst.mockResolvedValue({
+      value: new Prisma.Decimal(4),
+      currentSnapshotAt: null,
+      previousSnapshotAt: null,
+    });
+    analytics.channelAnalyticsPostMetricSnapshot.findFirst
+      .mockResolvedValueOnce({ snapshotAt: new Date('2026-08-15T18:00:00Z') })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      repository.getMetricDayContributors(
+        'org',
+        'integration',
+        'like_count',
+        new Date('2026-08-15T00:00:00Z')
+      )
+    ).resolves.toMatchObject({
+      dailyPointTotal: 4,
       hasProvenance: false,
       contributors: [],
     });

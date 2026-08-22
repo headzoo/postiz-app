@@ -4,6 +4,7 @@ import {
   ConflictException,
   HttpException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import {
@@ -55,6 +56,7 @@ import {
   LEAD_BRIDGE_DAILY_LIMIT,
   LEAD_BRIDGE_PAGE_SIZE,
   LEAD_BRIDGE_PER_SOURCE_CAP,
+  LEAD_FIT_BACKFILL_LIMIT,
   leadBridgeCursorKey,
   leadBridgeDailyCountKey,
   leadBridgeDailyTtlSeconds,
@@ -166,6 +168,8 @@ const WINDOW_MAP: Record<ChannelInteractionWindow, {
 
 @Injectable()
 export class ChannelInteractionService {
+  private readonly _logger = new Logger(ChannelInteractionService.name);
+
   constructor(
     private _repository: ChannelInteractionRepository,
     private _integrationManager?: IntegrationManager,
@@ -1190,12 +1194,85 @@ export class ChannelInteractionService {
     externalIds: string[];
   }) {
     if (!this._openaiService || !this._contextDocumentService) {
+      this._logger.warn(
+        `Lead fit scoring skipped for integration ${params.integrationId}: OpenAI or context-document service is not available`
+      );
       return { scored: 0, skipped: params.externalIds.length };
+    }
+    const candidates = await this._repository.listUnscoredLeadExternalIds({
+      organizationId: params.organizationId,
+      integrationId: params.integrationId,
+      externalIds: params.externalIds,
+    });
+    const scored = await this.scoreLeadCandidates(
+      params.organizationId,
+      params.integrationId,
+      candidates
+    );
+    return {
+      scored,
+      skipped: Math.max(0, params.externalIds.length - scored),
+    };
+  }
+
+  async scoreUnscoredLeadsForIntegration(params: {
+    organizationId: string;
+    integrationId: string;
+    limit?: number;
+  }) {
+    if (!this._openaiService || !this._contextDocumentService) {
+      this._logger.warn(
+        `Lead fit backfill skipped for integration ${params.integrationId}: OpenAI or context-document service is not available`
+      );
+      return { scored: 0, candidates: 0 };
+    }
+    const limit = params.limit ?? LEAD_FIT_BACKFILL_LIMIT;
+    const candidates =
+      await this._repository.listUnscoredLeadCandidatesForIntegration({
+        organizationId: params.organizationId,
+        integrationId: params.integrationId,
+        limit,
+      });
+    if (!candidates.length) {
+      return { scored: 0, candidates: 0 };
+    }
+    const scored = await this.scoreLeadCandidates(
+      params.organizationId,
+      params.integrationId,
+      candidates
+    );
+    this._logger.log(
+      `Lead fit backfill for integration ${params.integrationId}: scored ${scored}/${candidates.length} unscored lead(s)`
+    );
+    return { scored, candidates: candidates.length };
+  }
+
+  private async scoreLeadCandidates(
+    organizationId: string,
+    integrationId: string,
+    candidates: Array<{
+      externalId: string;
+      name: string | null;
+      username: string | null;
+      bio: string | null;
+      followersCount: number | null;
+      followingCount: number | null;
+      leadBridgesAsLead: Array<{
+        bridgeRelationshipGrade: number | null;
+        bridgeMember: { username: string | null };
+      }>;
+    }>
+  ) {
+    if (!this._openaiService || !this._contextDocumentService) {
+      return 0;
+    }
+    if (!candidates.length) {
+      return 0;
     }
     const documents =
       await this._contextDocumentService.listAttachedDocumentsForIntegration(
-        params.organizationId,
-        params.integrationId
+        organizationId,
+        integrationId
       );
     const channelDocuments = documents
       .filter((document) => !parseSkillFilename(document.name))
@@ -1203,15 +1280,15 @@ export class ChannelInteractionService {
         name: document.name,
         content: document.content,
       }));
-    const candidates = await this._repository.listUnscoredLeadExternalIds({
-      organizationId: params.organizationId,
-      integrationId: params.integrationId,
-      externalIds: params.externalIds,
-    });
+    if (!channelDocuments.length) {
+      this._logger.warn(
+        `Lead fit scoring for integration ${integrationId} has no attached channel documents; scores will be low-confidence`
+      );
+    }
     let scored = 0;
     for (const candidate of candidates) {
       try {
-        const result = await this._openaiService.scoreLeadFit({
+        const result = await this._openaiService!.scoreLeadFit({
           channelDocuments,
           candidate: {
             ...(candidate.name ? { name: candidate.name } : {}),
@@ -1234,8 +1311,8 @@ export class ChannelInteractionService {
           })),
         });
         await this._repository.updateAudienceLeadFit({
-          organizationId: params.organizationId,
-          integrationId: params.integrationId,
+          organizationId,
+          integrationId,
           externalId: candidate.externalId,
           leadFitScore: result.score,
           leadFitReason: result.reason,
@@ -1245,14 +1322,14 @@ export class ChannelInteractionService {
           leadFitVersion: result.version,
         });
         scored++;
-      } catch {
-        // Keep the lead unscored when AI scoring fails.
+      } catch (error) {
+        this._logger.error(
+          `Lead fit scoring failed for ${integrationId}/${candidate.externalId}`,
+          error instanceof Error ? error.stack : String(error)
+        );
       }
     }
-    return {
-      scored,
-      skipped: Math.max(0, params.externalIds.length - scored),
-    };
+    return scored;
   }
 
   async materializeCultivatePicksForIntegration(
