@@ -1,4 +1,14 @@
-import { IsIn, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsIn,
+  IsString,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
+import { LEAD_FIT_DISMISS_REASONS } from '@gitroom/nestjs-libraries/dtos/integrations/lead-fit-feedback.types';
 
 export class IgnoreFollowerTriageDto {
   @IsString()
@@ -22,4 +32,12 @@ export class IgnoreFollowerTriageDto {
     | 'quiet'
     | 'lead'
     | 'engaged_not_yet';
+
+  @ValidateIf((body: IgnoreFollowerTriageDto) => body.triage === 'lead')
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayUnique()
+  @IsString({ each: true })
+  @IsIn([...LEAD_FIT_DISMISS_REASONS], { each: true })
+  reasons?: (typeof LEAD_FIT_DISMISS_REASONS)[number][];
 }

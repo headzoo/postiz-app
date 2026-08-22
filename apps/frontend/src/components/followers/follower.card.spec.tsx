@@ -30,9 +30,14 @@ jest.mock('@mantine/hooks', () => ({
 }));
 
 const decisionOpen = jest.fn();
+const leadDismissOpen = jest.fn();
 
 jest.mock('@gitroom/frontend/components/layout/new-modal', () => ({
   useDecisionModal: () => ({ open: decisionOpen }),
+}));
+
+jest.mock('@gitroom/frontend/components/followers/lead.dismiss.modal', () => ({
+  useLeadDismissModal: () => ({ open: leadDismissOpen }),
 }));
 
 const baseFollower: Follower = {
@@ -48,6 +53,8 @@ describe('FollowerCard', () => {
   beforeEach(() => {
     decisionOpen.mockReset();
     decisionOpen.mockResolvedValue(false);
+    leadDismissOpen.mockReset();
+    leadDismissOpen.mockResolvedValue(null);
   });
 
   it('opens the detail modal on card click', () => {
@@ -437,7 +444,7 @@ describe('FollowerCard', () => {
 
   it('renders a dismissible Lead badge when the follower is a lead', async () => {
     const onDismissTriage = jest.fn();
-    decisionOpen.mockResolvedValue(true);
+    leadDismissOpen.mockResolvedValue(['bio_wording']);
     render(
       <FollowerCard
         follower={{
@@ -453,7 +460,28 @@ describe('FollowerCard', () => {
     expect(screen.getByText('Mutual')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Remove Lead badge' }));
     await Promise.resolve();
-    expect(onDismissTriage).toHaveBeenCalledWith('lead');
+    expect(leadDismissOpen).toHaveBeenCalled();
+    expect(decisionOpen).not.toHaveBeenCalled();
+    expect(onDismissTriage).toHaveBeenCalledWith('lead', ['bio_wording']);
+  });
+
+  it('does not dismiss a Lead badge when the reason checklist is cancelled', async () => {
+    const onDismissTriage = jest.fn();
+    leadDismissOpen.mockResolvedValue(null);
+    render(
+      <FollowerCard
+        follower={{
+          ...baseFollower,
+          isLead: true,
+        }}
+        onDismissTriage={onDismissTriage}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Lead badge' }));
+    await Promise.resolve();
+
+    expect(onDismissTriage).not.toHaveBeenCalled();
   });
 
   it('renders a Fit score badge for scored leads', () => {

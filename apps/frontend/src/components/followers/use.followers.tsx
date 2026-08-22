@@ -1000,7 +1000,11 @@ export const useFollowerListMutations = (integrationId?: string) => {
   );
 
   const ignoreTriage = useCallback(
-    async (externalId: string, triage: DismissibleTriage) => {
+    async (
+      externalId: string,
+      triage: DismissibleTriage,
+      reasons?: string[]
+    ) => {
       if (!integrationId) {
         throw new Error('Channel is required');
       }
@@ -1008,7 +1012,11 @@ export const useFollowerListMutations = (integrationId?: string) => {
         `/followers/${integrationId}/member/triage-ignore`,
         {
           method: 'POST',
-          body: JSON.stringify({ externalId, triage }),
+          body: JSON.stringify({
+            externalId,
+            triage,
+            ...(reasons?.length ? { reasons } : {}),
+          }),
         }
       );
       if (!response.ok) {

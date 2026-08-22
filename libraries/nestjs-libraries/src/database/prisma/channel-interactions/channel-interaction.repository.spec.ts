@@ -94,6 +94,11 @@ const createHarness = () => {
       upsert: jest.fn(),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    channelAudienceLeadFitFeedback: {
+      upsert: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     channelAudienceLeadBridge: {
       upsert: jest.fn(),
       findUnique: jest.fn().mockResolvedValue(null),
@@ -2449,6 +2454,14 @@ describe('ChannelInteractionRepository', () => {
     const { repository, tx } = createHarness();
     tx.channelAudienceMember.findFirst.mockResolvedValue({
       externalId: 'person-1',
+      name: null,
+      username: null,
+      bio: null,
+      followersCount: null,
+      followingCount: null,
+      leadFitScore: null,
+      leadFitReason: null,
+      leadFitMatchedTopics: null,
     });
     tx.channelAudienceMemberTriageIgnore.upsert.mockResolvedValue({});
 
@@ -2480,6 +2493,54 @@ describe('ChannelInteractionRepository', () => {
       },
       update: {},
     });
+    expect(tx.channelAudienceLeadFitFeedback.upsert).not.toHaveBeenCalled();
+  });
+
+  it('snapshots rejected lead-fit feedback when dismissing a lead badge', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findFirst.mockResolvedValue({
+      externalId: 'person-1',
+      name: 'Alex',
+      username: 'alex',
+      bio: 'NFT coach selling courses',
+      followersCount: 100,
+      followingCount: 50,
+      leadFitScore: 88,
+      leadFitReason: 'Looks like a tech lead',
+      leadFitMatchedTopics: '["tech"]',
+    });
+    tx.channelAudienceMemberTriageIgnore.upsert.mockResolvedValue({});
+
+    await expect(
+      repository.addAudienceTriageIgnore(
+        'org',
+        'integration',
+        'person-1',
+        'lead',
+        'user-a',
+        ['bio_wording', 'promotional']
+      )
+    ).resolves.toEqual({ ok: true });
+
+    expect(tx.channelAudienceLeadFitFeedback.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId_integrationId_counterpartyExternalId_source: {
+            organizationId: 'org',
+            integrationId: 'integration',
+            counterpartyExternalId: 'person-1',
+            source: 'lead_dismiss',
+          },
+        },
+        create: expect.objectContaining({
+          source: 'lead_dismiss',
+          verdict: 'rejected',
+          reasons: JSON.stringify(['bio_wording', 'promotional']),
+          bio: 'NFT coach selling courses',
+          createdByUserId: 'user-a',
+        }),
+      })
+    );
   });
 
   it('returns missing member when ignoring triage for an unknown follower', async () => {
@@ -2755,11 +2816,25 @@ describe('ChannelInteractionRepository', () => {
     tx.channelAudienceList.findFirst.mockResolvedValue({ id: 'list-1' });
     tx.channelAudienceMember.findFirst.mockResolvedValue({
       externalId: 'person-1',
+      name: 'Alex',
+      username: 'alex',
+      bio: 'Builds tools',
+      followersCount: 10,
+      followingCount: 5,
+      leadFitScore: 70,
+      leadFitReason: 'Good fit',
+      leadFitMatchedTopics: '["tech"]',
     });
     tx.channelAudienceListMember.upsert.mockResolvedValue({});
 
     await expect(
-      repository.addAudienceListMember('org', 'integration', 'list-1', 'person-1')
+      repository.addAudienceListMember(
+        'org',
+        'integration',
+        'list-1',
+        'person-1',
+        'user-a'
+      )
     ).resolves.toEqual({ ok: true });
     expect(tx.channelAudienceListMember.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2769,6 +2844,96 @@ describe('ChannelInteractionRepository', () => {
             counterpartyExternalId: 'person-1',
           },
         },
+      })
+    );
+    expect(tx.channelAudienceLeadFitFeedback.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          source: 'list_add',
+          verdict: 'accepted',
+          reasons: '[]',
+          bio: 'Builds tools',
+          listId: 'list-1',
+          createdByUserId: 'user-a',
+        }),
+      })
+    );
+  });
+
+  it('lists lead-fit feedback examples and drops accepted rows that were also rejected', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceLeadFitFeedback.findMany
+      .mockResolvedValueOnce([
+        {
+          counterpartyExternalId: 'reject-1',
+          name: 'Bad Fit',
+          username: 'bad',
+          bio: 'NFT coach',
+          reasons: '["bio_wording"]',
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          counterpartyExternalId: 'reject-1',
+          name: 'Bad Fit',
+          username: 'bad',
+          bio: 'NFT coach',
+          reasons: '[]',
+        },
+        {
+          counterpartyExternalId: 'accept-1',
+          name: 'Good Fit',
+          username: 'good',
+          bio: 'Open source maintainer',
+          reasons: '[]',
+        },
+      ]);
+
+    await expect(
+      repository.listLeadFitFeedbackExamples({
+        organizationId: 'org',
+        integrationId: 'integration',
+        limit: 8,
+      })
+    ).resolves.toEqual({
+      rejected: [
+        expect.objectContaining({
+          counterpartyExternalId: 'reject-1',
+          reasons: ['bio_wording'],
+        }),
+      ],
+      accepted: [
+        expect.objectContaining({
+          counterpartyExternalId: 'accept-1',
+          bio: 'Open source maintainer',
+        }),
+      ],
+    });
+  });
+
+  it('includes outdated lead-fit versions in unscored lead candidate queries', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceMember.findMany.mockResolvedValue([]);
+
+    await repository.listUnscoredLeadCandidatesForIntegration({
+      organizationId: 'org',
+      integrationId: 'integration',
+      limit: 10,
+    });
+
+    expect(tx.channelAudienceMember.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                { leadFitScoredAt: null },
+                { leadFitVersion: null },
+                { leadFitVersion: { lt: 2 } },
+              ]),
+            }),
+          ]),
+        }),
       })
     );
   });

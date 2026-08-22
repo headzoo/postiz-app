@@ -1017,6 +1017,7 @@ export class IntegrationService {
 
   async addFollowerListMember(
     org: Organization,
+    user: User,
     integrationId: string,
     listId: string,
     externalId: string
@@ -1027,7 +1028,8 @@ export class IntegrationService {
         org.id,
         integrationId,
         listId,
-        externalId
+        externalId,
+        user.id
       );
     } catch (error) {
       this.rethrowFollowerListError(error);
@@ -1058,7 +1060,8 @@ export class IntegrationService {
     user: User,
     integrationId: string,
     externalId: string,
-    triage: string
+    triage: string,
+    reasons?: string[]
   ) {
     await this.getFollowerIntegrationProvider(org, integrationId);
     try {
@@ -1067,7 +1070,8 @@ export class IntegrationService {
         integrationId,
         externalId,
         triage,
-        user.id
+        user.id,
+        reasons
       );
     } catch (error) {
       if (error instanceof NotFoundException) {

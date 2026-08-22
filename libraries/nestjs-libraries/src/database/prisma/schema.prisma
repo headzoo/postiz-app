@@ -59,6 +59,7 @@ model Organization {
   channelAudienceListMembers          ChannelAudienceListMember[]
   channelAudienceMemberTriageIgnores  ChannelAudienceMemberTriageIgnore[]
   channelAudienceMemberGrades         ChannelAudienceMemberGrade[]
+  channelAudienceLeadFitFeedbacks     ChannelAudienceLeadFitFeedback[]
   channelRelationshipGradeSnapshots   ChannelRelationshipGradeSnapshot[]
   channelAudienceLeadBridges          ChannelAudienceLeadBridge[]
   channelAudienceCultivatePicks       ChannelAudienceCultivatePick[]
@@ -148,6 +149,7 @@ model User {
   channelAudienceLists               ChannelAudienceList[]
   channelAudienceMemberGrades        ChannelAudienceMemberGrade[]
   channelAudienceMemberTriageIgnores ChannelAudienceMemberTriageIgnore[]
+  channelAudienceLeadFitFeedbacks    ChannelAudienceLeadFitFeedback[]
   channelAudienceMembersIgnored      ChannelAudienceMember[]             @relation("AudienceMemberIgnoredBy")
   adminPasskeyCredentials            AdminPasskeyCredential[]
   adminWebAuthnChallenges            AdminWebAuthnChallenge[]
@@ -458,6 +460,7 @@ model Integration {
   channelAudienceListMembers          ChannelAudienceListMember[]
   channelAudienceMemberTriageIgnores  ChannelAudienceMemberTriageIgnore[]
   channelAudienceMemberGrades         ChannelAudienceMemberGrade[]
+  channelAudienceLeadFitFeedbacks     ChannelAudienceLeadFitFeedback[]
   channelRelationshipGradeSnapshots   ChannelRelationshipGradeSnapshot[]
   channelAudienceLeadBridges          ChannelAudienceLeadBridge[]
   channelAudienceCultivatePicks       ChannelAudienceCultivatePick[]
@@ -1531,6 +1534,7 @@ model ChannelAudienceMember {
   personalGrades                 ChannelAudienceMemberGrade[]        @relation("AudienceMemberPersonalGrades")
   gradeSnapshots                 ChannelRelationshipGradeSnapshot[]  @relation("AudienceMemberGradeSnapshots")
   triageIgnores                  ChannelAudienceMemberTriageIgnore[] @relation("AudienceMemberTriageIgnores")
+  leadFitFeedbacks               ChannelAudienceLeadFitFeedback[]    @relation("AudienceMemberLeadFitFeedbacks")
   leadBridgesAsLead              ChannelAudienceLeadBridge[]         @relation("AudienceLeadBridgesAsLead")
   leadBridgesAsBridge            ChannelAudienceLeadBridge[]         @relation("AudienceLeadBridgesAsBridge")
   cultivatePicks                 ChannelAudienceCultivatePick[]      @relation("AudienceMemberCultivatePicks")
@@ -1902,6 +1906,38 @@ model ChannelAudienceMemberTriageIgnore {
   @@index([createdByUserId])
   @@index([organizationId])
   @@index([expiresAt])
+}
+
+model ChannelAudienceLeadFitFeedback {
+  id                     String                @id @default(cuid())
+  organizationId         String
+  integrationId          String
+  counterpartyExternalId String
+  source                 String
+  verdict                String
+  reasons                String?
+  name                   String?
+  username               String?
+  bio                    String?
+  followersCount         Int?
+  followingCount         Int?
+  leadFitScore           Float?
+  leadFitReason          String?
+  leadFitMatchedTopics   String?
+  listId                 String?
+  createdByUserId        String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  organization           Organization          @relation(fields: [organizationId], references: [id])
+  integration            Integration           @relation(fields: [integrationId], references: [id])
+  createdBy              User?                 @relation(fields: [createdByUserId], references: [id])
+  audienceMember         ChannelAudienceMember @relation("AudienceMemberLeadFitFeedbacks", fields: [integrationId, counterpartyExternalId], references: [integrationId, externalId])
+
+  @@unique([organizationId, integrationId, counterpartyExternalId, source])
+  @@index([organizationId, integrationId, verdict, updatedAt])
+  @@index([integrationId, counterpartyExternalId])
+  @@index([createdByUserId])
+  @@index([organizationId])
 }
 
 model ChannelAudienceLeadBridge {

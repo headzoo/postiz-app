@@ -24,6 +24,10 @@ export const LEAD_FIT_BACKFILL_LIMIT = 25;
  * until they are scored so nothing silently disappears while scoring catches up.
  */
 export const LEAD_FIT_MIN_SCORE = 50;
+/** Prompt / example-feedback version written to ChannelAudienceMember.leadFitVersion. */
+export const LEAD_FIT_VERSION = 2;
+/** Max accepted/rejected examples passed into each lead-fit scoring call. */
+export const LEAD_FIT_FEEDBACK_EXAMPLE_LIMIT = 8;
 export const LEAD_BRIDGE_WARM_GRADE_THRESHOLD = 3.5;
 /** Idle wait when no integrations have remaining daily crawl quota. */
 export const LEAD_BRIDGE_IDLE_MS = 60 * 60 * 1000;

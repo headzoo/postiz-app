@@ -57,6 +57,7 @@ import {
   LEAD_BRIDGE_PAGE_SIZE,
   LEAD_BRIDGE_PER_SOURCE_CAP,
   LEAD_FIT_BACKFILL_LIMIT,
+  LEAD_FIT_FEEDBACK_EXAMPLE_LIMIT,
   leadBridgeCursorKey,
   leadBridgeDailyCountKey,
   leadBridgeDailyTtlSeconds,
@@ -1327,6 +1328,27 @@ export class ChannelInteractionService {
         `Lead fit scoring for integration ${integrationId} has no attached channel documents; scores will be low-confidence`
       );
     }
+    const feedbackExamples =
+      await this._repository.listLeadFitFeedbackExamples({
+        organizationId,
+        integrationId,
+        limit: LEAD_FIT_FEEDBACK_EXAMPLE_LIMIT,
+      });
+    const truncateBio = (bio: string | null) =>
+      bio ? bio.slice(0, 500) : undefined;
+    const toExample = (row: {
+      name: string | null;
+      username: string | null;
+      bio: string | null;
+      reasons: string[];
+    }) => ({
+      ...(row.name ? { name: row.name } : {}),
+      ...(row.username ? { username: row.username } : {}),
+      ...(truncateBio(row.bio) ? { bio: truncateBio(row.bio) } : {}),
+      ...(row.reasons.length ? { reasons: row.reasons } : {}),
+    });
+    const rejectedExamples = feedbackExamples.rejected.map(toExample);
+    const acceptedExamples = feedbackExamples.accepted.map(toExample);
     let scored = 0;
     for (const candidate of candidates) {
       try {
@@ -1351,6 +1373,8 @@ export class ChannelInteractionService {
               ? { grade: bridge.bridgeRelationshipGrade }
               : {}),
           })),
+          rejectedExamples,
+          acceptedExamples,
         });
         await this._repository.updateAudienceLeadFit({
           organizationId,
@@ -1666,7 +1690,8 @@ export class ChannelInteractionService {
     organizationId: string,
     integrationId: string,
     listId: string,
-    externalId: string
+    externalId: string,
+    createdByUserId?: string
   ) {
     this.validateBoundedString(listId, 'listId', MAX_ID_LENGTH);
     this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
@@ -1674,7 +1699,8 @@ export class ChannelInteractionService {
       organizationId,
       integrationId,
       listId,
-      externalId
+      externalId,
+      createdByUserId
     );
     if (result.missing === 'list') {
       throw new NotFoundException('Follower list was not found');
@@ -1708,7 +1734,8 @@ export class ChannelInteractionService {
     integrationId: string,
     externalId: string,
     triage: string,
-    createdByUserId?: string
+    createdByUserId?: string,
+    reasons?: string[]
   ) {
     this.validateBoundedString(externalId, 'externalId', MAX_ID_LENGTH);
     if (
@@ -1724,12 +1751,18 @@ export class ChannelInteractionService {
     ) {
       throw new BadRequestException('Invalid triage value');
     }
+    if (triage === 'lead') {
+      if (!Array.isArray(reasons) || reasons.length === 0) {
+        throw new BadRequestException('Lead dismiss requires at least one reason');
+      }
+    }
     const result = await this._repository.addAudienceTriageIgnore(
       organizationId,
       integrationId,
       externalId,
       triage,
-      createdByUserId
+      createdByUserId,
+      reasons
     );
     if (result.missing === 'member') {
       throw new NotFoundException('Follower was not found');

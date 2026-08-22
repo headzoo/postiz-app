@@ -38,7 +38,9 @@ import { FOLLOWER_BOT_SCORE_SCHEDULE_INTERVAL_HOURS } from '@gitroom/nestjs-libr
 import {
   LEAD_BRIDGE_PER_SOURCE_CAP,
   LEAD_BRIDGE_WARM_GRADE_THRESHOLD,
+  LEAD_FIT_FEEDBACK_EXAMPLE_LIMIT,
   LEAD_FIT_MIN_SCORE,
+  LEAD_FIT_VERSION,
 } from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
 import {
   CULTIVATE_CANDIDATE_POOL_SIZE,
@@ -1840,6 +1842,9 @@ export class ChannelInteractionRepository {
         await tx.channelAudienceMemberTriageIgnore.deleteMany({
           where: { OR: memberKeys },
         });
+        await tx.channelAudienceLeadFitFeedback.deleteMany({
+          where: { OR: memberKeys },
+        });
         await tx.channelAudienceCultivatePick.deleteMany({
           where: { OR: memberKeys },
         });
@@ -2663,7 +2668,8 @@ export class ChannelInteractionRepository {
     organizationId: string,
     integrationId: string,
     listId: string,
-    externalId: string
+    externalId: string,
+    createdByUserId?: string
   ) {
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
@@ -2676,7 +2682,17 @@ export class ChannelInteractionRepository {
       }
       const member = await tx.channelAudienceMember.findFirst({
         where: { organizationId, integrationId, externalId },
-        select: { externalId: true },
+        select: {
+          externalId: true,
+          name: true,
+          username: true,
+          bio: true,
+          followersCount: true,
+          followingCount: true,
+          leadFitScore: true,
+          leadFitReason: true,
+          leadFitMatchedTopics: true,
+        },
       });
       if (!member) {
         return { missing: 'member' as const };
@@ -2695,6 +2711,17 @@ export class ChannelInteractionRepository {
           counterpartyExternalId: externalId,
         },
         update: {},
+      });
+      await this.upsertLeadFitFeedback(tx, {
+        organizationId,
+        integrationId,
+        externalId,
+        source: 'list_add',
+        verdict: 'accepted',
+        reasons: [],
+        listId,
+        createdByUserId,
+        member,
       });
       return { ok: true as const };
     });
@@ -2729,13 +2756,24 @@ export class ChannelInteractionRepository {
     integrationId: string,
     externalId: string,
     triage: string,
-    createdByUserId?: string
+    createdByUserId?: string,
+    reasons?: string[]
   ) {
     return this.withSerializableRetry(async (tx) => {
       await this.assertOwnedIntegration(tx, organizationId, integrationId);
       const member = await tx.channelAudienceMember.findFirst({
         where: { organizationId, integrationId, externalId },
-        select: { externalId: true },
+        select: {
+          externalId: true,
+          name: true,
+          username: true,
+          bio: true,
+          followersCount: true,
+          followingCount: true,
+          leadFitScore: true,
+          leadFitReason: true,
+          leadFitMatchedTopics: true,
+        },
       });
       if (!member) {
         return { missing: 'member' as const };
@@ -2758,7 +2796,78 @@ export class ChannelInteractionRepository {
         },
         update: {},
       });
+      if (triage === 'lead') {
+        await this.upsertLeadFitFeedback(tx, {
+          organizationId,
+          integrationId,
+          externalId,
+          source: 'lead_dismiss',
+          verdict: 'rejected',
+          reasons: reasons ?? [],
+          createdByUserId,
+          member,
+        });
+      }
       return { ok: true as const };
+    });
+  }
+
+  private async upsertLeadFitFeedback(
+    tx: Prisma.TransactionClient,
+    params: {
+      organizationId: string;
+      integrationId: string;
+      externalId: string;
+      source: 'lead_dismiss' | 'list_add';
+      verdict: 'rejected' | 'accepted';
+      reasons: string[];
+      listId?: string;
+      createdByUserId?: string;
+      member: {
+        name: string | null;
+        username: string | null;
+        bio: string | null;
+        followersCount: number | null;
+        followingCount: number | null;
+        leadFitScore: number | null;
+        leadFitReason: string | null;
+        leadFitMatchedTopics: string | null;
+      };
+    }
+  ) {
+    const snapshot = {
+      name: params.member.name,
+      username: params.member.username,
+      bio: params.member.bio,
+      followersCount: params.member.followersCount,
+      followingCount: params.member.followingCount,
+      leadFitScore: params.member.leadFitScore,
+      leadFitReason: params.member.leadFitReason,
+      leadFitMatchedTopics: params.member.leadFitMatchedTopics,
+      reasons: JSON.stringify(params.reasons),
+      ...(params.listId ? { listId: params.listId } : {}),
+      ...(params.createdByUserId
+        ? { createdByUserId: params.createdByUserId }
+        : {}),
+    };
+    await tx.channelAudienceLeadFitFeedback.upsert({
+      where: {
+        organizationId_integrationId_counterpartyExternalId_source: {
+          organizationId: params.organizationId,
+          integrationId: params.integrationId,
+          counterpartyExternalId: params.externalId,
+          source: params.source,
+        },
+      },
+      create: {
+        organizationId: params.organizationId,
+        integrationId: params.integrationId,
+        counterpartyExternalId: params.externalId,
+        source: params.source,
+        verdict: params.verdict,
+        ...snapshot,
+      },
+      update: snapshot,
     });
   }
 
@@ -3851,7 +3960,7 @@ export class ChannelInteractionRepository {
           organizationId: params.organizationId,
           integrationId: params.integrationId,
           externalId: { in: params.externalIds },
-          leadFitScoredAt: null,
+          ...this.leadFitNeedsScoreWhere(),
         },
         select: this.leadFitCandidateSelect,
       });
@@ -3896,12 +4005,16 @@ export class ChannelInteractionRepository {
               ChannelAudienceMembership.NOT_FOLLOWER,
             ],
           },
-          OR: [
-            { inboundInteractionCount: { gt: 0 } },
-            { leadBridgesAsLead: { some: {} } },
+          AND: [
+            {
+              OR: [
+                { inboundInteractionCount: { gt: 0 } },
+                { leadBridgesAsLead: { some: {} } },
+              ],
+            },
+            this.leadFitNeedsScoreWhere(),
           ],
           triageIgnores: { none: this.activeTriageIgnoreWhere('lead') },
-          leadFitScoredAt: null,
         },
         orderBy: [
           { lastInboundAt: { sort: 'desc', nulls: 'last' } },
@@ -3911,6 +4024,124 @@ export class ChannelInteractionRepository {
         select: this.leadFitCandidateSelect,
       });
     });
+  }
+
+  async listLeadFitFeedbackExamples(params: {
+    organizationId: string;
+    integrationId: string;
+    limit?: number;
+  }): Promise<{
+    rejected: Array<{
+      counterpartyExternalId: string;
+      name: string | null;
+      username: string | null;
+      bio: string | null;
+      reasons: string[];
+    }>;
+    accepted: Array<{
+      counterpartyExternalId: string;
+      name: string | null;
+      username: string | null;
+      bio: string | null;
+      reasons: string[];
+    }>;
+  }> {
+    const take = Math.max(
+      0,
+      params.limit ?? LEAD_FIT_FEEDBACK_EXAMPLE_LIMIT
+    );
+    if (!take) {
+      return { rejected: [], accepted: [] };
+    }
+    return this.withSerializableRetry(async (tx) => {
+      await this.assertOwnedIntegration(
+        tx,
+        params.organizationId,
+        params.integrationId
+      );
+      const [rejectedRows, acceptedRows] = await Promise.all([
+        tx.channelAudienceLeadFitFeedback.findMany({
+          where: {
+            organizationId: params.organizationId,
+            integrationId: params.integrationId,
+            verdict: 'rejected',
+          },
+          orderBy: { updatedAt: 'desc' },
+          take,
+          select: {
+            counterpartyExternalId: true,
+            name: true,
+            username: true,
+            bio: true,
+            reasons: true,
+          },
+        }),
+        tx.channelAudienceLeadFitFeedback.findMany({
+          where: {
+            organizationId: params.organizationId,
+            integrationId: params.integrationId,
+            verdict: 'accepted',
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: take * 2,
+          select: {
+            counterpartyExternalId: true,
+            name: true,
+            username: true,
+            bio: true,
+            reasons: true,
+          },
+        }),
+      ]);
+      const rejectedIds = new Set(
+        rejectedRows.map((row) => row.counterpartyExternalId)
+      );
+      const mapRow = (row: {
+        counterpartyExternalId: string;
+        name: string | null;
+        username: string | null;
+        bio: string | null;
+        reasons: string | null;
+      }) => ({
+        counterpartyExternalId: row.counterpartyExternalId,
+        name: row.name,
+        username: row.username,
+        bio: row.bio,
+        reasons: this.parseJsonStringArray(row.reasons),
+      });
+      return {
+        rejected: rejectedRows.map(mapRow),
+        accepted: acceptedRows
+          .filter((row) => !rejectedIds.has(row.counterpartyExternalId))
+          .slice(0, take)
+          .map(mapRow),
+      };
+    });
+  }
+
+  private leadFitNeedsScoreWhere(): Prisma.ChannelAudienceMemberWhereInput {
+    return {
+      OR: [
+        { leadFitScoredAt: null },
+        { leadFitVersion: null },
+        { leadFitVersion: { lt: LEAD_FIT_VERSION } },
+      ],
+    };
+  }
+
+  private parseJsonStringArray(value: string | null): string[] {
+    if (!value) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.filter((item): item is string => typeof item === 'string');
+    } catch {
+      return [];
+    }
   }
 
   private get leadFitCandidateSelect() {

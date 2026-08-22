@@ -6,10 +6,12 @@ import Link from 'next/link';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import { useT } from '@gitroom/react/translation/get.transation.service.client';
 import { useDecisionModal } from '@gitroom/frontend/components/layout/new-modal';
+import { useLeadDismissModal } from '@gitroom/frontend/components/followers/lead.dismiss.modal';
 import { Follower, FollowerList, DismissibleTriage } from '@gitroom/frontend/components/followers/use.followers';
 import { RelationshipStars } from '@gitroom/frontend/components/followers/follower.relationship.stars';
 import { FollowerListDropdown } from '@gitroom/frontend/components/followers/follower.list.dropdown';
 import { TimelineIcon, RobotIcon } from '@gitroom/frontend/components/ui/icons';
+import { LeadFitDismissReason } from '@gitroom/nestjs-libraries/dtos/integrations/lead-fit-feedback.types';
 
 const TRIAGE_LABELS: Record<
   DismissibleTriage,
@@ -57,10 +59,14 @@ const TRIAGE_STYLES: Record<DismissibleTriage, string> = {
 
 export const RelationshipTriageBadge: FC<{
   triage: DismissibleTriage;
-  onRemove?: (triage: DismissibleTriage) => Promise<void> | void;
+  onRemove?: (
+    triage: DismissibleTriage,
+    reasons?: LeadFitDismissReason[]
+  ) => Promise<void> | void;
 }> = ({ triage, onRemove }) => {
   const t = useT();
   const decision = useDecisionModal();
+  const leadDismiss = useLeadDismissModal();
   const label = TRIAGE_LABELS[triage];
   const displayLabel = t(label.key, label.defaultLabel);
 
@@ -69,6 +75,14 @@ export const RelationshipTriageBadge: FC<{
       event.stopPropagation();
       event.preventDefault();
       if (!onRemove) {
+        return;
+      }
+      if (triage === 'lead') {
+        const reasons = await leadDismiss.open();
+        if (!reasons?.length) {
+          return;
+        }
+        await onRemove(triage, reasons);
         return;
       }
       const approved = await decision.open({
@@ -88,7 +102,7 @@ export const RelationshipTriageBadge: FC<{
       }
       await onRemove(triage);
     },
-    [decision, displayLabel, onRemove, t, triage]
+    [decision, displayLabel, leadDismiss, onRemove, t, triage]
   );
 
   const className = clsx(
@@ -146,7 +160,10 @@ export const FollowerCard: FC<{
   timelineHref?: string;
   onToggleList?: (list: FollowerList, assigned: boolean) => Promise<void> | void;
   onToggleIgnored?: (ignored: boolean) => Promise<void> | void;
-  onDismissTriage?: (triage: DismissibleTriage) => Promise<void> | void;
+  onDismissTriage?: (
+    triage: DismissibleTriage,
+    reasons?: LeadFitDismissReason[]
+  ) => Promise<void> | void;
   onOpen?: () => void;
 }> = ({
   follower,

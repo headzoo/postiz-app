@@ -319,8 +319,53 @@ describe('FollowersController', () => {
       user,
       'channel-a',
       'follower-a',
-      'hot_lead'
+      'hot_lead',
+      undefined
     );
+  });
+
+  it('forwards lead dismiss reasons when ignoring a lead triage badge', async () => {
+    service.ignoreFollowerMemberTriage.mockResolvedValue(undefined);
+
+    await expect(
+      controller.ignoreFollowerMemberTriage(org, user, 'channel-a', {
+        externalId: 'follower-a',
+        triage: 'lead',
+        reasons: ['bio_wording'],
+      })
+    ).resolves.toBeUndefined();
+    expect(service.ignoreFollowerMemberTriage).toHaveBeenCalledWith(
+      org,
+      user,
+      'channel-a',
+      'follower-a',
+      'lead',
+      ['bio_wording']
+    );
+  });
+
+  it('requires reasons for lead triage ignores and allows other triages without them', async () => {
+    const leadWithoutReasons = Object.assign(new IgnoreFollowerTriageDto(), {
+      externalId: 'follower-a',
+      triage: 'lead',
+    });
+    const leadWithReasons = Object.assign(new IgnoreFollowerTriageDto(), {
+      externalId: 'follower-a',
+      triage: 'lead',
+      reasons: ['wrong_topic'],
+    });
+    const hotLead = Object.assign(new IgnoreFollowerTriageDto(), {
+      externalId: 'follower-a',
+      triage: 'hot_lead',
+    });
+
+    await expect(validate(leadWithoutReasons)).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: 'reasons' }),
+      ])
+    );
+    await expect(validate(leadWithReasons)).resolves.toHaveLength(0);
+    await expect(validate(hotLead)).resolves.toHaveLength(0);
   });
 
   it('delegates follower ignore and unignore with organization and body', async () => {
@@ -374,6 +419,7 @@ describe('FollowersController', () => {
     const validLead = Object.assign(new IgnoreFollowerTriageDto(), {
       externalId: 'follower-a',
       triage: 'lead',
+      reasons: ['wrong_topic'],
     });
     const validEngaged = Object.assign(new IgnoreFollowerTriageDto(), {
       externalId: 'follower-a',

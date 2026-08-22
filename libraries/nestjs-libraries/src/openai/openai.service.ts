@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { shuffle } from 'lodash';
 import { zodResponseFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
+import { LEAD_FIT_VERSION } from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || 'sk-proj-',
@@ -314,6 +315,18 @@ export class OpenaiService {
       followingCount?: number;
     };
     bridges?: Array<{ username?: string; grade?: number }>;
+    rejectedExamples?: Array<{
+      name?: string;
+      username?: string;
+      bio?: string;
+      reasons?: string[];
+    }>;
+    acceptedExamples?: Array<{
+      name?: string;
+      username?: string;
+      bio?: string;
+      reasons?: string[];
+    }>;
   }) {
     const LeadFitScore = z.object({
       score: z.number().min(0).max(100),
@@ -339,10 +352,13 @@ export class OpenaiService {
           {
             role: 'system',
             content: `You score how well a social profile fits a channel's intended audience.
-Use only the channel Markdown documents and the candidate's public profile text.
+Use only the channel Markdown documents, the candidate's public profile text, and the human feedback examples.
 Score 0-100 where 100 is an excellent fit.
 Penalize clear conflicts with the channel's stated beliefs, politics, audience, or topics.
 Reward explicit topical alignment (for example tech) when the channel seeks that audience.
+When rejectedExamples are provided, treat them as labeled negatives: lower the score for candidates with similar bios, job titles, niches, or distinctive words/phrases.
+Pay special attention when a rejected example includes reason "bio_wording"; extract concrete tokens or short phrases from those rejected bios and penalize candidates that reuse them. Name those phrases in concerns when they apply.
+When acceptedExamples are provided, reward similarity to those accepted bios and topics.
 Do not infer private traits. Prefer short, concrete reasons based on stated bio/profile text.
 If channel documents are missing, score conservatively from general profile quality and return a low-confidence reason.`,
           },
@@ -352,6 +368,8 @@ If channel documents are missing, score conservatively from general profile qual
               channelDocuments: documents,
               candidate: input.candidate,
               discoveredVia: input.bridges || [],
+              rejectedExamples: input.rejectedExamples || [],
+              acceptedExamples: input.acceptedExamples || [],
             }),
           },
         ],
@@ -372,7 +390,7 @@ If channel documents are missing, score conservatively from general profile qual
         .filter(Boolean)
         .slice(0, 8),
       model: 'gpt-4.1',
-      version: 1,
+      version: LEAD_FIT_VERSION,
     };
   }
 }

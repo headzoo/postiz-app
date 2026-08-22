@@ -98,7 +98,8 @@ export class FollowersController {
       user,
       integrationId,
       body.externalId,
-      body.triage
+      body.triage,
+      body.reasons
     );
   }
 
@@ -240,12 +241,14 @@ export class FollowersController {
   @Post('/:integrationId/lists/:listId/members')
   addFollowerListMember(
     @GetOrgFromRequest() org: Organization,
+    @GetUserFromRequest() user: User,
     @Param('integrationId') integrationId: string,
     @Param('listId') listId: string,
     @Body() body: FollowerListMemberDto
   ) {
     return this._integrationService.addFollowerListMember(
       org,
+      user,
       integrationId,
       listId,
       body.externalId

@@ -78,6 +78,10 @@ const createRepository = () => ({
   upsertCultivatePicks: jest.fn().mockResolvedValue({ count: 0 }),
   listUnscoredLeadExternalIds: jest.fn().mockResolvedValue([]),
   listUnscoredLeadCandidatesForIntegration: jest.fn().mockResolvedValue([]),
+  listLeadFitFeedbackExamples: jest.fn().mockResolvedValue({
+    rejected: [],
+    accepted: [],
+  }),
   updateAudienceLeadFit: jest.fn().mockResolvedValue({ count: 0 }),
   getStoredFollowerAudienceCounts: jest.fn().mockResolvedValue({
     categories: {},
@@ -1430,7 +1434,8 @@ describe('ChannelInteractionService', () => {
       'integration',
       'follower-a',
       'hot_lead',
-      'user-a'
+      'user-a',
+      undefined
     );
 
     await expect(
@@ -1439,7 +1444,8 @@ describe('ChannelInteractionService', () => {
         'integration',
         'follower-a',
         'lead',
-        'user-a'
+        'user-a',
+        ['wrong_topic']
       )
     ).resolves.toBeUndefined();
     expect(repository.addAudienceTriageIgnore).toHaveBeenCalledWith(
@@ -1447,7 +1453,8 @@ describe('ChannelInteractionService', () => {
       'integration',
       'follower-a',
       'lead',
-      'user-a'
+      'user-a',
+      ['wrong_topic']
     );
 
     await expect(
@@ -1464,8 +1471,25 @@ describe('ChannelInteractionService', () => {
       'integration',
       'follower-a',
       'cultivate',
-      'user-a'
+      'user-a',
+      undefined
     );
+  });
+
+  it('requires reasons when dismissing a lead triage badge', async () => {
+    const repository = createRepository();
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.ignoreFollowerTriage(
+        'org',
+        'integration',
+        'follower-a',
+        'lead',
+        'user-a'
+      )
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repository.addAudienceTriageIgnore).not.toHaveBeenCalled();
   });
 
   it('accepts engaged-not-yet triage ignores and rejects invalid values', async () => {
@@ -1486,7 +1510,8 @@ describe('ChannelInteractionService', () => {
       'integration',
       'follower-a',
       'engaged_not_yet',
-      'user-a'
+      'user-a',
+      undefined
     );
 
     await expect(
@@ -1803,7 +1828,7 @@ describe('ChannelInteractionService', () => {
         concerns: [],
         matchedTopics: ['developer tools'],
         model: 'gpt-4.1',
-        version: 1,
+        version: 2,
       }),
     };
     const contextDocumentService = {
@@ -1811,6 +1836,26 @@ describe('ChannelInteractionService', () => {
         { name: 'audience.md', content: 'We serve software founders.' },
       ]),
     };
+    repository.listLeadFitFeedbackExamples.mockResolvedValue({
+      rejected: [
+        {
+          counterpartyExternalId: 'reject-1',
+          name: 'Rejected',
+          username: 'rej',
+          bio: 'NFT coach',
+          reasons: ['bio_wording'],
+        },
+      ],
+      accepted: [
+        {
+          counterpartyExternalId: 'accept-1',
+          name: 'Accepted',
+          username: 'acc',
+          bio: 'Open source maintainer',
+          reasons: [],
+        },
+      ],
+    });
     const service = new ChannelInteractionService(
       repository as any,
       undefined,
@@ -1836,6 +1881,17 @@ describe('ChannelInteractionService', () => {
           username: 'leadone',
           bio: 'Builds developer tools',
         }),
+        rejectedExamples: [
+          expect.objectContaining({
+            bio: 'NFT coach',
+            reasons: ['bio_wording'],
+          }),
+        ],
+        acceptedExamples: [
+          expect.objectContaining({
+            bio: 'Open source maintainer',
+          }),
+        ],
       })
     );
     expect(repository.updateAudienceLeadFit).toHaveBeenCalledWith(
@@ -1844,7 +1900,7 @@ describe('ChannelInteractionService', () => {
         leadFitScore: 81,
         leadFitReason: 'Strong tech overlap',
         leadFitModel: 'gpt-4.1',
-        leadFitVersion: 1,
+        leadFitVersion: 2,
       })
     );
   });
@@ -1907,7 +1963,7 @@ describe('ChannelInteractionService', () => {
         concerns: ['political mismatch'],
         matchedTopics: [],
         model: 'gpt-4.1',
-        version: 1,
+        version: 2,
       }),
     };
     const contextDocumentService = {
