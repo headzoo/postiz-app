@@ -70,10 +70,10 @@ export class AdminScheduleLogService {
   private resolveLevel(
     value?: AdminScheduleLogLevel | 'INFO' | 'WARN' | 'ERROR'
   ): AdminScheduleLogLevel {
-    if (value === 'WARN' || value === AdminScheduleLogLevel.WARN) {
+    if (value === 'WARN') {
       return AdminScheduleLogLevel.WARN;
     }
-    if (value === 'ERROR' || value === AdminScheduleLogLevel.ERROR) {
+    if (value === 'ERROR') {
       return AdminScheduleLogLevel.ERROR;
     }
     return AdminScheduleLogLevel.INFO;
