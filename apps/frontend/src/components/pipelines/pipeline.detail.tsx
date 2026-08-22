@@ -28,7 +28,6 @@ import { useDeletePipeline } from '@gitroom/frontend/components/pipelines/use.pi
 import { usePipelineList } from '@gitroom/frontend/components/pipelines/use.pipeline.list';
 import { useUpdatePipelineSchedule } from '@gitroom/frontend/components/pipelines/use.pipeline.schedule.update';
 import { PipelineContextDocumentsPanel } from '@gitroom/frontend/components/context-documents/context-document.assignment-picker';
-import { PipelinePlugsPanel } from '@gitroom/frontend/components/pipelines/pipeline.plugs';
 import { PipelineAutopostPanel } from '@gitroom/frontend/components/pipelines/pipeline.autopost';
 
 const EMPTY_SCHEDULE_SLOTS: PipelineScheduleSlot[] = [];
@@ -262,8 +261,6 @@ export const PipelineDetailView: FC<{ pipelineId: string }> = ({ pipelineId }) =
         documents={data.contextDocuments}
         onEdit={openEdit}
       />
-
-      <PipelinePlugsPanel pipelineId={pipelineId} channels={data.channels} />
 
       <PipelineAutopostPanel pipelineId={pipelineId} channels={data.channels} />
 

@@ -263,3 +263,60 @@ describe('PostActivity.editPost', () => {
     );
   });
 });
+
+describe('PostActivity V108 legacy plug compatibility', () => {
+  it('resolves globalPlugsV107 through PipelinePlugService', async () => {
+    const resolveGlobalPlugs = jest.fn().mockResolvedValue([{ plugId: 'plug-1' }]);
+    const integration = {
+      id: 'int-1',
+      providerIdentifier: 'x',
+    } as any;
+    const instance = new PostActivity(
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { resolveGlobalPlugs } as any,
+      {} as any
+    );
+
+    await expect(
+      instance.globalPlugsV107('post-1', integration)
+    ).resolves.toEqual([{ plugId: 'plug-1' }]);
+
+    expect(resolveGlobalPlugs).toHaveBeenCalledWith('post-1', 'int-1', 'x');
+  });
+
+  it('resolves processPlugV107 through IntegrationService.processPlugs', async () => {
+    const processPlugs = jest.fn().mockResolvedValue(true);
+    const payload = {
+      plugId: 'plug-1',
+      postId: 'post-1',
+      delay: 3600000,
+      totalRuns: 3,
+      currentRun: 1,
+      source: 'pipeline' as const,
+    };
+    const instance = new PostActivity(
+      {} as any,
+      {} as any,
+      {} as any,
+      { processPlugs } as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any
+    );
+
+    await expect(instance.processPlugV107(payload)).resolves.toBe(true);
+    expect(processPlugs).toHaveBeenCalledWith(payload);
+  });
+});

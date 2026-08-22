@@ -8,6 +8,11 @@ import {
   PostDetails,
   PostResponse,
   SocialProvider,
+  PostRulesCapabilityMetadata,
+  PostRulesLoadMetricsResult,
+  PostRulesRemovePostResult,
+  PostRulesRepostResult,
+  PostRulesAddPlugReplyResult,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { timer } from '@gitroom/helpers/utils/timer';
@@ -30,6 +35,36 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   analyticsSnapshot = {
     capture: (request: ChannelAnalyticsCaptureRequest) =>
       this.captureAnalyticsSnapshot(request),
+  };
+  postRules = {
+    metadata: () => this.getPostRulesMetadata(),
+    loadMetrics: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.loadPostRulesMetrics(integration, accessToken, externalPostId),
+    removePost: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.removePostViaRules(integration, accessToken, externalPostId),
+    repost: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.repostViaRules(integration, accessToken, externalPostId),
+    addPlugReply: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string,
+      content: string
+    ) =>
+      this.addPlugReplyViaRules(
+        integration,
+        accessToken,
+        externalPostId,
+        content
+      ),
   };
   name = 'Threads';
   isBetweenSteps = false;
@@ -804,6 +839,139 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     );
   }
 
+  private getPostRulesMetadata(): PostRulesCapabilityMetadata {
+    return {
+      actions: {
+        remove: true,
+        autoPlug: true,
+      },
+      metrics: {
+        likes: true,
+        replies: true,
+      },
+    };
+  }
+
+  private async loadPostRulesMetrics(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesLoadMetricsResult> {
+    try {
+      const { data } = await (
+        await fetch(
+          `https://graph.threads.net/v1.0/${externalPostId}/insights?metric=likes,replies&access_token=${accessToken}`
+        )
+      ).json();
+
+      const likesMetric = data.find((p: any) => p.name === 'likes');
+      const repliesMetric = data.find((p: any) => p.name === 'replies');
+
+      const likesValue = likesMetric?.values?.[0]?.value;
+      const repliesValue = repliesMetric?.values?.[0]?.value;
+
+      return {
+        status: 'success',
+        metrics: {
+          likes: likesValue,
+          ...(typeof repliesValue === 'number' ? { replies: repliesValue } : {}),
+        },
+      };
+    } catch (err: any) {
+      if (err?.status === 404) {
+        return { status: 'not_found' };
+      }
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async removePostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRemovePostResult> {
+    try {
+      await this.fetch(
+        `https://graph.threads.net/v1.0/${externalPostId}?access_token=${accessToken}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      return { status: 'removed' };
+    } catch (err: any) {
+      if (err?.status === 404) {
+        return { status: 'already_absent' };
+      }
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async repostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRepostResult> {
+    return { status: 'unsupported' };
+  }
+
+  private async addPlugReplyViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string,
+    content: string
+  ): Promise<PostRulesAddPlugReplyResult> {
+    try {
+      await timer(2000);
+
+      const form = new FormData();
+      form.append('media_type', 'TEXT');
+      form.append('text', stripHtmlValidation('normal', content, true));
+      form.append('reply_to_id', externalPostId);
+      form.append('access_token', accessToken);
+
+      const { id: replyId } = await (
+        await this.fetch('https://graph.threads.net/v1.0/me/threads', {
+          method: 'POST',
+          body: form,
+        })
+      ).json();
+
+      await (
+        await this.fetch(
+          `https://graph.threads.net/v1.0/${integration.internalId}/threads_publish?creation_id=${replyId}&access_token=${accessToken}`,
+          {
+            method: 'POST',
+          }
+        )
+      ).json();
+
+      return {
+        status: 'added',
+        remoteReleaseId: replyId,
+      };
+    } catch (err: any) {
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
   @Plug({
     identifier: 'threads-autoPlugPost',
     title: 'Auto plug post',
@@ -833,41 +1001,23 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     id: string,
     fields: { likesAmount: string; post: string }
   ) {
-    const { data } = await (
-      await fetch(
-        `https://graph.threads.net/v1.0/${id}/insights?metric=likes&access_token=${integration.token}`
-      )
-    ).json();
+    const metricsResult = await this.loadPostRulesMetrics(
+      integration,
+      integration.token,
+      id
+    );
 
-    const {
-      values: [value],
-    } = data.find((p: any) => p.name === 'likes');
-
-    if (value.value >= fields.likesAmount) {
-      await timer(2000);
-
-      const form = new FormData();
-      form.append('media_type', 'TEXT');
-      form.append('text', stripHtmlValidation('normal', fields.post, true));
-      form.append('reply_to_id', id);
-      form.append('access_token', integration.token);
-
-      const { id: replyId } = await (
-        await this.fetch('https://graph.threads.net/v1.0/me/threads', {
-          method: 'POST',
-          body: form,
-        })
-      ).json();
-
-      await (
-        await this.fetch(
-          `https://graph.threads.net/v1.0/${integration.internalId}/threads_publish?creation_id=${replyId}&access_token=${integration.token}`,
-          {
-            method: 'POST',
-          }
-        )
-      ).json();
-      return true;
+    if (
+      metricsResult.status === 'success' &&
+      metricsResult.metrics.likes! >= +fields.likesAmount
+    ) {
+      const result = await this.addPlugReplyViaRules(
+        integration,
+        integration.token,
+        id,
+        fields.post
+      );
+      return result.status === 'added';
     }
 
     return false;

@@ -2,17 +2,20 @@ import {
   PrismaRepository,
   PrismaTransaction,
 } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Provider, Role } from '@prisma/client';
 import { AuthService } from '@gitroom/helpers/auth/auth.service';
 import { UserDetailDto } from '@gitroom/nestjs-libraries/dtos/users/user.details.dto';
 import { EmailNotificationsDto } from '@gitroom/nestjs-libraries/dtos/users/email-notifications.dto';
+import { DashboardAnalyticsPreferenceItemDto } from '@gitroom/nestjs-libraries/dtos/users/dashboard-analytics-preferences.dto';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 
 @Injectable()
 export class UsersRepository {
   constructor(
     private _user: PrismaRepository<'user'>,
+    private _dashboardAnalyticsPreference: PrismaRepository<'dashboardAnalyticsPreference'>,
+    private _integration: PrismaRepository<'integration'>,
     private _transaction: PrismaTransaction
   ) { }
 
@@ -287,5 +290,95 @@ export class UsersRepository {
         sendStreakEmails: body.sendStreakEmails,
       },
     });
+  }
+
+  getDashboardAnalyticsPreferences(
+    userId: string,
+    organizationId: string,
+    integrationId?: string
+  ) {
+    return this._dashboardAnalyticsPreference.model.dashboardAnalyticsPreference.findMany(
+      {
+        where: {
+          userId,
+          organizationId,
+          ...(integrationId ? { integrationId } : {}),
+        },
+        select: {
+          integrationId: true,
+          metricKey: true,
+          position: true,
+          hidden: true,
+        },
+        orderBy: [{ integrationId: 'asc' }, { position: 'asc' }],
+      }
+    );
+  }
+
+  async saveDashboardAnalyticsPreferences(
+    userId: string,
+    organizationId: string,
+    preferences: DashboardAnalyticsPreferenceItemDto[]
+  ) {
+    const integrationIds = [
+      ...new Set(preferences.map((preference) => preference.integrationId)),
+    ];
+    if (!integrationIds.length) {
+      return [];
+    }
+
+    const ownedIntegrations = await this._integration.model.integration.findMany(
+      {
+        where: {
+          organizationId,
+          deletedAt: null,
+          id: { in: integrationIds },
+        },
+        select: { id: true },
+      }
+    );
+    if (ownedIntegrations.length !== integrationIds.length) {
+      throw new BadRequestException('Invalid integration');
+    }
+
+    const seen = new Set<string>();
+    for (const preference of preferences) {
+      const key = `${preference.integrationId}:${preference.metricKey}`;
+      if (seen.has(key)) {
+        throw new BadRequestException('Duplicate metric preference');
+      }
+      seen.add(key);
+    }
+
+    await this._transaction.model.$transaction(async (tx) => {
+      await tx.dashboardAnalyticsPreference.deleteMany({
+        where: {
+          userId,
+          organizationId,
+          integrationId: { in: integrationIds },
+        },
+      });
+
+      if (!preferences.length) {
+        return;
+      }
+
+      await tx.dashboardAnalyticsPreference.createMany({
+        data: preferences.map((preference) => ({
+          userId,
+          organizationId,
+          integrationId: preference.integrationId,
+          metricKey: preference.metricKey,
+          position: preference.position,
+          hidden: preference.hidden,
+        })),
+      });
+    });
+
+    return this.getDashboardAnalyticsPreferences(
+      userId,
+      organizationId,
+      integrationIds.length === 1 ? integrationIds[0] : undefined
+    );
   }
 }

@@ -7,6 +7,11 @@ import {
   PostDetails,
   PostResponse,
   SocialProvider,
+  PostRulesCapabilityMetadata,
+  PostRulesLoadMetricsResult,
+  PostRulesRemovePostResult,
+  PostRulesRepostResult,
+  PostRulesAddPlugReplyResult,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { LinkedinProvider } from '@gitroom/nestjs-libraries/integrations/social/linkedin.provider';
@@ -30,6 +35,36 @@ export class LinkedinPageProvider
   analyticsSnapshot = {
     capture: (request: ChannelAnalyticsCaptureRequest) =>
       this.captureAnalyticsSnapshot(request),
+  };
+  postRules = {
+    metadata: () => this.getPostRulesMetadata(),
+    loadMetrics: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.loadPostRulesMetrics(integration, accessToken, externalPostId),
+    removePost: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.removePostViaRules(integration, accessToken, externalPostId),
+    repost: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.repostViaRules(integration, accessToken, externalPostId),
+    addPlugReply: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string,
+      content: string
+    ) =>
+      this.addPlugReplyViaRules(
+        integration,
+        accessToken,
+        externalPostId,
+        content
+      ),
   };
   override name = 'LinkedIn Page';
   override isBetweenSteps = true;
@@ -684,6 +719,185 @@ export class LinkedinPageProvider
     return result as any;
   }
 
+  private getPostRulesMetadata(): PostRulesCapabilityMetadata {
+    return {
+      actions: {
+        remove: true,
+        autoRepost: true,
+        autoPlug: true,
+      },
+      metrics: {
+        likes: true,
+        replies: true,
+      },
+    };
+  }
+
+  private async loadPostRulesMetrics(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesLoadMetricsResult> {
+    try {
+      const {
+        likesSummary: { totalLikes },
+        commentsSummary,
+      } = await (
+        await this.fetch(
+          `https://api.linkedin.com/v2/socialActions/${encodeURIComponent(externalPostId)}`,
+          {
+            method: 'GET',
+            headers: {
+              'X-Restli-Protocol-Version': '2.0.0',
+              'Content-Type': 'application/json',
+              'LinkedIn-Version': '202601',
+              Authorization: `Bearer ${accessToken}`,
+            },
+          }
+        )
+      ).json();
+
+      return {
+        status: 'success',
+        metrics: {
+          likes: totalLikes,
+          ...(typeof commentsSummary?.totalFirstLevelComments === 'number'
+            ? { replies: commentsSummary.totalFirstLevelComments }
+            : {}),
+        },
+      };
+    } catch (err: any) {
+      if (err?.status === 404) {
+        return { status: 'not_found' };
+      }
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async removePostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRemovePostResult> {
+    try {
+      await this.fetch(`https://api.linkedin.com/rest/posts/${externalPostId}`, {
+        method: 'DELETE',
+        headers: {
+          'X-Restli-Protocol-Version': '2.0.0',
+          'Content-Type': 'application/json',
+          'LinkedIn-Version': '202601',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      return { status: 'removed' };
+    } catch (err: any) {
+      if (err?.status === 404) {
+        return { status: 'already_absent' };
+      }
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async repostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRepostResult> {
+    try {
+      await timer(2000);
+      await this.fetch(`https://api.linkedin.com/rest/posts`, {
+        body: JSON.stringify({
+          author: `urn:li:organization:${integration.internalId}`,
+          commentary: '',
+          visibility: 'PUBLIC',
+          distribution: {
+            feedDistribution: 'MAIN_FEED',
+            targetEntities: [],
+            thirdPartyDistributionChannels: [],
+          },
+          lifecycleState: 'PUBLISHED',
+          isReshareDisabledByAuthor: false,
+          reshareContext: {
+            parent: externalPostId,
+          },
+        }),
+        method: 'POST',
+        headers: {
+          'X-Restli-Protocol-Version': '2.0.0',
+          'Content-Type': 'application/json',
+          'LinkedIn-Version': '202601',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      return {
+        status: 'reposted',
+        remoteReleaseId: externalPostId,
+      };
+    } catch (err: any) {
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async addPlugReplyViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string,
+    content: string
+  ): Promise<PostRulesAddPlugReplyResult> {
+    try {
+      await timer(2000);
+      await this.fetch(
+        `https://api.linkedin.com/v2/socialActions/${decodeURIComponent(
+          externalPostId
+        )}/comments`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            actor: `urn:li:organization:${integration.internalId}`,
+            object: externalPostId,
+            message: {
+              text: this.fixText(content),
+            },
+          }),
+        }
+      );
+      return {
+        status: 'added',
+        remoteReleaseId: externalPostId,
+      };
+    } catch (err: any) {
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
   @Plug({
     identifier: 'linkedin-page-autoRepostPost',
     title: 'Auto Repost Posts',
@@ -706,50 +920,22 @@ export class LinkedinPageProvider
     id: string,
     fields: { likesAmount: string }
   ) {
-    const {
-      likesSummary: { totalLikes },
-    } = await (
-      await this.fetch(
-        `https://api.linkedin.com/v2/socialActions/${encodeURIComponent(id)}`,
-        {
-          method: 'GET',
-          headers: {
-            'X-Restli-Protocol-Version': '2.0.0',
-            'Content-Type': 'application/json',
-            'LinkedIn-Version': '202601',
-            Authorization: `Bearer ${integration.token}`,
-          },
-        }
-      )
-    ).json();
+    const metricsResult = await this.loadPostRulesMetrics(
+      integration,
+      integration.token,
+      id
+    );
 
-    if (totalLikes >= +fields.likesAmount) {
-      await timer(2000);
-      await this.fetch(`https://api.linkedin.com/rest/posts`, {
-        body: JSON.stringify({
-          author: `urn:li:organization:${integration.internalId}`,
-          commentary: '',
-          visibility: 'PUBLIC',
-          distribution: {
-            feedDistribution: 'MAIN_FEED',
-            targetEntities: [],
-            thirdPartyDistributionChannels: [],
-          },
-          lifecycleState: 'PUBLISHED',
-          isReshareDisabledByAuthor: false,
-          reshareContext: {
-            parent: id,
-          },
-        }),
-        method: 'POST',
-        headers: {
-          'X-Restli-Protocol-Version': '2.0.0',
-          'Content-Type': 'application/json',
-          'LinkedIn-Version': '202601',
-          Authorization: `Bearer ${integration.token}`,
-        },
-      });
-      return true;
+    if (
+      metricsResult.status === 'success' &&
+      metricsResult.metrics.likes! >= +fields.likesAmount
+    ) {
+      const result = await this.repostViaRules(
+        integration,
+        integration.token,
+        id
+      );
+      return result.status === 'reposted';
     }
 
     return false;
@@ -784,45 +970,23 @@ export class LinkedinPageProvider
     id: string,
     fields: { likesAmount: string; post: string }
   ) {
-    const {
-      likesSummary: { totalLikes },
-    } = await (
-      await this.fetch(
-        `https://api.linkedin.com/v2/socialActions/${encodeURIComponent(id)}`,
-        {
-          method: 'GET',
-          headers: {
-            'X-Restli-Protocol-Version': '2.0.0',
-            'Content-Type': 'application/json',
-            'LinkedIn-Version': '202601',
-            Authorization: `Bearer ${integration.token}`,
-          },
-        }
-      )
-    ).json();
+    const metricsResult = await this.loadPostRulesMetrics(
+      integration,
+      integration.token,
+      id
+    );
 
-    if (totalLikes >= fields.likesAmount) {
-      await timer(2000);
-      await this.fetch(
-        `https://api.linkedin.com/v2/socialActions/${decodeURIComponent(
-          id
-        )}/comments`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${integration.token}`,
-          },
-          body: JSON.stringify({
-            actor: `urn:li:organization:${integration.internalId}`,
-            object: id,
-            message: {
-              text: this.fixText(fields.post),
-            },
-          }),
-        }
+    if (
+      metricsResult.status === 'success' &&
+      metricsResult.metrics.likes! >= +fields.likesAmount
+    ) {
+      const result = await this.addPlugReplyViaRules(
+        integration,
+        integration.token,
+        id,
+        fields.post
       );
-      return true;
+      return result.status === 'added';
     }
 
     return false;

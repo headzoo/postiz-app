@@ -69,6 +69,10 @@ import { ChannelAnalyticsRepository } from '@gitroom/nestjs-libraries/database/p
 import { ChannelAnalyticsService } from '@gitroom/nestjs-libraries/database/prisma/channel-analytics/channel-analytics.service';
 import { AdminPasskeyRepository } from '@gitroom/nestjs-libraries/database/prisma/admin-passkeys/admin-passkey.repository';
 import { AdminPasskeyService } from '@gitroom/nestjs-libraries/database/prisma/admin-passkeys/admin-passkey.service';
+import { PostRulesRepository } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.repository';
+import { PostRulesService } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.service';
+import { PostRulesExecutionRepository } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.execution.repository';
+import { PostRulesExecutionService } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.execution.service';
 
 @Global()
 @Module({
@@ -143,6 +147,10 @@ import { AdminPasskeyService } from '@gitroom/nestjs-libraries/database/prisma/a
     ChannelAnalyticsService,
     LogsRepository,
     LogsService,
+    PostRulesRepository,
+    PostRulesService,
+    PostRulesExecutionRepository,
+    PostRulesExecutionService,
   ],
   get exports() {
     return this.providers;

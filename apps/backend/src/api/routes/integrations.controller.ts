@@ -22,7 +22,6 @@ import { ApiTags } from '@nestjs/swagger';
 import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
 import { PostsService } from '@gitroom/nestjs-libraries/database/prisma/posts/posts.service';
 import { IntegrationTimeDto } from '@gitroom/nestjs-libraries/dtos/integrations/integration.time.dto';
-import { PlugDto } from '@gitroom/nestjs-libraries/dtos/plugs/plug.dto';
 import { UpdateIntegrationContextDocumentsDto } from '@gitroom/nestjs-libraries/dtos/integrations/integration-context-document.dto';
 import { RefreshToken } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 
@@ -573,37 +572,6 @@ export class IntegrationsController {
     }
 
     return this._integrationService.deleteChannel(org.id, id);
-  }
-
-  @Get('/plug/list')
-  async getPlugList() {
-    return { plugs: this._integrationManager.getAllPlugs() };
-  }
-
-  @Get('/:id/plugs')
-  async getPlugsByIntegrationId(
-    @Param('id') id: string,
-    @GetOrgFromRequest() org: Organization
-  ) {
-    return this._integrationService.getPlugsByIntegrationId(org.id, id);
-  }
-
-  @Post('/:id/plugs')
-  async postPlugsByIntegrationId(
-    @Param('id') id: string,
-    @GetOrgFromRequest() org: Organization,
-    @Body() body: PlugDto
-  ) {
-    return this._integrationService.createOrUpdatePlug(org.id, id, body);
-  }
-
-  @Put('/plugs/:id/activate')
-  async changePlugActivation(
-    @Param('id') id: string,
-    @GetOrgFromRequest() org: Organization,
-    @Body('status') status: boolean
-  ) {
-    return this._integrationService.changePlugActivation(org.id, id, status);
   }
 
   @Get('/telegram/updates')

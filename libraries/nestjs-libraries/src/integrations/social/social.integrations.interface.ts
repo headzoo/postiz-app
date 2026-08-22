@@ -164,6 +164,78 @@ export interface ChannelAnalyticsSnapshotCapability {
   ): Promise<ChannelAnalyticsCapturePage>;
 }
 
+export type PostRulesCapabilityMetrics = {
+  likes?: boolean;
+  replies?: boolean;
+};
+
+export type PostRulesCapabilityAction = {
+  remove?: boolean;
+  autoRepost?: boolean;
+  autoPlug?: boolean;
+};
+
+export type PostRulesCapabilityMetadata = {
+  actions: PostRulesCapabilityAction;
+  metrics: PostRulesCapabilityMetrics;
+};
+
+export type PostRulesLoadMetricsResult =
+  | { status: 'success'; metrics: { likes?: number; replies?: number } }
+  | { status: 'not_found' }
+  | { status: 'auth_error' }
+  | { status: 'unsupported' }
+  | { status: 'retryable_failure'; reason?: string };
+
+export type PostRulesRemovePostResult =
+  | { status: 'removed' }
+  | { status: 'already_absent' }
+  | { status: 'auth_error' }
+  | { status: 'unsupported' }
+  | { status: 'retryable_failure'; reason?: string };
+
+export type PostRulesRepostResult =
+  | { status: 'reposted'; remoteReleaseId: string }
+  | { status: 'already_reposted' }
+  | { status: 'auth_error' }
+  | { status: 'unsupported' }
+  | { status: 'retryable_failure'; reason?: string };
+
+export type PostRulesAddPlugReplyResult =
+  | { status: 'added'; remoteReleaseId: string }
+  | { status: 'auth_error' }
+  | { status: 'unsupported' }
+  | { status: 'retryable_failure'; reason?: string };
+
+export interface PostRulesCapability {
+  metadata(): PostRulesCapabilityMetadata;
+
+  loadMetrics(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesLoadMetricsResult>;
+
+  removePost(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRemovePostResult>;
+
+  repost(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRepostResult>;
+
+  addPlugReply(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string,
+    content: string
+  ): Promise<PostRulesAddPlugReplyResult>;
+}
+
 export type GenerateAuthUrlResponse = {
   url: string;
   codeVerifier: string;
@@ -763,4 +835,5 @@ export interface SocialProvider
   ): boolean;
   channelInteractionWebhooks?: ChannelInteractionWebhooksCapability;
   analyticsSnapshot?: ChannelAnalyticsSnapshotCapability;
+  postRules?: PostRulesCapability;
 }

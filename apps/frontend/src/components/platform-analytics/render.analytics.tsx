@@ -12,6 +12,8 @@ import { useRequestAnalyticsCapture } from '@gitroom/frontend/components/platfor
 import { Button } from '@gitroom/react/form/button';
 import { useToaster } from '@gitroom/react/toaster/toaster';
 import { useRouter } from 'next/navigation';
+import { CloseIconSmall } from '@gitroom/frontend/components/ui/icons';
+import clsx from 'clsx';
 
 export type AnalyticsDisplayUnit =
   | 'count'
@@ -183,35 +185,48 @@ export const AnalyticsCard: FC<{
   index: number;
   integrationId?: string;
   onBarClick?: (params: MetricDayBarClick) => void;
-}> = ({ item, total, index, integrationId, onBarClick }) => {
-  const colorVariants = ['purple', 'green', 'blue'] as const;
-  const color = colorVariants[index % colorVariants.length];
-  const valueMode = resolveValueMode(item);
-  const displayUnit = resolveDisplayUnit(item);
-  const chartData = sortAnalyticsPoints(item.data);
-  const hasDataPoints = chartData.length >= 1;
-  const drilldownEligible = isMetricDrilldownEligible(item);
-  const handlePointClick = useCallback(
-    (point: { date: string }) => {
-      if (!drilldownEligible || !integrationId || !item.drilldownSlug) {
-        return;
-      }
-      if (!isExactIsoDate(point.date)) {
-        return;
-      }
-      onBarClick?.({
-        integrationId,
-        drilldownSlug: item.drilldownSlug,
-        date: point.date,
-      });
-    },
-    [drilldownEligible, integrationId, item.drilldownSlug, onBarClick]
-  );
+  onRemove?: () => void;
+  isDragging?: boolean;
+  dragHandleRef?: (node: HTMLDivElement | null) => void;
+}> = ({
+  item,
+  total,
+  index,
+  integrationId,
+  onBarClick,
+  onRemove,
+  isDragging,
+  dragHandleRef,
+}) => {
+    const t = useT();
+    const colorVariants = ['purple', 'green', 'blue'] as const;
+    const color = colorVariants[index % colorVariants.length];
+    const valueMode = resolveValueMode(item);
+    const displayUnit = resolveDisplayUnit(item);
+    const chartData = sortAnalyticsPoints(item.data);
+    const hasDataPoints = chartData.length >= 1;
+    const drilldownEligible = isMetricDrilldownEligible(item);
+    const handlePointClick = useCallback(
+      (point: { date: string }) => {
+        if (!drilldownEligible || !integrationId || !item.drilldownSlug) {
+          return;
+        }
+        if (!isExactIsoDate(point.date)) {
+          return;
+        }
+        onBarClick?.({
+          integrationId,
+          drilldownSlug: item.drilldownSlug,
+          date: point.date,
+        });
+      },
+      [drilldownEligible, integrationId, item.drilldownSlug, onBarClick]
+    );
 
-  return (
-    <div className="group relative">
-      <div
-        className={`
+    return (
+      <div className={clsx('group relative', isDragging && 'opacity-40')}>
+        <div
+          className={`
           flex flex-col h-full
           bg-newTableHeader
           border border-newTableBorder
@@ -220,62 +235,88 @@ export const AnalyticsCard: FC<{
           transition-all duration-200
           hover:border-[#eb3825]/50
         `}
-      >
-        <div className="flex items-center justify-between px-[16px] pt-[14px] pb-[8px]">
-          <div className="flex items-center gap-[10px]">
+        >
+          <div className="flex items-center justify-between px-[16px] pt-[14px] pb-[8px] gap-[8px]">
             <div
-              className={`
-                w-[8px] h-[8px] rounded-full
+              ref={dragHandleRef}
+              className={clsx(
+                'flex min-w-0 items-center gap-[10px]',
+                dragHandleRef && 'cursor-grab active:cursor-grabbing'
+              )}
+              aria-label={
+                dragHandleRef
+                  ? t('drag_to_reorder_stat', 'Drag to reorder stat')
+                  : undefined
+              }
+            >
+              <div
+                className={`
+                w-[8px] h-[8px] rounded-full shrink-0
                 ${color === 'purple' ? 'bg-[#eb3825]' : ''}
                 ${color === 'green' ? 'bg-[#32d583]' : ''}
                 ${color === 'blue' ? 'bg-[#1d9bf0]' : ''}
               `}
-            />
-            <span className="text-[15px] font-medium text-newTableText">
-              {item.label}
-            </span>
-          </div>
-          {item.percentageChange !== undefined && (
-            <TrendIndicator
-              value={item.percentageChange}
-              valueMode={valueMode}
-              displayUnit={displayUnit}
-            />
-          )}
-        </div>
-
-        {hasDataPoints ? (
-          <>
-            <div className="flex-1 px-[12px] py-[8px]">
-              <div className="h-[120px] relative">
-                <ChartSocial
-                  data={chartData}
-                  color={color}
-                  valueMode={valueMode}
-                  clickable={drilldownEligible && !!integrationId && !!onBarClick}
-                  onPointClick={handlePointClick}
-                  key={`chart-${index}`}
-                />
-              </div>
+              />
+              <span className="text-[15px] font-medium text-newTableText truncate">
+                {item.label}
+              </span>
             </div>
+            <div className="flex items-center gap-[8px] shrink-0">
+              {item.percentageChange !== undefined && (
+                <TrendIndicator
+                  value={item.percentageChange}
+                  valueMode={valueMode}
+                  displayUnit={displayUnit}
+                />
+              )}
+              {onRemove && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRemove();
+                  }}
+                  className="inline-flex h-[24px] w-[24px] items-center justify-center rounded-[6px] text-newTableText hover:bg-newBgColorInner hover:text-newTextColor"
+                  aria-label={t('remove_stat', 'Remove stat')}
+                >
+                  <CloseIconSmall size={10} />
+                </button>
+              )}
+            </div>
+          </div>
 
-            <div className="px-[16px] pb-[14px]">
-              <div className="text-[36px] leading-[42px] font-semibold tracking-tight">
+          {hasDataPoints ? (
+            <>
+              <div className="flex-1 px-[12px] py-[8px]">
+                <div className="h-[120px] relative">
+                  <ChartSocial
+                    data={chartData}
+                    color={color}
+                    valueMode={valueMode}
+                    clickable={drilldownEligible && !!integrationId && !!onBarClick}
+                    onPointClick={handlePointClick}
+                    key={`chart-${index}`}
+                  />
+                </div>
+              </div>
+
+              <div className="px-[16px] pb-[14px]">
+                <div className="text-[36px] leading-[42px] font-semibold tracking-tight">
+                  {total}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center py-[32px] px-[16px]">
+              <div className="text-[48px] leading-[56px] font-semibold tracking-tight">
                 {total}
               </div>
             </div>
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center py-[32px] px-[16px]">
-            <div className="text-[48px] leading-[56px] font-semibold tracking-tight">
-              {total}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
-  );
-};
+    );
+  };
 
 const ANALYTICS_POLL_INTERVAL_MS = 15_000;
 const ANALYTICS_POLL_DURATION_MS = 5 * 60 * 1000;

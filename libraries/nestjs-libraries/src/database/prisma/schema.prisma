@@ -67,6 +67,12 @@ model Organization {
   channelAnalyticsSyncStates          ChannelAnalyticsSyncState[]
   postHttpLogs                        PostHttpLog[]
   webhookHttpLogs                     WebhookHttpLog[]
+  dashboardAnalyticsPreferences       DashboardAnalyticsPreference[]
+  postRules                           PostRule[]
+  postRuleIntegrations                PostRuleIntegration[]
+  postRulePipelines                   PostRulePipeline[]
+  postRuleRuns                        PostRuleRun[]
+  postRuleEvaluations                 PostRuleEvaluation[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -146,6 +152,7 @@ model User {
   adminPasskeyCredentials            AdminPasskeyCredential[]
   adminWebAuthnChallenges            AdminWebAuthnChallenge[]
   adminVerificationSessions          AdminVerificationSession[]
+  dashboardAnalyticsPreferences      DashboardAnalyticsPreference[]
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -460,6 +467,8 @@ model Integration {
   postHttpLogs                        PostHttpLog[]
   webhookHttpLogs                     WebhookHttpLog[]
   contextDocuments                    IntegrationContextDocument[]
+  dashboardAnalyticsPreferences       DashboardAnalyticsPreference[]
+  postRuleIntegrations                PostRuleIntegration[]
 
   @@unique([organizationId, internalId])
   @@index([rootInternalId])
@@ -488,6 +497,26 @@ model IntegrationNoticeRead {
   @@index([userId])
   @@index([integrationId])
   @@index([lastReadAt])
+}
+
+model DashboardAnalyticsPreference {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  integrationId  String
+  metricKey      String
+  position       Int
+  hidden         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  integration    Integration  @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId, integrationId, metricKey])
+  @@index([userId, organizationId])
+  @@index([organizationId, integrationId])
+  @@index([integrationId])
 }
 
 model Signatures {
@@ -568,6 +597,7 @@ model Post {
   pipelineQueueItemId        String?
   pipelineQueueItem          PipelineQueueItem?        @relation(fields: [pipelineQueueItemId], references: [id])
   httpLogs                   PostHttpLog[]
+  postRuleRuns               PostRuleRun[]
 
   @@index([group])
   @@index([deletedAt])
@@ -732,6 +762,156 @@ model ExisingPlugData {
   @@unique([integrationId, methodName, value])
 }
 
+enum PostRuleAction {
+  REMOVE
+  AUTO_REPOST
+  AUTO_PLUG
+}
+
+enum PostRuleConditionMatch {
+  ANY
+  ALL
+}
+
+enum PostRuleConditionMetric {
+  LIKES
+  REPLIES
+}
+
+enum PostRuleConditionOperator {
+  LT
+  LTE
+  GT
+  GTE
+}
+
+enum PostRuleRescheduleMode {
+  MANUAL
+  PIPELINE
+}
+
+enum PostRuleRunStatus {
+  ACTIVE
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PostRuleEvaluationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+model PostRule {
+  id                      String                 @id @default(cuid())
+  organizationId          String
+  name                    String
+  enabled                 Boolean                @default(true)
+  action                  PostRuleAction
+  initialDelayHours       Int
+  evaluationIntervalHours Int?
+  maxEvaluations          Int?
+  conditionMatch          PostRuleConditionMatch @default(ANY)
+  conditions              Json                   @default("[]")
+  actionConfig            Json                   @default("{}")
+  rescheduleConfig        Json?
+  maxRescheduleAttempts   Int?
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  organization            Organization           @relation(fields: [organizationId], references: [id])
+  integrations            PostRuleIntegration[]
+  pipelines               PostRulePipeline[]
+  runs                    PostRuleRun[]
+
+  @@index([organizationId, enabled])
+  @@index([organizationId, action])
+  @@index([organizationId])
+}
+
+model PostRuleIntegration {
+  id             String       @id @default(cuid())
+  organizationId String
+  ruleId         String
+  integrationId  String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  rule           PostRule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  integration    Integration  @relation(fields: [integrationId], references: [id])
+
+  @@unique([ruleId, integrationId])
+  @@index([organizationId, integrationId])
+  @@index([integrationId])
+  @@index([ruleId])
+}
+
+model PostRulePipeline {
+  id             String       @id @default(cuid())
+  organizationId String
+  ruleId         String
+  pipelineId     String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  rule           PostRule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  pipeline       Pipeline     @relation(fields: [pipelineId], references: [id])
+
+  @@unique([ruleId, pipelineId])
+  @@index([organizationId, pipelineId])
+  @@index([pipelineId])
+  @@index([ruleId])
+}
+
+model PostRuleRun {
+  id                String               @id @default(cuid())
+  organizationId    String
+  ruleId            String?
+  postId            String
+  lineageId         String
+  rescheduleAttempt Int                  @default(0)
+  status            PostRuleRunStatus    @default(ACTIVE)
+  completedAt       DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  organization      Organization         @relation(fields: [organizationId], references: [id])
+  rule              PostRule?            @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  post              Post                 @relation(fields: [postId], references: [id])
+  evaluations       PostRuleEvaluation[]
+
+  @@unique([ruleId, postId])
+  @@index([organizationId])
+  @@index([postId])
+  @@index([lineageId])
+  @@index([status])
+}
+
+model PostRuleEvaluation {
+  id              String                   @id @default(cuid())
+  organizationId  String
+  runId           String
+  evaluationIndex Int
+  scheduledAt     DateTime
+  status          PostRuleEvaluationStatus @default(PENDING)
+  claimedAt       DateTime?
+  completedAt     DateTime?
+  metrics         Json?
+  actionResult    Json?
+  errorSummary    String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  organization    Organization             @relation(fields: [organizationId], references: [id])
+  run             PostRuleRun              @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, evaluationIndex])
+  @@index([runId, status])
+  @@index([scheduledAt])
+  @@index([organizationId])
+}
+
 model PopularPosts {
   id        String   @id @default(uuid())
   category  String
@@ -796,24 +976,25 @@ model AutoPost {
 }
 
 model Pipeline {
-  id               String                    @id @default(uuid())
-  organizationId   String
-  name             String
-  timezone         String
-  color            String                    @default("#612BD3")
-  active           Boolean                   @default(true)
-  scheduleRevision Int                       @default(1)
-  deletedAt        DateTime?
-  createdAt        DateTime                  @default(now())
-  updatedAt        DateTime                  @updatedAt
-  organization     Organization              @relation(fields: [organizationId], references: [id])
-  integrations     PipelineIntegration[]
-  scheduleSlots    PipelineScheduleSlot[]
-  queueItems       PipelineQueueItem[]
-  slotExecutions   PipelineSlotExecution[]
-  contextDocuments PipelineContextDocument[]
-  plugs            PipelinePlug[]
-  autoposts        AutoPost[]
+  id                String                    @id @default(uuid())
+  organizationId    String
+  name              String
+  timezone          String
+  color             String                    @default("#612BD3")
+  active            Boolean                   @default(true)
+  scheduleRevision  Int                       @default(1)
+  deletedAt         DateTime?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  organization      Organization              @relation(fields: [organizationId], references: [id])
+  integrations      PipelineIntegration[]
+  scheduleSlots     PipelineScheduleSlot[]
+  queueItems        PipelineQueueItem[]
+  slotExecutions    PipelineSlotExecution[]
+  contextDocuments  PipelineContextDocument[]
+  plugs             PipelinePlug[]
+  autoposts         AutoPost[]
+  postRulePipelines PostRulePipeline[]
 
   @@index([organizationId, deletedAt])
   @@index([organizationId, active])

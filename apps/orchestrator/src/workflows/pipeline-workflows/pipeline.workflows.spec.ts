@@ -21,6 +21,8 @@ const processPlugV107 = jest.fn();
 const checkPostStatus = jest.fn();
 const postSocialPending = jest.fn();
 const finalizePost = jest.fn();
+const resolvePostRulesV109 = jest.fn();
+const processPostRuleV109 = jest.fn();
 
 jest.mock('@temporalio/workflow', () => ({
   proxyActivities: () => ({
@@ -44,6 +46,8 @@ jest.mock('@temporalio/workflow', () => ({
     checkPostStatus,
     postSocialPending,
     finalizePost,
+    resolvePostRulesV109,
+    processPostRuleV109,
   }),
   startChild,
   sleep,
@@ -64,6 +68,7 @@ import { pipelineSchedulerWorkflowV1 } from './pipeline.scheduler.workflow.v1';
 import { pipelineSlotWorkflowV2 } from './pipeline.slot.workflow.v2';
 import { pipelineSchedulerWorkflowV2 } from './pipeline.scheduler.workflow.v2';
 import { postWorkflowV108 } from '../post-workflows/post.workflow.v1.0.8';
+import { postWorkflowV109 } from '../post-workflows/post.workflow.v1.0.9';
 import { InfiniteWorkflowRegister } from '@gitroom/nestjs-libraries/temporal/infinite.workflow.register';
 
 describe('Pipeline Temporal workflow boundaries', () => {
@@ -232,7 +237,7 @@ describe('Pipeline Temporal workflow boundaries', () => {
     expect(sleep).toHaveBeenCalledWith(30 * 1000);
   });
 
-  it('dispatches V2 slots through postWorkflowV108', async () => {
+  it('dispatches V2 slots through postWorkflowV109', async () => {
     claimPipelineSlot.mockResolvedValue({
       outcome: 'CLAIMED',
       executionId: 'execution-v2',
@@ -248,7 +253,7 @@ describe('Pipeline Temporal workflow boundaries', () => {
     });
 
     expect(startChild).toHaveBeenCalledWith(
-      postWorkflowV108,
+      postWorkflowV109,
       expect.objectContaining({
         workflowId: 'post_root-v2',
         args: [{ taskQueue: 'x', postId: 'root-v2', organizationId: 'org' }],
@@ -493,5 +498,572 @@ describe('Pipeline Temporal workflow boundaries', () => {
         process.env.RUN_CRON = previousRunCron;
       }
     }
+  });
+
+  it('resolves Rules work items and merges them with internal Plugs by delay in V109', async () => {
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: new Date(0),
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([
+      { type: 'internal-plug', delay: 20, integration: 'internal-int' },
+    ]);
+    resolvePostRulesV109.mockResolvedValue([
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 0,
+        delay: 10,
+      },
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 1,
+        delay: 30,
+      },
+    ]);
+    processPostRuleV109.mockResolvedValue({
+      status: 'COMPLETED',
+      terminalRun: false,
+    });
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    expect(resolvePostRulesV109).toHaveBeenCalledWith('org', 'post', 'integration');
+    expect(processPostRuleV109).toHaveBeenCalledTimes(2);
+    expect(processPostRuleV109).toHaveBeenNthCalledWith(1, {
+      organizationId: 'org',
+      runId: 'run-1',
+      ruleId: 'rule-1',
+      postId: 'post',
+      evaluationIndex: 0,
+    });
+    expect(processInternalPlug).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes remaining Rule evaluations when terminalRun is true in V109', async () => {
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: new Date(0),
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 0,
+        delay: 10,
+      },
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 1,
+        delay: 20,
+      },
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 2,
+        delay: 30,
+      },
+    ]);
+    processPostRuleV109.mockResolvedValue({
+      status: 'COMPLETED',
+      terminalRun: true,
+    });
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    expect(processPostRuleV109).toHaveBeenCalledTimes(1);
+    expect(processPostRuleV109).toHaveBeenNthCalledWith(1, {
+      organizationId: 'org',
+      runId: 'run-1',
+      ruleId: 'rule-1',
+      postId: 'post',
+      evaluationIndex: 0,
+    });
+  });
+
+  it('retries PROCESSING Rule evaluations without aborting the workflow in V109', async () => {
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: new Date(0),
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 0,
+        delay: 10,
+      },
+    ]);
+    processPostRuleV109
+      .mockResolvedValueOnce({
+        status: 'PROCESSING',
+        terminalRun: false,
+      })
+      .mockResolvedValueOnce({
+        status: 'COMPLETED',
+        terminalRun: true,
+      });
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    expect(processPostRuleV109).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts repeat children on postWorkflowV109 in V109', async () => {
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'repeat-post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: new Date(0),
+      settings: '{}',
+      intervalInDays: 1,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'repeat-post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([]);
+    startChild.mockResolvedValue({});
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'repeat-post',
+      organizationId: 'org',
+    });
+
+    expect(startChild).toHaveBeenCalledWith(
+      postWorkflowV109,
+      expect.objectContaining({
+        parentClosePolicy: 'ABANDON',
+        args: [
+          expect.objectContaining({
+            postId: 'repeat-post',
+            postNow: true,
+          }),
+        ],
+      })
+    );
+  });
+
+  it('retries FAILED Rule evaluations with exponential backoff in V109', async () => {
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: new Date(0),
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 0,
+        delay: 10,
+      },
+    ]);
+    processPostRuleV109
+      .mockResolvedValueOnce({
+        status: 'FAILED',
+        terminalRun: false,
+        errorSummary: 'Transient error',
+      })
+      .mockResolvedValueOnce({
+        status: 'FAILED',
+        terminalRun: false,
+        errorSummary: 'Transient error',
+      })
+      .mockResolvedValueOnce({
+        status: 'COMPLETED',
+        terminalRun: true,
+      });
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    expect(processPostRuleV109).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledWith(30000);
+    expect(sleep).toHaveBeenCalledWith(60000);
+  });
+
+  it('abandons FAILED Rule evaluation after retry budget exhaustion in V109', async () => {
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: new Date(0),
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 0,
+        delay: 10,
+      },
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 1,
+        delay: 20,
+      },
+    ]);
+    processPostRuleV109.mockResolvedValue({
+      status: 'FAILED',
+      terminalRun: false,
+      errorSummary: 'Persistent error',
+    });
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    expect(processPostRuleV109).toHaveBeenCalledTimes(10);
+    expect(processPostRuleV109).toHaveBeenNthCalledWith(6, {
+      organizationId: 'org',
+      runId: 'run-1',
+      ruleId: 'rule-1',
+      postId: 'post',
+      evaluationIndex: 1,
+    });
+  });
+
+  it('converts absolute delays to sequential waits for rule evaluations in V109', async () => {
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: new Date(0),
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 0,
+        delay: 1000,
+      },
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 1,
+        delay: 2000,
+      },
+    ]);
+    processPostRuleV109.mockResolvedValue({
+      status: 'COMPLETED',
+      terminalRun: false,
+    });
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    const sleepCalls = (sleep as jest.Mock).mock.calls;
+    const ruleSleeps = sleepCalls.filter(call => call[0] >= 900 && call[0] <= 2100);
+    expect(ruleSleeps.length).toBe(2);
+    expect(ruleSleeps[0][0]).toBeGreaterThanOrEqual(900);
+    expect(ruleSleeps[0][0]).toBeLessThanOrEqual(1100);
+    expect(ruleSleeps[1][0]).toBeGreaterThanOrEqual(1900);
+    expect(ruleSleeps[1][0]).toBeLessThanOrEqual(2100);
+  });
+
+  it('anchors rule delays to publication instant not workflow start for scheduled posts in V109', async () => {
+    const futurePublishDate = new Date(Date.now() + 60000);
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const post = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: futurePublishDate,
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+    };
+    getPost.mockResolvedValue(post);
+    getPostsList.mockResolvedValue([post]);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([
+      {
+        type: 'rule',
+        runId: 'run-1',
+        ruleId: 'rule-1',
+        postId: 'post',
+        evaluationIndex: 0,
+        delay: 5000,
+      },
+    ]);
+    processPostRuleV109.mockResolvedValue({
+      status: 'COMPLETED',
+      terminalRun: false,
+    });
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    const sleepCalls = (sleep as jest.Mock).mock.calls;
+    const ruleDelaySleep = sleepCalls.find(call => call[0] >= 4000 && call[0] <= 5000);
+    expect(ruleDelaySleep).toBeDefined();
+    expect(ruleDelaySleep![0]).toBeGreaterThan(0);
+  });
+
+  it('waits full configured delay for thread comments on scheduled posts in V109', async () => {
+    const futurePublishDate = new Date(Date.now() + 60000);
+    const integration = {
+      id: 'integration',
+      organizationId: 'org',
+      providerIdentifier: 'x',
+      disabled: false,
+      refreshNeeded: false,
+    };
+    const rootPost = {
+      id: 'post',
+      organizationId: 'org',
+      state: 'QUEUE',
+      publishDate: futurePublishDate,
+      settings: '{}',
+      intervalInDays: null,
+      integration,
+      delay: null,
+    };
+    const commentPost = {
+      ...rootPost,
+      id: 'post-comment',
+      delay: 2,
+    };
+    getPost.mockResolvedValue(rootPost);
+    getPostsList.mockResolvedValue([rootPost, commentPost]);
+    isCommentable.mockResolvedValue(true);
+    postSocialPending.mockResolvedValue([
+      {
+        id: 'post',
+        postId: 'provider-post',
+        releaseURL: 'https://example.com/post',
+        status: 'success',
+      },
+    ]);
+    postComment.mockResolvedValue([
+      {
+        id: 'post-comment',
+        postId: 'provider-comment',
+        releaseURL: 'https://example.com/comment',
+        status: 'success',
+      },
+    ]);
+    internalPlugs.mockResolvedValue([]);
+    resolvePostRulesV109.mockResolvedValue([]);
+
+    await postWorkflowV109({
+      taskQueue: 'x',
+      postId: 'post',
+      organizationId: 'org',
+    });
+
+    const sleepCalls = (sleep as jest.Mock).mock.calls;
+    const threadCommentDelay = sleepCalls.find(call => call[0] >= 100000 && call[0] <= 120000);
+    expect(threadCommentDelay).toBeDefined();
+    expect(threadCommentDelay![0]).toBeGreaterThan(0);
   });
 });

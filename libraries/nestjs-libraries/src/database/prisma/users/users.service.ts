@@ -3,6 +3,7 @@ import { UsersRepository } from '@gitroom/nestjs-libraries/database/prisma/users
 import { Provider } from '@prisma/client';
 import { UserDetailDto } from '@gitroom/nestjs-libraries/dtos/users/user.details.dto';
 import { EmailNotificationsDto } from '@gitroom/nestjs-libraries/dtos/users/email-notifications.dto';
+import { DashboardAnalyticsPreferenceItemDto } from '@gitroom/nestjs-libraries/dtos/users/dashboard-analytics-preferences.dto';
 import { OrganizationRepository } from '@gitroom/nestjs-libraries/database/prisma/organizations/organization.repository';
 import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 
@@ -121,5 +122,29 @@ export class UsersService {
 
   updateEmailNotifications(userId: string, body: EmailNotificationsDto) {
     return this._usersRepository.updateEmailNotifications(userId, body);
+  }
+
+  getDashboardAnalyticsPreferences(
+    userId: string,
+    organizationId: string,
+    integrationId?: string
+  ) {
+    return this._usersRepository.getDashboardAnalyticsPreferences(
+      userId,
+      organizationId,
+      integrationId
+    );
+  }
+
+  saveDashboardAnalyticsPreferences(
+    userId: string,
+    organizationId: string,
+    preferences: DashboardAnalyticsPreferenceItemDto[]
+  ) {
+    return this._usersRepository.saveDashboardAnalyticsPreferences(
+      userId,
+      organizationId,
+      preferences
+    );
   }
 }

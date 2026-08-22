@@ -1,5 +1,5 @@
 import { PipelineActivity } from '@gitroom/orchestrator/activities/pipeline.activity';
-import { postWorkflowV108 } from '@gitroom/orchestrator/workflows/post-workflows/post.workflow.v1.0.8';
+import { postWorkflowV109 } from '@gitroom/orchestrator/workflows/post-workflows/post.workflow.v1.0.9';
 import { PipelineSlotWorkflowV1Request } from '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.execution';
 import { proxyActivities, startChild } from '@temporalio/workflow';
 import { TypedSearchAttributes, WorkflowIdReusePolicy } from '@temporalio/common';
@@ -33,7 +33,7 @@ export async function pipelineSlotWorkflowV2(
   await Promise.all(
     claim.roots.map(async (root) => {
       try {
-        const child = await startChild(postWorkflowV108, {
+        const child = await startChild(postWorkflowV109, {
           workflowId: `post_${root.postId}`,
           taskQueue: 'main',
           workflowIdReusePolicy: WorkflowIdReusePolicy.REJECT_DUPLICATE,

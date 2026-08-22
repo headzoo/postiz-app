@@ -11,6 +11,11 @@ import {
   PostDetails,
   PostResponse,
   SocialProvider,
+  PostRulesCapabilityMetadata,
+  PostRulesLoadMetricsResult,
+  PostRulesRemovePostResult,
+  PostRulesRepostResult,
+  PostRulesAddPlugReplyResult,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { API_ORDER_FOLLOWER_SORTS } from '@gitroom/nestjs-libraries/integrations/social/follower.sorts';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
@@ -268,6 +273,36 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
   scopes = ['write:statuses', 'profile', 'write:media'];
   editor = 'normal' as const;
   followerSorts: FollowerSort[] = API_ORDER_FOLLOWER_SORTS;
+  postRules = {
+    metadata: () => this.getPostRulesMetadata(),
+    loadMetrics: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.loadPostRulesMetrics(integration, accessToken, externalPostId),
+    removePost: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.removePostViaRules(integration, accessToken, externalPostId),
+    repost: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string
+    ) => this.repostViaRules(integration, accessToken, externalPostId),
+    addPlugReply: (
+      integration: Integration,
+      accessToken: string,
+      externalPostId: string,
+      content: string
+    ) =>
+      this.addPlugReplyViaRules(
+        integration,
+        accessToken,
+        externalPostId,
+        content
+      ),
+  };
   maxLength() {
     return 300;
   }
@@ -989,6 +1024,171 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
     ];
   }
 
+  private getPostRulesMetadata(): PostRulesCapabilityMetadata {
+    return {
+      actions: {
+        remove: true,
+        autoRepost: true,
+        autoPlug: true,
+      },
+      metrics: {
+        likes: true,
+        replies: true,
+      },
+    };
+  }
+
+  private async loadPostRulesMetrics(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesLoadMetricsResult> {
+    try {
+      const agent = await this.getAgent(integration);
+      const getThread = await agent.getPostThread({
+        uri: externalPostId,
+        depth: 0,
+      });
+
+      // @ts-ignore
+      const post = getThread.data.thread.post;
+      const likeCount = post?.likeCount || 0;
+      const replyCount = post?.replyCount;
+
+      return {
+        status: 'success',
+        metrics: {
+          likes: likeCount,
+          ...(typeof replyCount === 'number' ? { replies: replyCount } : {}),
+        },
+      };
+    } catch (err: any) {
+      if (err?.status === 404 || err?.error === 'NotFound') {
+        return { status: 'not_found' };
+      }
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async removePostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRemovePostResult> {
+    try {
+      const agent = await this.getAgent(integration);
+      await agent.deletePost(externalPostId);
+      return { status: 'removed' };
+    } catch (err: any) {
+      if (err?.status === 404 || err?.error === 'NotFound') {
+        return { status: 'already_absent' };
+      }
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async repostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRepostResult> {
+    try {
+      const agent = await this.getAgent(integration);
+      const getThread = await agent.getPostThread({
+        uri: externalPostId,
+        depth: 0,
+      });
+
+      await timer(2000);
+      await agent.repost(
+        // @ts-ignore
+        getThread.data.thread.post?.uri,
+        // @ts-ignore
+        getThread.data.thread.post?.cid
+      );
+      return {
+        status: 'reposted',
+        remoteReleaseId: externalPostId,
+      };
+    } catch (err: any) {
+      if (err?.message?.includes('already exists')) {
+        return { status: 'already_reposted' };
+      }
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async addPlugReplyViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string,
+    content: string
+  ): Promise<PostRulesAddPlugReplyResult> {
+    try {
+      const agent = await this.getAgent(integration);
+      const getThread = await agent.getPostThread({
+        uri: externalPostId,
+        depth: 0,
+      });
+
+      await timer(2000);
+      const rt = new RichText({
+        text: stripHtmlValidation('normal', content, true),
+      });
+
+      const result = await agent.post({
+        text: rt.text,
+        facets: rt.facets,
+        createdAt: new Date().toISOString(),
+        reply: {
+          root: {
+            // @ts-ignore
+            uri: getThread.data.thread.post?.uri,
+            // @ts-ignore
+            cid: getThread.data.thread.post?.cid,
+          },
+          parent: {
+            // @ts-ignore
+            uri: getThread.data.thread.post?.uri,
+            // @ts-ignore
+            cid: getThread.data.thread.post?.cid,
+          },
+        },
+      });
+
+      return {
+        status: 'added',
+        remoteReleaseId: result.uri,
+      };
+    } catch (err: any) {
+      if (err?.status === 401 || err?.status === 403) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
   @Plug({
     identifier: 'bluesky-autoRepostPost',
     title: 'Auto Repost Posts',
@@ -1011,36 +1211,25 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
     id: string,
     fields: { likesAmount: string }
   ) {
-    const body = JSON.parse(
-      AuthService.fixedDecryption(integration.customInstanceDetails!)
+    const metricsResult = await this.loadPostRulesMetrics(
+      integration,
+      '', // accessToken not used for Bluesky (uses customInstanceDetails)
+      id
     );
-    const agent = new BskyAgent({
-      service: body.service,
-    });
 
-    await agent.login({
-      identifier: body.identifier,
-      password: body.password,
-    });
-
-    const getThread = await agent.getPostThread({
-      uri: id,
-      depth: 0,
-    });
-
-    // @ts-ignore
-    if (getThread.data.thread.post?.likeCount >= +fields.likesAmount) {
-      await timer(2000);
-      await agent.repost(
-        // @ts-ignore
-        getThread.data.thread.post?.uri,
-        // @ts-ignore
-        getThread.data.thread.post?.cid
+    if (
+      metricsResult.status === 'success' &&
+      metricsResult.metrics.likes! >= +fields.likesAmount
+    ) {
+      const result = await this.repostViaRules(
+        integration,
+        '',
+        id
       );
-      return true;
+      return result.status === 'reposted' || result.status === 'already_reposted';
     }
 
-    return true;
+    return false;
   }
 
   @Plug({
@@ -1072,53 +1261,26 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
     id: string,
     fields: { likesAmount: string; post: string }
   ) {
-    const body = JSON.parse(
-      AuthService.fixedDecryption(integration.customInstanceDetails!)
+    const metricsResult = await this.loadPostRulesMetrics(
+      integration,
+      '',
+      id
     );
-    const agent = new BskyAgent({
-      service: body.service,
-    });
 
-    await agent.login({
-      identifier: body.identifier,
-      password: body.password,
-    });
-
-    const getThread = await agent.getPostThread({
-      uri: id,
-      depth: 0,
-    });
-
-    // @ts-ignore
-    if (getThread.data.thread.post?.likeCount >= +fields.likesAmount) {
-      await timer(2000);
-      const rt = new RichText({
-        text: stripHtmlValidation('normal', fields.post, true),
-      });
-
-      await agent.post({
-        text: rt.text,
-        facets: rt.facets,
-        createdAt: new Date().toISOString(),
-        reply: {
-          root: {
-            // @ts-ignore
-            uri: getThread.data.thread.post?.uri,
-            // @ts-ignore
-            cid: getThread.data.thread.post?.cid,
-          },
-          parent: {
-            // @ts-ignore
-            uri: getThread.data.thread.post?.uri,
-            // @ts-ignore
-            cid: getThread.data.thread.post?.cid,
-          },
-        },
-      });
-      return true;
+    if (
+      metricsResult.status === 'success' &&
+      metricsResult.metrics.likes! >= +fields.likesAmount
+    ) {
+      const result = await this.addPlugReplyViaRules(
+        integration,
+        '',
+        id,
+        fields.post
+      );
+      return result.status === 'added';
     }
 
-    return true;
+    return false;
   }
 
   override async mention(

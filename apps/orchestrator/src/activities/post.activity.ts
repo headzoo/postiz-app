@@ -36,6 +36,7 @@ import {
   getPublishFileSinkDirectory,
   sinkOutboundPublish,
 } from '@gitroom/nestjs-libraries/integrations/publish.file.sink';
+import { PostRulesExecutionService } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.execution.service';
 
 // Drops fields the workflow and downstream activities never read — biggest wins are `error` (grows per retry) and `childrenPost` (Prisma side-loads it on every recursive row).
 function slimPost(post: any) {
@@ -77,7 +78,8 @@ export class PostActivity {
     private _logsService: LogsService,
     private _temporalService: TemporalService,
     private _subscriptionService: SubscriptionService,
-    private _pipelinePlugService: PipelinePlugService
+    private _pipelinePlugService: PipelinePlugService,
+    private _postRulesExecutionService: PostRulesExecutionService
   ) { }
 
   @ActivityMethod()
@@ -91,7 +93,7 @@ export class PostActivity {
     for (const post of list) {
       await this._temporalService.client
         .getRawClient()
-        .workflow.signalWithStart('postWorkflowV108', {
+        .workflow.signalWithStart('postWorkflowV109', {
           workflowId: `post_${post.id}`,
           taskQueue: 'main',
           signal: 'poke',
@@ -549,6 +551,9 @@ export class PostActivity {
     );
   }
 
+  // Legacy V108 workflows still call these activity methods for in-flight Plug
+  // executions. Public Plug APIs/UI were removed at Rules cutover; do not delete
+  // until no V108 execution can invoke them.
   @ActivityMethod()
   async globalPlugsV107(postId: string, integration: Integration) {
     return this._pipelinePlugService.resolveGlobalPlugs(
@@ -679,6 +684,38 @@ export class PostActivity {
     source: 'channel' | 'pipeline';
   }) {
     return this._integrationService.processPlugs(data);
+  }
+
+  @ActivityMethod()
+  async resolvePostRulesV109(
+    organizationId: string,
+    postId: string,
+    integrationId: string
+  ) {
+    const response = await this._postRulesExecutionService.resolveForPost({
+      organizationId,
+      postId,
+      integrationId,
+    });
+    return response.items.map((item) => ({
+      type: 'rule' as const,
+      runId: item.runId,
+      ruleId: item.ruleId,
+      postId: item.postId,
+      evaluationIndex: item.evaluationIndex,
+      delay: item.delayMs,
+    }));
+  }
+
+  @ActivityMethod()
+  async processPostRuleV109(request: {
+    organizationId: string;
+    runId: string;
+    ruleId: string;
+    postId: string;
+    evaluationIndex: number;
+  }) {
+    return this._postRulesExecutionService.processEvaluation(request);
   }
 
   @ActivityMethod()

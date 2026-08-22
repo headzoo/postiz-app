@@ -25,6 +25,10 @@ import { ApiTags } from '@nestjs/swagger';
 import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/users.service';
 import { UserDetailDto } from '@gitroom/nestjs-libraries/dtos/users/user.details.dto';
 import { EmailNotificationsDto } from '@gitroom/nestjs-libraries/dtos/users/email-notifications.dto';
+import {
+  GetDashboardAnalyticsPreferencesQueryDto,
+  SaveDashboardAnalyticsPreferencesDto,
+} from '@gitroom/nestjs-libraries/dtos/users/dashboard-analytics-preferences.dto';
 import { HttpForbiddenException } from '@gitroom/nestjs-libraries/services/exception.filter';
 import { RealIP } from 'nestjs-real-ip';
 import { UserAgent } from '@gitroom/nestjs-libraries/user/user.agent';
@@ -53,7 +57,7 @@ export class UsersController {
     private _userService: UsersService,
     private _trackService: TrackService,
     private _adminPasskeyService: AdminPasskeyService
-  ) {}
+  ) { }
 
   @Get('/chatbase-token')
   async getChatbaseToken(
@@ -70,13 +74,13 @@ export class UsersController {
         email: user.email,
         ...(organization.paymentId
           ? {
-              stripe_accounts: [
-                {
-                  label: organization.name,
-                  stripe_id: organization.paymentId,
-                },
-              ],
-            }
+            stripe_accounts: [
+              {
+                label: organization.name,
+                stripe_id: organization.paymentId,
+              },
+            ],
+          }
           : {}),
       },
       process.env.CHATBASE_TOKEN,
@@ -121,7 +125,7 @@ export class UsersController {
       totalChannels: !process.env.STRIPE_PUBLISHABLE_KEY
         ? 10000
         : // @ts-ignore
-          organization?.subscription?.totalChannels || pricing.FREE.channel,
+        organization?.subscription?.totalChannels || pricing.FREE.channel,
       tier:
         // @ts-ignore
         organization?.subscription?.subscriptionTier ||
@@ -140,8 +144,8 @@ export class UsersController {
       publicApi:
         // @ts-ignore
         organization?.users[0]?.role === 'SUPERADMIN' ||
-        // @ts-ignore
-        organization?.users[0]?.role === 'ADMIN'
+          // @ts-ignore
+          organization?.users[0]?.role === 'ADMIN'
           ? organization?.apiKey
           : '',
     };
@@ -180,10 +184,10 @@ export class UsersController {
       domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
       ...(!process.env.NOT_SECURED
         ? {
-            secure: true,
-            httpOnly: true,
-            sameSite: 'none',
-          }
+          secure: true,
+          httpOnly: true,
+          sameSite: 'none',
+        }
         : {}),
       expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
     });
@@ -260,6 +264,32 @@ export class UsersController {
     return this._userService.updateEmailNotifications(user.id, body);
   }
 
+  @Get('/dashboard-analytics-preferences')
+  async getDashboardAnalyticsPreferences(
+    @GetUserFromRequest() user: User,
+    @GetOrgFromRequest() organization: Organization,
+    @Query() query: GetDashboardAnalyticsPreferencesQueryDto
+  ) {
+    return this._userService.getDashboardAnalyticsPreferences(
+      user.id,
+      organization.id,
+      query.integrationId
+    );
+  }
+
+  @Post('/dashboard-analytics-preferences')
+  async saveDashboardAnalyticsPreferences(
+    @GetUserFromRequest() user: User,
+    @GetOrgFromRequest() organization: Organization,
+    @Body() body: SaveDashboardAnalyticsPreferencesDto
+  ) {
+    return this._userService.saveDashboardAnalyticsPreferences(
+      user.id,
+      organization.id,
+      body.preferences
+    );
+  }
+
   @Post('/api-key/rotate')
   @CheckPolicies([AuthorizationActions.Create, Sections.ADMIN])
   async rotateApiKey(@GetOrgFromRequest() organization: Organization) {
@@ -323,10 +353,10 @@ export class UsersController {
       domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
       ...(!process.env.NOT_SECURED
         ? {
-            secure: true,
-            httpOnly: true,
-            sameSite: 'none',
-          }
+          secure: true,
+          httpOnly: true,
+          sameSite: 'none',
+        }
         : {}),
       expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
     });
@@ -352,10 +382,10 @@ export class UsersController {
       domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
       ...(!process.env.NOT_SECURED
         ? {
-            secure: true,
-            httpOnly: true,
-            sameSite: 'none',
-          }
+          secure: true,
+          httpOnly: true,
+          sameSite: 'none',
+        }
         : {}),
       maxAge: -1,
       expires: new Date(0),
@@ -365,10 +395,10 @@ export class UsersController {
       domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
       ...(!process.env.NOT_SECURED
         ? {
-            secure: true,
-            httpOnly: true,
-            sameSite: 'none',
-          }
+          secure: true,
+          httpOnly: true,
+          sameSite: 'none',
+        }
         : {}),
       maxAge: -1,
       expires: new Date(0),
@@ -378,10 +408,10 @@ export class UsersController {
       domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
       ...(!process.env.NOT_SECURED
         ? {
-            secure: true,
-            httpOnly: true,
-            sameSite: 'none',
-          }
+          secure: true,
+          httpOnly: true,
+          sameSite: 'none',
+        }
         : {}),
       maxAge: -1,
       expires: new Date(0),
@@ -418,10 +448,10 @@ export class UsersController {
         domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
         ...(!process.env.NOT_SECURED
           ? {
-              secure: true,
-              httpOnly: true,
-              sameSite: 'none',
-            }
+            secure: true,
+            httpOnly: true,
+            sameSite: 'none',
+          }
           : {}),
         expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
       });

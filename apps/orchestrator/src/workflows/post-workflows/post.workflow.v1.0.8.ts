@@ -82,6 +82,10 @@ const iterate = Array.from({ length: 5 });
 // item, so the budget must cover the largest realistic post, not one poll cycle.
 const maxPendingChecks = 90;
 
+// V108 is kept for backward compatibility with in-flight workflows. All new
+// workflow starts have been redirected to V109, which runs Rules instead of
+// global Plugs. V108 MUST remain byte-compatible: never change its parameters,
+// remove it, or modify activities it calls (globalPlugsV107, processPlugV107).
 export async function postWorkflowV108({
   taskQueue,
   postId,

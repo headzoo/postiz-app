@@ -186,6 +186,38 @@ export class IntegrationManager {
       .map((provider) => provider.identifier);
   }
 
+  getPostRulesCapabilities(): {
+    [providerIdentifier: string]: {
+      actions: string[];
+      metrics: string[];
+    };
+  } {
+    return this.getAvailableSocialIntegrations()
+      .filter((provider) => !!provider.postRules)
+      .reduce(
+        (acc, provider) => {
+          const metadata = provider.postRules!.metadata();
+          const actions: string[] = [];
+          if (metadata.actions.remove) actions.push('REMOVE');
+          if (metadata.actions.autoRepost) actions.push('AUTO_REPOST');
+          if (metadata.actions.autoPlug) actions.push('AUTO_PLUG');
+
+          const metrics: string[] = [];
+          if (metadata.metrics.likes) metrics.push('LIKES');
+          if (metadata.metrics.replies) metrics.push('REPLIES');
+
+          acc[provider.identifier] = { actions, metrics };
+          return acc;
+        },
+        {} as {
+          [providerIdentifier: string]: {
+            actions: string[];
+            metrics: string[];
+          };
+        }
+      );
+  }
+
   getSocialIntegration(integration: string): SocialProvider {
     return socialIntegrationList.find((i) => i.identifier === integration)!;
   }

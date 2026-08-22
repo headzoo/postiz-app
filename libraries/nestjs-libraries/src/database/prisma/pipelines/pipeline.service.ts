@@ -404,8 +404,13 @@ export class PipelineService {
     return { id: pipeline.id, detached: true };
   }
 
-  enqueue(orgId: string, body: Parameters<PipelineManager['enqueue']>[1]) {
-    return this._pipelineManager.enqueue(orgId, body);
+  enqueue(
+    orgId: string,
+    body: Parameters<PipelineManager['enqueue']>[1],
+    createdBy: Parameters<PipelineManager['enqueue']>[2] = 'API',
+    idempotencyKey?: string
+  ) {
+    return this._pipelineManager.enqueue(orgId, body, createdBy, idempotencyKey);
   }
 
   async reorderItem(

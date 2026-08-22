@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
+import { useDrag, useDrop } from 'react-dnd';
+import { useClickOutside } from '@mantine/hooks';
 import ImageWithFallback from '@gitroom/react/helpers/image.with.fallback';
 import {
   ChannelMenu,
@@ -28,11 +30,23 @@ import {
   MetricDayBarClick,
 } from '@gitroom/frontend/components/platform-analytics/render.analytics';
 import {
+  DashboardAnalyticsMetric,
   DashboardChannelAnalytics,
   useDashboardAnalytics,
 } from './use.dashboard.analytics';
+import {
+  applyDashboardAnalyticsPreferences,
+  buildDashboardAnalyticsPreferences,
+  dashboardMetricIdentity,
+  reorderVisibleKeys,
+} from './dashboard.analytics.layout';
+import { useDashboardAnalyticsPreferences } from './use.dashboard.analytics.preferences';
+import { DNDProvider } from '@gitroom/frontend/components/launches/helpers/dnd.provider';
+import { PlusIcon } from '@gitroom/frontend/components/ui/icons';
+import { useT } from '@gitroom/react/translation/get.transation.service.client';
 
 const dateOptions: Array<7 | 30 | 90> = [7, 30, 90];
+const dashboardStatDragType = 'dashboard-analytics-stat';
 
 const ChannelState = ({
   channel,
@@ -78,12 +92,146 @@ const ChannelState = ({
   );
 };
 
+const SortableAnalyticsCard: FC<{
+  metric: DashboardAnalyticsMetric;
+  index: number;
+  integrationId: string;
+  onBarClick: (params: MetricDayBarClick) => void;
+  onRemove: () => void;
+  onReorderLocal: (from: number, to: number) => void;
+  onDragEnd: () => void;
+}> = ({
+  metric,
+  index,
+  integrationId,
+  onBarClick,
+  onRemove,
+  onReorderLocal,
+  onDragEnd,
+}) => {
+    const metricKey = dashboardMetricIdentity(metric);
+    const [{ isDragging }, drag] = useDrag(
+      () => ({
+        type: dashboardStatDragType,
+        item: { id: metricKey, index },
+        end: () => {
+          onDragEnd();
+        },
+        collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+      }),
+      [index, metricKey, onDragEnd]
+    );
+    const [, drop] = useDrop(
+      () => ({
+        accept: dashboardStatDragType,
+        hover: (dragged: { id: string; index: number; lastTargetId?: string }) => {
+          if (dragged.id === metricKey || dragged.lastTargetId === metricKey) {
+            return;
+          }
+          if (dragged.index !== index) {
+            onReorderLocal(dragged.index, index);
+            dragged.index = index;
+          }
+          dragged.lastTargetId = metricKey;
+        },
+        drop: () => {
+          onDragEnd();
+        },
+      }),
+      [index, metricKey, onDragEnd, onReorderLocal]
+    );
+
+    return (
+      <div
+        // @ts-ignore react-dnd connector type
+        ref={(node) => {
+          drop(node);
+        }}
+      >
+        <AnalyticsCard
+          item={metric}
+          total={analyticsTotal(metric)}
+          index={index}
+          integrationId={integrationId}
+          onBarClick={onBarClick}
+          onRemove={onRemove}
+          isDragging={isDragging}
+          dragHandleRef={(node) => {
+            drag(node);
+          }}
+        />
+      </div>
+    );
+  };
+
+const AddHiddenStatsButton: FC<{
+  hiddenMetrics: DashboardAnalyticsMetric[];
+  onAdd: (metricKey: string) => void;
+}> = ({ hiddenMetrics, onAdd }) => {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useClickOutside(() => setOpen(false));
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="inline-flex h-[36px] w-[36px] items-center justify-center rounded-[8px] bg-btnSimple text-newTableText hover:text-newTextColor"
+        aria-label={t('add_stat', 'Add stat')}
+      >
+        <PlusIcon size={16} />
+      </button>
+      {open && (
+        <div className="absolute end-0 top-[calc(100%+8px)] z-20 min-w-[220px] rounded-[10px] border border-newTableBorder bg-newBgColorInner p-[8px] shadow-lg">
+          <div className="px-[8px] py-[6px] text-[12px] text-newTableText">
+            {t('add_hidden_stats', 'Add hidden stats')}
+          </div>
+          {hiddenMetrics.length ? (
+            <div className="flex max-h-[240px] flex-col gap-[4px] overflow-y-auto">
+              {hiddenMetrics.map((metric) => {
+                const key = dashboardMetricIdentity(metric);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className="rounded-[6px] px-[10px] py-[8px] text-start text-[13px] hover:bg-btnSimple"
+                    onClick={() => {
+                      onAdd(key);
+                      setOpen(false);
+                    }}
+                  >
+                    {metric.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-[10px] py-[8px] text-[13px] text-newTableText">
+              {t('no_hidden_stats', 'No hidden stats')}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const Dashboard = () => {
   const fetch = useFetch();
   const router = useRouter();
   const [date, setDate] = useState<7 | 30 | 90>(7);
   const [selectedIntegrationId, setSelectedIntegrationId] = useState<string>();
   const [polling, setPolling] = useState(false);
+  const [localVisibleKeys, setLocalVisibleKeys] = useState<string[] | null>(
+    null
+  );
+  const [localHiddenKeys, setLocalHiddenKeys] = useState<string[] | null>(null);
+  const draggingRef = useRef(false);
+  const layoutKeysRef = useRef<{ visible: string[]; hidden: string[] }>({
+    visible: [],
+    hidden: [],
+  });
   const {
     data: integrations,
     isLoading: integrationsLoading,
@@ -118,6 +266,11 @@ export const Dashboard = () => {
     selectedIntegrationId,
     polling ? 15_000 : 0
   );
+  const {
+    data: preferences = [],
+    isLoading: preferencesLoading,
+    savePreferences,
+  } = useDashboardAnalyticsPreferences(selectedIntegrationId);
   const selectedChannel = channels?.[0];
   const selectedIntegration = integrations.find(
     (integration) => integration.id === selectedIntegrationId
@@ -141,6 +294,76 @@ export const Dashboard = () => {
     timeout.unref?.();
     return () => clearTimeout(timeout);
   }, [polling]);
+
+  useEffect(() => {
+    setLocalVisibleKeys(null);
+    setLocalHiddenKeys(null);
+    draggingRef.current = false;
+  }, [selectedIntegrationId]);
+
+  const layout = useMemo(() => {
+    if (!selectedChannel || !selectedIntegrationId) {
+      return { visible: [] as DashboardAnalyticsMetric[], hidden: [] as DashboardAnalyticsMetric[] };
+    }
+    const applied = applyDashboardAnalyticsPreferences(
+      selectedChannel.analytics,
+      preferences,
+      selectedIntegrationId
+    );
+    if (!localVisibleKeys && !localHiddenKeys) {
+      return applied;
+    }
+    const byKey = new Map(
+      selectedChannel.analytics.map((metric) => [
+        dashboardMetricIdentity(metric),
+        metric,
+      ])
+    );
+    const visibleKeys =
+      localVisibleKeys ||
+      applied.visible.map((metric) => dashboardMetricIdentity(metric));
+    const hiddenKeys =
+      localHiddenKeys ||
+      applied.hidden.map((metric) => dashboardMetricIdentity(metric));
+    return {
+      visible: visibleKeys
+        .map((key) => byKey.get(key))
+        .filter(Boolean) as DashboardAnalyticsMetric[],
+      hidden: hiddenKeys
+        .map((key) => byKey.get(key))
+        .filter(Boolean) as DashboardAnalyticsMetric[],
+    };
+  }, [
+    localHiddenKeys,
+    localVisibleKeys,
+    preferences,
+    selectedChannel,
+    selectedIntegrationId,
+  ]);
+
+  useEffect(() => {
+    layoutKeysRef.current = {
+      visible: layout.visible.map((metric) => dashboardMetricIdentity(metric)),
+      hidden: layout.hidden.map((metric) => dashboardMetricIdentity(metric)),
+    };
+  }, [layout.hidden, layout.visible]);
+
+  const persistLayout = useCallback(
+    async (visibleKeys: string[], hiddenKeys: string[]) => {
+      if (!selectedIntegrationId) {
+        return;
+      }
+      const next = buildDashboardAnalyticsPreferences(
+        selectedIntegrationId,
+        visibleKeys,
+        hiddenKeys
+      );
+      await savePreferences(next);
+      setLocalVisibleKeys(null);
+      setLocalHiddenKeys(null);
+    },
+    [savePreferences, selectedIntegrationId]
+  );
 
   const changeItemGroup = useCallback(
     async (id: string, group: string) => {
@@ -208,6 +431,67 @@ export const Dashboard = () => {
     [router]
   );
 
+  const onReorderLocal = useCallback(
+    (from: number, to: number) => {
+      draggingRef.current = true;
+      setLocalVisibleKeys((current) => {
+        const keys =
+          current ||
+          layout.visible.map((metric) => dashboardMetricIdentity(metric));
+        return reorderVisibleKeys(keys, from, to);
+      });
+      setLocalHiddenKeys(
+        (current) =>
+          current ||
+          layout.hidden.map((metric) => dashboardMetricIdentity(metric))
+      );
+    },
+    [layout.hidden, layout.visible]
+  );
+
+  const onDragEnd = useCallback(() => {
+    if (!draggingRef.current) {
+      return;
+    }
+    draggingRef.current = false;
+    void persistLayout(
+      layoutKeysRef.current.visible,
+      layoutKeysRef.current.hidden
+    );
+  }, [persistLayout]);
+
+  const onRemoveMetric = useCallback(
+    (metricKey: string) => {
+      const visibleKeys = layout.visible
+        .map((metric) => dashboardMetricIdentity(metric))
+        .filter((key) => key !== metricKey);
+      const hiddenKeys = [
+        ...layout.hidden.map((metric) => dashboardMetricIdentity(metric)),
+        metricKey,
+      ];
+      setLocalVisibleKeys(visibleKeys);
+      setLocalHiddenKeys(hiddenKeys);
+      void persistLayout(visibleKeys, hiddenKeys);
+    },
+    [layout.hidden, layout.visible, persistLayout]
+  );
+
+  const onAddMetric = useCallback(
+    (metricKey: string) => {
+      const visibleKeys = [
+        ...layout.visible.map((metric) => dashboardMetricIdentity(metric)),
+        metricKey,
+      ];
+      const hiddenKeys = layout.hidden
+        .map((metric) => dashboardMetricIdentity(metric))
+        .filter((key) => key !== metricKey);
+      setLocalVisibleKeys(visibleKeys);
+      setLocalHiddenKeys(hiddenKeys);
+      void persistLayout(visibleKeys, hiddenKeys);
+    },
+    [layout.hidden, layout.visible, persistLayout]
+  );
+
   if (integrationsLoading) {
     return (
       <div className="bg-newBgColorInner flex flex-1 items-center justify-center">
@@ -271,19 +555,25 @@ export const Dashboard = () => {
               </div>
             </div>
             {!!selectedIntegration && (
-              <div className="flex rounded-[8px] bg-btnSimple p-[4px]">
-                {dateOptions.map((option) => (
-                  <button
-                    key={option}
-                    className={clsx(
-                      'rounded-[6px] px-[12px] py-[6px] text-[13px]',
-                      date === option && 'bg-newBgColorInner shadow-sm'
-                    )}
-                    onClick={() => setDate(option)}
-                  >
-                    {option} days
-                  </button>
-                ))}
+              <div className="flex items-center gap-[8px]">
+                <AddHiddenStatsButton
+                  hiddenMetrics={layout.hidden}
+                  onAdd={onAddMetric}
+                />
+                <div className="flex rounded-[8px] bg-btnSimple p-[4px]">
+                  {dateOptions.map((option) => (
+                    <button
+                      key={option}
+                      className={clsx(
+                        'rounded-[6px] px-[12px] py-[6px] text-[13px]',
+                        date === option && 'bg-newBgColorInner shadow-sm'
+                      )}
+                      onClick={() => setDate(option)}
+                    >
+                      {option} days
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -297,28 +587,43 @@ export const Dashboard = () => {
             </div>
           )}
 
-          {!!selectedIntegration && analyticsLoading && (
-            <div className="flex flex-1 items-center justify-center py-[48px]">
-              <LoadingComponent />
-            </div>
-          )}
+          {!!selectedIntegration &&
+            (analyticsLoading || preferencesLoading) && (
+              <div className="flex flex-1 items-center justify-center py-[48px]">
+                <LoadingComponent />
+              </div>
+            )}
 
-          {!!selectedChannel && !analyticsLoading && (
+          {!!selectedChannel && !analyticsLoading && !preferencesLoading && (
             <section className="flex flex-col gap-[14px]">
               {selectedChannel.state === 'ok' ? (
                 selectedChannel.analytics.length ? (
-                  <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2 xl:grid-cols-3">
-                    {selectedChannel.analytics.map((metric, index) => (
-                      <AnalyticsCard
-                        key={`${selectedChannel.id}-${metric.label}`}
-                        item={metric}
-                        total={analyticsTotal(metric)}
-                        index={index}
-                        integrationId={selectedChannel.id}
-                        onBarClick={handleBarClick}
-                      />
-                    ))}
-                  </div>
+                  layout.visible.length ? (
+                    <DNDProvider>
+                      <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2 xl:grid-cols-3">
+                        {layout.visible.map((metric, index) => (
+                          <SortableAnalyticsCard
+                            key={`${selectedChannel.id}-${dashboardMetricIdentity(
+                              metric
+                            )}`}
+                            metric={metric}
+                            index={index}
+                            integrationId={selectedChannel.id}
+                            onBarClick={handleBarClick}
+                            onRemove={() =>
+                              onRemoveMetric(dashboardMetricIdentity(metric))
+                            }
+                            onReorderLocal={onReorderLocal}
+                            onDragEnd={onDragEnd}
+                          />
+                        ))}
+                      </div>
+                    </DNDProvider>
+                  ) : (
+                    <div className="rounded-[12px] border border-newTableBorder bg-newTableHeader px-[20px] py-[24px] text-[14px] text-newTableText text-center">
+                      All stats are hidden. Use the + button to add them back.
+                    </div>
+                  )
                 ) : (
                   <ChannelState
                     channel={selectedChannel}

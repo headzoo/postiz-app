@@ -31,6 +31,11 @@ import {
   PublishedPostEditInput,
   ProviderWebhookEndpointReconciliationResult,
   SocialProvider,
+  PostRulesCapabilityMetadata,
+  PostRulesLoadMetricsResult,
+  PostRulesRemovePostResult,
+  PostRulesRepostResult,
+  PostRulesAddPlugReplyResult,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import {
   API_ORDER_FOLLOWER_SORTS,
@@ -241,6 +246,44 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         this.captureAnalyticsSnapshot(request),
     };
   }
+
+  get postRules() {
+    if (process.env.DISABLE_X_ANALYTICS) {
+      return undefined;
+    }
+
+    return {
+      metadata: () => this.getPostRulesMetadata(),
+      loadMetrics: (
+        integration: Integration,
+        accessToken: string,
+        externalPostId: string
+      ) => this.loadPostRulesMetrics(integration, accessToken, externalPostId),
+      removePost: (
+        integration: Integration,
+        accessToken: string,
+        externalPostId: string
+      ) => this.removePostViaRules(integration, accessToken, externalPostId),
+      repost: (
+        integration: Integration,
+        accessToken: string,
+        externalPostId: string
+      ) => this.repostViaRules(integration, accessToken, externalPostId),
+      addPlugReply: (
+        integration: Integration,
+        accessToken: string,
+        externalPostId: string,
+        content: string
+      ) =>
+        this.addPlugReplyViaRules(
+          integration,
+          accessToken,
+          externalPostId,
+          content
+        ),
+    };
+  }
+
   stripLinks = () => !!process.env.STRIP_LINKS_FROM_X_POSTS;
   // X rate limits are per user (300 posts / 3 hours), not per app, so the cap
   // only needs to keep bursts polite. With the pending flow the slot is held
@@ -2155,6 +2198,186 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     return undefined;
   }
 
+  private getPostRulesMetadata(): PostRulesCapabilityMetadata {
+    return {
+      actions: {
+        remove: true,
+        autoRepost: true,
+        autoPlug: true,
+      },
+      metrics: {
+        likes: true,
+        replies: true,
+      },
+    };
+  }
+
+  private async loadPostRulesMetrics(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesLoadMetricsResult> {
+    try {
+      const [accessTokenSplit, accessSecretSplit] = accessToken.split(':');
+      const client = new TwitterApi({
+        appKey: process.env.X_API_KEY!,
+        appSecret: process.env.X_API_SECRET!,
+        accessToken: accessTokenSplit,
+        accessSecret: accessSecretSplit,
+      });
+
+      const tweet = await client.v2.singleTweet(externalPostId, {
+        'tweet.fields': ['public_metrics'],
+      });
+
+      const metrics = tweet.data?.public_metrics;
+      if (!metrics) {
+        return { status: 'not_found' };
+      }
+
+      return {
+        status: 'success',
+        metrics: {
+          likes: metrics.like_count,
+          ...(typeof metrics.reply_count === 'number'
+            ? { replies: metrics.reply_count }
+            : {}),
+        },
+      };
+    } catch (err: any) {
+      if (err?.code === 404 || err?.data?.title === 'Not Found Entity') {
+        return { status: 'not_found' };
+      }
+      if (
+        err?.code === 401 ||
+        err?.code === 403 ||
+        err?.data?.title === 'Unauthorized'
+      ) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async removePostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRemovePostResult> {
+    try {
+      const [accessTokenSplit, accessSecretSplit] = accessToken.split(':');
+      const client = new TwitterApi({
+        appKey: process.env.X_API_KEY!,
+        appSecret: process.env.X_API_SECRET!,
+        accessToken: accessTokenSplit,
+        accessSecret: accessSecretSplit,
+      });
+
+      await client.v2.deleteTweet(externalPostId);
+      return { status: 'removed' };
+    } catch (err: any) {
+      if (err?.code === 404 || err?.data?.title === 'Not Found Entity') {
+        return { status: 'already_absent' };
+      }
+      if (
+        err?.code === 401 ||
+        err?.code === 403 ||
+        err?.data?.title === 'Unauthorized'
+      ) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async repostViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string
+  ): Promise<PostRulesRepostResult> {
+    try {
+      const [accessTokenSplit, accessSecretSplit] = accessToken.split(':');
+      const client = new TwitterApi({
+        appKey: process.env.X_API_KEY!,
+        appSecret: process.env.X_API_SECRET!,
+        accessToken: accessTokenSplit,
+        accessSecret: accessSecretSplit,
+      });
+
+      await timer(2000);
+      const result = await client.v2.retweet(
+        integration.internalId,
+        externalPostId
+      );
+      return {
+        status: 'reposted',
+        remoteReleaseId: externalPostId,
+      };
+    } catch (err: any) {
+      if (err?.data?.detail?.includes('already retweeted')) {
+        return { status: 'already_reposted' };
+      }
+      if (
+        err?.code === 401 ||
+        err?.code === 403 ||
+        err?.data?.title === 'Unauthorized'
+      ) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
+  private async addPlugReplyViaRules(
+    integration: Integration,
+    accessToken: string,
+    externalPostId: string,
+    content: string
+  ): Promise<PostRulesAddPlugReplyResult> {
+    try {
+      const [accessTokenSplit, accessSecretSplit] = accessToken.split(':');
+      const client = new TwitterApi({
+        appKey: process.env.X_API_KEY!,
+        appSecret: process.env.X_API_SECRET!,
+        accessToken: accessTokenSplit,
+        accessSecret: accessSecretSplit,
+      });
+
+      await timer(2000);
+      const plugText = stripHtmlValidation('normal', content, true);
+      const result = await client.v2.tweet({
+        text: this.stripLinks() ? removeLinks(plugText) : plugText,
+        reply: { in_reply_to_tweet_id: externalPostId },
+      });
+
+      return {
+        status: 'added',
+        remoteReleaseId: result.data.id,
+      };
+    } catch (err: any) {
+      if (
+        err?.code === 401 ||
+        err?.code === 403 ||
+        err?.data?.title === 'Unauthorized'
+      ) {
+        return { status: 'auth_error' };
+      }
+      return {
+        status: 'retryable_failure',
+        reason: err?.message || 'Unknown error',
+      };
+    }
+  }
+
   @Plug({
     identifier: 'x-autoRepostPost',
     title: 'Auto Repost Posts',
@@ -2178,23 +2401,22 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     id: string,
     fields: { likesAmount: string }
   ) {
-    // @ts-ignore
-    // eslint-disable-next-line prefer-rest-params
-    const [accessTokenSplit, accessSecretSplit] = integration.token.split(':');
-    const client = new TwitterApi({
-      appKey: process.env.X_API_KEY!,
-      appSecret: process.env.X_API_SECRET!,
-      accessToken: accessTokenSplit,
-      accessSecret: accessSecretSplit,
-    });
+    const metricsResult = await this.loadPostRulesMetrics(
+      integration,
+      integration.token,
+      id
+    );
 
     if (
-      (await client.v2.tweetLikedBy(id)).meta.result_count >=
-      +fields.likesAmount
+      metricsResult.status === 'success' &&
+      metricsResult.metrics.likes! >= +fields.likesAmount
     ) {
-      await timer(2000);
-      await client.v2.retweet(integration.internalId, id);
-      return true;
+      const result = await this.repostViaRules(
+        integration,
+        integration.token,
+        id
+      );
+      return result.status === 'reposted' || result.status === 'already_reposted';
     }
 
     return false;
@@ -2262,28 +2484,23 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     id: string,
     fields: { likesAmount: string; post: string }
   ) {
-    // @ts-ignore
-    // eslint-disable-next-line prefer-rest-params
-    const [accessTokenSplit, accessSecretSplit] = integration.token.split(':');
-    const client = new TwitterApi({
-      appKey: process.env.X_API_KEY!,
-      appSecret: process.env.X_API_SECRET!,
-      accessToken: accessTokenSplit,
-      accessSecret: accessSecretSplit,
-    });
+    const metricsResult = await this.loadPostRulesMetrics(
+      integration,
+      integration.token,
+      id
+    );
 
     if (
-      (await client.v2.tweetLikedBy(id)).meta.result_count >=
-      +fields.likesAmount
+      metricsResult.status === 'success' &&
+      metricsResult.metrics.likes! >= +fields.likesAmount
     ) {
-      await timer(2000);
-
-      const plugText = stripHtmlValidation('normal', fields.post, true);
-      await client.v2.tweet({
-        text: this.stripLinks() ? removeLinks(plugText) : plugText,
-        reply: { in_reply_to_tweet_id: id },
-      });
-      return true;
+      const result = await this.addPlugReplyViaRules(
+        integration,
+        integration.token,
+        id,
+        fields.post
+      );
+      return result.status === 'added';
     }
 
     return false;
