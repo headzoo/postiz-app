@@ -2,6 +2,7 @@ export const POST_RULE_ACTIONS = [
   'REMOVE',
   'AUTO_REPOST',
   'AUTO_PLUG',
+  'NOTIFY',
 ] as const;
 export type PostRuleAction = (typeof POST_RULE_ACTIONS)[number];
 
@@ -74,10 +75,13 @@ export type PostRuleAutoPlugActionConfig = {
   content: string;
 };
 
+export type PostRuleNotifyActionConfig = Record<string, never>;
+
 export type PostRuleActionConfig =
   | PostRuleRemoveActionConfig
   | PostRuleAutoRepostActionConfig
-  | PostRuleAutoPlugActionConfig;
+  | PostRuleAutoPlugActionConfig
+  | PostRuleNotifyActionConfig;
 
 export type PostRuleNormalizedMetrics = {
   likes?: number;

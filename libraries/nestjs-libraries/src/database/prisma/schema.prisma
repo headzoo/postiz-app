@@ -766,6 +766,7 @@ enum PostRuleAction {
   REMOVE
   AUTO_REPOST
   AUTO_PLUG
+  NOTIFY
 }
 
 enum PostRuleConditionMatch {

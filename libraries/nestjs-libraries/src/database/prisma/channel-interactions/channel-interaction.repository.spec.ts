@@ -36,6 +36,7 @@ const createHarness = () => {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     channelInteractionEvent: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -70,6 +71,7 @@ const createHarness = () => {
     },
     channelRelationshipGradeSnapshot: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     channelAudienceNote: {
       create: jest.fn(),
@@ -90,10 +92,13 @@ const createHarness = () => {
     },
     channelAudienceMemberTriageIgnore: {
       upsert: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     channelAudienceLeadBridge: {
       upsert: jest.fn(),
       findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       aggregate: jest.fn().mockResolvedValue({
         _max: { bridgeRelationshipGrade: null },
       }),
@@ -108,6 +113,7 @@ const createHarness = () => {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn(),
       findUnique: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     userOrganization: { findFirst: jest.fn().mockResolvedValue({ id: 'member' }) },
   };
@@ -1814,6 +1820,48 @@ describe('ChannelInteractionRepository', () => {
 
     expect(tx.channelAudienceLeadBridge.upsert).toHaveBeenCalledTimes(2);
     expect(tx.channelAudienceMember.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears all discovered lead bridges and deletes orphan lead-only members', async () => {
+    const { repository, tx } = createHarness();
+    tx.channelAudienceLeadBridge.findMany.mockResolvedValue([
+      { integrationId: 'integration-a' },
+    ]);
+    tx.channelAudienceLeadBridge.deleteMany.mockResolvedValue({ count: 3 });
+    tx.channelAudienceMember.findMany.mockResolvedValue([
+      { integrationId: 'integration-a', externalId: 'lead-1' },
+    ]);
+    tx.channelAudienceMember.deleteMany.mockResolvedValue({ count: 1 });
+
+    await expect(repository.clearAllDiscoveredLeads()).resolves.toEqual({
+      bridgesDeleted: 3,
+      orphansDeleted: 1,
+      integrationIds: ['integration-a'],
+    });
+
+    expect(tx.channelAudienceLeadBridge.deleteMany).toHaveBeenCalledWith({});
+    expect(tx.channelAudienceMember.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          leadBridgeScore: null,
+          leadFitScore: null,
+        }),
+      })
+    );
+    expect(tx.channelAudienceNote.deleteMany).toHaveBeenCalled();
+    expect(tx.channelAudienceMember.deleteMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          membershipState: {
+            in: [
+              ChannelAudienceMembership.UNKNOWN,
+              ChannelAudienceMembership.NOT_FOLLOWER,
+            ],
+          },
+          inboundInteractionCount: 0,
+        }),
+      })
+    );
   });
 
   it('filters leads by username or name when search is set', async () => {

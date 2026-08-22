@@ -1054,7 +1054,7 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
   private async captureAnalyticsSnapshot(
     request: ChannelAnalyticsCaptureRequest
   ): Promise<ChannelAnalyticsCapturePage> {
-    const { client, youtubeAnalytics } = clientAndYoutube();
+    const { client, youtube, youtubeAnalytics } = clientAndYoutube();
     client.setCredentials({ access_token: request.accessToken });
     const toDay = dayjs.utc(request.toDay || request.snapshotAt).startOf('day');
     const fromDay = dayjs
@@ -1116,28 +1116,58 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
       },
       likes: { metricKey: 'likes', label: 'Likes', valueMode: 'sum' },
     };
+    const points: Array<{
+      metricKey: string;
+      label: string;
+      valueMode: 'sum' | 'average' | 'latest';
+      displayUnit?: 'count' | 'percentage' | 'duration';
+      value: number;
+      day: string;
+    }> = (data.rows || []).flatMap((row) => {
+      const values = Object.fromEntries(
+        columns.map((column, index) => [column, row[index]])
+      );
+      return Object.entries(definitions).flatMap(([column, definition]) =>
+        typeof values[column] === 'number'
+          ? [
+              {
+                ...definition,
+                value: values[column] as number,
+                day: String(values.day),
+              },
+            ]
+          : []
+      );
+    });
+
+    try {
+      const channels = await youtube(client).channels.list({
+        part: ['statistics'],
+        mine: true,
+      });
+      const subscriberCount = Number(
+        channels.data.items?.[0]?.statistics?.subscriberCount
+      );
+      if (Number.isFinite(subscriberCount)) {
+        points.push({
+          metricKey: 'subscribers',
+          label: 'Subscribers',
+          valueMode: 'latest' as const,
+          value: subscriberCount,
+          day: toDay.format('YYYY-MM-DD'),
+        });
+      }
+    } catch {
+      // Keep analytics deltas when the subscriber total lookup fails.
+    }
+
     return paginateDailyAnalyticsCapture(
       request,
       {
         fromDay: fromDay.format('YYYY-MM-DD'),
         toDay: toDay.format('YYYY-MM-DD'),
       },
-      (data.rows || []).flatMap((row) => {
-        const values = Object.fromEntries(
-          columns.map((column, index) => [column, row[index]])
-        );
-        return Object.entries(definitions).flatMap(([column, definition]) =>
-          typeof values[column] === 'number'
-            ? [
-                {
-                  ...definition,
-                  value: values[column] as number,
-                  day: String(values.day),
-                },
-              ]
-            : []
-        );
-      })
+      points
     );
   }
 

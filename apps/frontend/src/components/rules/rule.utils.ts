@@ -28,6 +28,8 @@ export const formatActionLabel = (action: PostRuleAction): string => {
       return 'Auto Repost';
     case 'AUTO_PLUG':
       return 'Auto Plug';
+    case 'NOTIFY':
+      return 'Notify';
     default:
       return action;
   }

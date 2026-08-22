@@ -20,6 +20,10 @@ jest.mock('@gitroom/nestjs-libraries/redis/redis.service', () => ({
     get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue('OK'),
     del: jest.fn().mockResolvedValue(1),
+    keys: jest.fn().mockResolvedValue([]),
+    scan: jest.fn().mockResolvedValue(['0', []]),
+    incr: jest.fn().mockResolvedValue(1),
+    expire: jest.fn().mockResolvedValue(1),
   },
 }));
 
@@ -1962,5 +1966,97 @@ describe('ChannelInteractionService', () => {
       })
     ).resolves.toEqual({ scored: 0, candidates: 0 });
     expect(openaiService.scoreLeadFit).not.toHaveBeenCalled();
+  });
+
+  it('clears discovered leads and matching redis crawl keys for an admin burst', async () => {
+    const repository = createRepository();
+    repository.clearAllDiscoveredLeads = jest.fn().mockResolvedValue({
+      bridgesDeleted: 4,
+      orphansDeleted: 2,
+      integrationIds: ['integration-a'],
+    });
+    (ioRedis.scan as jest.Mock)
+      .mockResolvedValueOnce([
+        '0',
+        ['lead-bridge-crawl:integration-a:2026-08-22'],
+      ])
+      .mockResolvedValueOnce(['0', ['lead-bridge-cursor:integration-a']]);
+    (ioRedis.del as jest.Mock)
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+    const service = new ChannelInteractionService(repository as any);
+
+    await expect(
+      service.clearAllDiscoveredLeadsForAdminBurst()
+    ).resolves.toEqual({
+      bridgesDeleted: 4,
+      orphansDeleted: 2,
+      integrationIds: ['integration-a'],
+      redisKeysDeleted: 2,
+    });
+    expect(ioRedis.scan).toHaveBeenCalledWith(
+      '0',
+      'MATCH',
+      'lead-bridge-crawl:*',
+      'COUNT',
+      100
+    );
+    expect(ioRedis.del).toHaveBeenCalledWith(
+      'lead-bridge-crawl:integration-a:2026-08-22'
+    );
+    expect(ioRedis.del).toHaveBeenCalledWith(
+      'lead-bridge-cursor:integration-a'
+    );
+  });
+
+  it('ignores the daily crawl cap during an admin burst crawl', async () => {
+    const repository = createRepository();
+    repository.getNextWarmFollowerForLeadBridge = jest.fn().mockResolvedValue({
+      externalId: 'warm-1',
+      relationshipGrade: 4.2,
+    });
+    repository.applyLeadBridgeDiscoveries = jest.fn().mockResolvedValue({
+      applied: 20,
+      skipped: 0,
+      appliedExternalIds: Array.from({ length: 20 }, (_, i) => `lead-${i}`),
+    });
+    (ioRedis.get as jest.Mock).mockResolvedValue('5');
+    const memberFollowers = jest.fn().mockResolvedValue({
+      items: Array.from({ length: 25 }, (_, i) => ({
+        id: `lead-${i}`,
+        name: `Lead ${i}`,
+        bio: `bio-${i}`,
+        followersCount: 100 - i,
+      })),
+    });
+    const manager = {
+      getSocialIntegration: jest.fn().mockReturnValue({ memberFollowers }),
+    };
+    const service = new ChannelInteractionService(
+      repository as any,
+      manager as any
+    );
+
+    await expect(
+      service.crawlLeadBridgesForIntegration(
+        {
+          id: 'integration',
+          organizationId: 'org',
+          providerIdentifier: 'x',
+          token: 'token',
+        } as any,
+        { ignoreDailyLimit: true, maxApplied: 20 }
+      )
+    ).resolves.toEqual(
+      expect.objectContaining({
+        skipped: false,
+        processed: 1,
+        applied: 20,
+      })
+    );
+    expect(repository.applyLeadBridgeDiscoveries).toHaveBeenCalledWith(
+      expect.objectContaining({ maxApplied: 20 })
+    );
+    expect(ioRedis.incr).not.toHaveBeenCalled();
   });
 });

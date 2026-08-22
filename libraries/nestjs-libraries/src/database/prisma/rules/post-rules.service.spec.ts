@@ -3,7 +3,7 @@ import { PostRulesService } from './post-rules.service';
 import { PostRulesRepository } from './post-rules.repository';
 
 jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
-  IntegrationManager: class IntegrationManager {},
+  IntegrationManager: class IntegrationManager { },
 }));
 
 describe('PostRulesService', () => {
@@ -28,7 +28,7 @@ describe('PostRulesService', () => {
 
   const capabilities = {
     x: {
-      actions: ['REMOVE', 'AUTO_REPOST', 'AUTO_PLUG'],
+      actions: ['REMOVE', 'AUTO_REPOST', 'AUTO_PLUG', 'NOTIFY'],
       metrics: ['LIKES', 'REPLIES'],
     },
     linkedin: {
@@ -91,11 +91,19 @@ describe('PostRulesService', () => {
             { key: 'REPLIES', label: 'Replies' },
           ],
         },
+        {
+          key: 'NOTIFY',
+          label: 'Send notification',
+          metrics: [
+            { key: 'LIKES', label: 'Likes' },
+            { key: 'REPLIES', label: 'Replies' },
+          ],
+        },
       ],
       providers: [
         {
           providerIdentifier: 'x',
-          actions: ['REMOVE', 'AUTO_REPOST', 'AUTO_PLUG'],
+          actions: ['REMOVE', 'AUTO_REPOST', 'AUTO_PLUG', 'NOTIFY'],
           metrics: ['LIKES', 'REPLIES'],
         },
         {

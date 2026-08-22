@@ -29,8 +29,7 @@ dayjs.extend(utc);
 )
 export class LinkedinPageProvider
   extends LinkedinProvider
-  implements SocialProvider
-{
+  implements SocialProvider {
   override identifier = 'linkedin-page';
   analyticsSnapshot = {
     capture: (request: ChannelAnalyticsCaptureRequest) =>
@@ -85,8 +84,8 @@ export class LinkedinPageProvider
   override profileUrl(integration: Integration) {
     return integration.profile
       ? `https://www.linkedin.com/company/${encodeURIComponent(
-          integration.profile
-        )}`
+        integration.profile
+      )}`
       : undefined;
   }
 
@@ -176,11 +175,10 @@ export class LinkedinPageProvider
   override async generateAuthUrl() {
     const state = makeId(6);
     const codeVerifier = makeId(30);
-    const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&prompt=none&client_id=${
-      process.env.LINKEDIN_CLIENT_ID
-    }&redirect_uri=${encodeURIComponent(
-      `${process.env.FRONTEND_URL}/integrations/social/linkedin-page`
-    )}&state=${state}&scope=${encodeURIComponent(this.scopes.join(' '))}`;
+    const url = `https://www.linkedin.com/oauth/v2/authorization?response_type=code&prompt=none&client_id=${process.env.LINKEDIN_CLIENT_ID
+      }&redirect_uri=${encodeURIComponent(
+        `${process.env.FRONTEND_URL}/integrations/social/linkedin-page`
+      )}&state=${state}&scope=${encodeURIComponent(this.scopes.join(' '))}`;
     return {
       url,
       codeVerifier,
@@ -583,6 +581,29 @@ export class LinkedinPageProvider
       );
       push(element, 'comments', 'Comments', statistics?.commentCount);
     }
+
+    try {
+      const networkResponse = await fetch(
+        `https://api.linkedin.com/v2/networkSizes/urn:li:organization:${request.integration.internalId}?edgeType=CompanyFollowedByMember`,
+        { headers }
+      );
+      const networkBody = await networkResponse.json();
+      if (
+        networkResponse.ok &&
+        typeof networkBody?.firstDegreeSize === 'number'
+      ) {
+        points.push({
+          metricKey: 'followers',
+          label: 'Followers',
+          valueMode: 'latest' as const,
+          value: networkBody.firstDegreeSize,
+          day: toDay.format('YYYY-MM-DD'),
+        });
+      }
+    } catch {
+      // Keep gain metrics when the total follower lookup fails.
+    }
+
     return paginateDailyAnalyticsCapture(
       request,
       {
@@ -725,6 +746,7 @@ export class LinkedinPageProvider
         remove: true,
         autoRepost: true,
         autoPlug: true,
+        notify: true,
       },
       metrics: {
         likes: true,

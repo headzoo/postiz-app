@@ -1072,7 +1072,43 @@ export class ChannelInteractionService {
     };
   }
 
-  async crawlLeadBridgesForIntegration(integration: Integration) {
+  async clearAllDiscoveredLeadsForAdminBurst() {
+    const result = await this._repository.clearAllDiscoveredLeads();
+    const redisKeysDeleted =
+      (await this.deleteRedisKeysByPattern('lead-bridge-crawl:*')) +
+      (await this.deleteRedisKeysByPattern('lead-bridge-cursor:*'));
+    return {
+      ...result,
+      redisKeysDeleted,
+    };
+  }
+
+  private async deleteRedisKeysByPattern(pattern: string) {
+    let cursor = '0';
+    let deleted = 0;
+    do {
+      const [nextCursor, keys] = await ioRedis.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        100
+      );
+      cursor = String(nextCursor);
+      if (keys.length) {
+        deleted += await ioRedis.del(...keys);
+      }
+    } while (cursor !== '0');
+    return deleted;
+  }
+
+  async crawlLeadBridgesForIntegration(
+    integration: Integration,
+    options: {
+      ignoreDailyLimit?: boolean;
+      maxApplied?: number;
+    } = {}
+  ) {
     if (!this._integrationManager) {
       return { skipped: true as const, processed: 0, applied: 0 };
     }
@@ -1091,7 +1127,7 @@ export class ChannelInteractionService {
     const day = utcDayKey();
     const countKey = leadBridgeDailyCountKey(integration.id, day);
     const used = Number((await ioRedis.get(countKey)) || '0');
-    if (used >= LEAD_BRIDGE_DAILY_LIMIT) {
+    if (!options.ignoreDailyLimit && used >= LEAD_BRIDGE_DAILY_LIMIT) {
       return { skipped: true as const, processed: 0, applied: 0, rateLimited: true };
     }
 
@@ -1163,19 +1199,25 @@ export class ChannelInteractionService {
       return rightFollowers - leftFollowers;
     });
 
+    const maxApplied = Math.max(
+      0,
+      options.maxApplied ?? LEAD_BRIDGE_PER_SOURCE_CAP
+    );
     const result = await this._repository.applyLeadBridgeDiscoveries({
       organizationId: integration.organizationId,
       integrationId: integration.id,
       bridgeExternalId: warm.externalId,
       bridgeRelationshipGrade: warm.relationshipGrade,
       leads: rankedLeads,
-      maxApplied: LEAD_BRIDGE_PER_SOURCE_CAP,
+      maxApplied,
     });
 
     await ioRedis.set(cursorKey, warm.externalId);
-    const nextCount = await ioRedis.incr(countKey);
-    if (nextCount === 1) {
-      await ioRedis.expire(countKey, leadBridgeDailyTtlSeconds());
+    if (!options.ignoreDailyLimit) {
+      const nextCount = await ioRedis.incr(countKey);
+      if (nextCount === 1) {
+        await ioRedis.expire(countKey, leadBridgeDailyTtlSeconds());
+      }
     }
 
     return {

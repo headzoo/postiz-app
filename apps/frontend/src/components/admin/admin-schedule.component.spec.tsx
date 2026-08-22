@@ -96,7 +96,7 @@ const scheduleByKey: Record<string, unknown> = {
       unit: 'hour',
       interval: 1,
       label:
-        'Idle up to 1 hour(s) when quiet; max 5 warm crawls per channel per UTC day',
+        'Idle up to 1 hour(s) when quiet; max 5 warm crawls per channel per UTC day. Trigger now clears all discovered leads, generates at least 20, then resumes the idle crawler.',
     },
   },
 };
@@ -260,6 +260,9 @@ describe('AdminScheduleComponent', () => {
 
     expect(screen.getByText('Lead discovery')).toBeTruthy();
     expect(screen.getByText(/warm crawls per channel/)).toBeTruthy();
+    expect(
+      screen.getByText(/deletes all discovered leads globally/i)
+    ).toBeTruthy();
     expect(mockUseSWR).toHaveBeenCalledWith(
       '/admin/schedule/lead-bridge',
       expect.any(Function),

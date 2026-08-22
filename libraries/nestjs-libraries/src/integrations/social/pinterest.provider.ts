@@ -708,29 +708,58 @@ export class PinterestProvider
       ['ENGAGEMENT', 'engagement', 'Engagement', 'sum'],
       ['SAVE', 'saves', 'Saves', 'sum'],
     ] as const;
+    const points = dailyMetrics.flatMap((item: any) =>
+      definitions.flatMap(
+        ([sourceKey, metricKey, label, valueMode, displayUnit]) =>
+          typeof item.metrics?.[sourceKey] === 'number'
+            ? [
+                {
+                  metricKey,
+                  label,
+                  valueMode,
+                  ...(displayUnit ? { displayUnit } : {}),
+                  value: item.metrics[sourceKey],
+                  day: item.date,
+                },
+              ]
+            : []
+      )
+    );
+
+    try {
+      const accountResponse = await fetch(
+        'https://api.pinterest.com/v5/user_account',
+        {
+          headers: {
+            Authorization: `Bearer ${request.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      const account = await accountResponse.json();
+      if (
+        accountResponse.ok &&
+        typeof account?.follower_count === 'number'
+      ) {
+        points.push({
+          metricKey: 'followers',
+          label: 'Followers',
+          valueMode: 'latest' as const,
+          value: account.follower_count,
+          day: endDate,
+        });
+      }
+    } catch {
+      // Keep engagement metrics when the follower total lookup fails.
+    }
+
     return paginateDailyAnalyticsCapture(
       request,
       {
         fromDay: startDate,
         toDay: endDate,
       },
-      dailyMetrics.flatMap((item: any) =>
-        definitions.flatMap(
-          ([sourceKey, metricKey, label, valueMode, displayUnit]) =>
-            typeof item.metrics?.[sourceKey] === 'number'
-              ? [
-                  {
-                    metricKey,
-                    label,
-                    valueMode,
-                    ...(displayUnit ? { displayUnit } : {}),
-                    value: item.metrics[sourceKey],
-                    day: item.date,
-                  },
-                ]
-              : []
-        )
-      )
+      points
     );
   }
 

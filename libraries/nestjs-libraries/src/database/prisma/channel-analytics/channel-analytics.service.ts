@@ -45,7 +45,7 @@ export class ChannelAnalyticsService {
     private _temporalService: TemporalService
   ) { }
 
-  persistCapturePage(
+  async persistCapturePage(
     organizationId: string,
     integrationId: string,
     snapshotAt: Date,
@@ -72,12 +72,33 @@ export class ChannelAnalyticsService {
       );
     }
     if (page.kind === 'post_lifetime') {
-      return this._repository.persistPostLifetimePage(
+      if (
+        page.accountPoints &&
+        (!Array.isArray(page.accountPoints) ||
+          page.accountPoints.length > MAX_PAGE_POINTS)
+      ) {
+        throw new BadRequestException(
+          `Analytics page may contain at most ${MAX_PAGE_POINTS} account points`
+        );
+      }
+      const result = await this._repository.persistPostLifetimePage(
         organizationId,
         integrationId,
         snapshotAt,
         page.points.map((point) => this.validatePostMetric(point))
       );
+      if (page.accountPoints?.length) {
+        const accountPersisted =
+          await this._repository.persistAccountDailyPoints(
+            organizationId,
+            integrationId,
+            page.accountPoints.map((point) => this.validateDailyPoint(point))
+          );
+        return {
+          persisted: result.persisted + accountPersisted.persisted,
+        };
+      }
+      return result;
     }
     throw new BadRequestException('Unsupported analytics capture page');
   }

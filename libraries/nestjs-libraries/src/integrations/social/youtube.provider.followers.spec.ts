@@ -1,5 +1,7 @@
+import 'reflect-metadata';
 const setCredentials = jest.fn();
 const subscriptionsList = jest.fn();
+const channelsList = jest.fn();
 const reportsQuery = jest.fn();
 
 jest.mock('googleapis', () => ({
@@ -9,6 +11,7 @@ jest.mock('googleapis', () => ({
     },
     youtube: jest.fn(() => ({
       subscriptions: { list: subscriptionsList },
+      channels: { list: channelsList },
     })),
     oauth2: jest.fn(),
     youtubeAnalytics: jest.fn(() => ({
@@ -151,4 +154,45 @@ describe('YoutubeProvider followers', () => {
       } as any)
     ).rejects.toThrow('YouTube analytics request failed');
   });
+
+
+  it('includes a latest subscriber total for the snapshot day', async () => {
+    reportsQuery.mockResolvedValue({
+      data: {
+        columnHeaders: [{ name: 'day' }, { name: 'views' }],
+        rows: [['2026-08-15', 10]],
+      },
+    });
+    channelsList.mockResolvedValue({
+      data: {
+        items: [{ statistics: { subscriberCount: '4242' } }],
+      },
+    });
+
+    const page = await new YoutubeProvider().analyticsSnapshot!.capture({
+      integration: { internalId: 'channel' },
+      accessToken: 'token',
+      snapshotAt: new Date('2026-08-15T12:00:00.000Z'),
+      fromDay: new Date('2026-08-15T00:00:00.000Z'),
+      toDay: new Date('2026-08-15T00:00:00.000Z'),
+      pageSize: 100,
+    } as any);
+
+    expect(channelsList).toHaveBeenCalledWith({
+      part: ['statistics'],
+      mine: true,
+    });
+    expect(page.points).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          metricKey: 'subscribers',
+          label: 'Subscribers',
+          valueMode: 'latest',
+          value: 4242,
+          day: '2026-08-15',
+        }),
+      ])
+    );
+  });
+
 });

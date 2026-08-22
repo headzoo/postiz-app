@@ -91,9 +91,9 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
 
   override handleErrors(body: string):
     | {
-        type: 'refresh-token' | 'bad-body';
-        value: string;
-      }
+      type: 'refresh-token' | 'bad-body';
+      value: string;
+    }
     | undefined {
     console.log(body);
     if (body.includes('Error validating access token')) {
@@ -161,10 +161,9 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
         'https://www.threads.net/oauth/authorize' +
         `?client_id=${process.env.THREADS_APP_ID}` +
         `&redirect_uri=${encodeURIComponent(
-          `${
-            process?.env.FRONTEND_URL?.indexOf('https') == -1
-              ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-              : `${process?.env.FRONTEND_URL}`
+          `${process?.env.FRONTEND_URL?.indexOf('https') == -1
+            ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+            : `${process?.env.FRONTEND_URL}`
           }/integrations/social/threads`
         )}` +
         `&state=${state}` +
@@ -182,26 +181,25 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     const getAccessToken = await (
       await this.fetch(
         'https://graph.threads.net/oauth/access_token' +
-          `?client_id=${process.env.THREADS_APP_ID}` +
-          `&redirect_uri=${encodeURIComponent(
-            `${
-              process?.env.FRONTEND_URL?.indexOf('https') == -1
-                ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-                : `${process?.env.FRONTEND_URL}`
-            }/integrations/social/threads`
-          )}` +
-          `&grant_type=authorization_code` +
-          `&client_secret=${process.env.THREADS_APP_SECRET}` +
-          `&code=${params.code}`
+        `?client_id=${process.env.THREADS_APP_ID}` +
+        `&redirect_uri=${encodeURIComponent(
+          `${process?.env.FRONTEND_URL?.indexOf('https') == -1
+            ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+            : `${process?.env.FRONTEND_URL}`
+          }/integrations/social/threads`
+        )}` +
+        `&grant_type=authorization_code` +
+        `&client_secret=${process.env.THREADS_APP_SECRET}` +
+        `&code=${params.code}`
       )
     ).json();
 
     const { access_token } = await (
       await this.fetch(
         'https://graph.threads.net/access_token' +
-          '?grant_type=th_exchange_token' +
-          `&client_secret=${process.env.THREADS_APP_SECRET}` +
-          `&access_token=${getAccessToken.access_token}`
+        '?grant_type=th_exchange_token' +
+        `&client_secret=${process.env.THREADS_APP_SECRET}` +
+        `&access_token=${getAccessToken.access_token}`
       )
     ).json();
 
@@ -535,12 +533,12 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       !firstPost.media || firstPost.media.length === 0
         ? await this.createTextContent(userId, accessToken, firstPost.message)
         : await this.createSingleMediaContent(
-            userId,
-            accessToken,
-            firstPost.media[0],
-            firstPost.message,
-            false
-          );
+          userId,
+          accessToken,
+          firstPost.media[0],
+          firstPost.message,
+          false
+        );
 
     return [
       {
@@ -787,9 +785,9 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
         data: d.total_value
           ? [{ total: d.total_value.value, date: dayjs().format('YYYY-MM-DD') }]
           : d.values.map((v: any) => ({
-              total: v.value,
-              date: dayjs(v.end_time).format('YYYY-MM-DD'),
-            })),
+            total: v.value,
+            date: dayjs(v.end_time).format('YYYY-MM-DD'),
+          })),
       })) || []
     );
   }
@@ -820,21 +818,21 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       data.flatMap((metric: any) =>
         metric.total_value
           ? [
-              {
-                metricKey: metric.name,
-                label: capitalize(metric.name),
-                valueMode: 'latest' as const,
-                value: Number(metric.total_value.value),
-                day: toDay.format('YYYY-MM-DD'),
-              },
-            ]
-          : (metric.values || []).map((value: any) => ({
+            {
               metricKey: metric.name,
               label: capitalize(metric.name),
-              valueMode: 'sum' as const,
-              value: Number(value.value),
-              day: dayjs.utc(value.end_time).format('YYYY-MM-DD'),
-            }))
+              valueMode: 'latest' as const,
+              value: Number(metric.total_value.value),
+              day: toDay.format('YYYY-MM-DD'),
+            },
+          ]
+          : (metric.values || []).map((value: any) => ({
+            metricKey: metric.name,
+            label: capitalize(metric.name),
+            valueMode: 'sum' as const,
+            value: Number(value.value),
+            day: dayjs.utc(value.end_time).format('YYYY-MM-DD'),
+          }))
       )
     );
   }
@@ -844,6 +842,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
       actions: {
         remove: true,
         autoPlug: true,
+        notify: true,
       },
       metrics: {
         likes: true,

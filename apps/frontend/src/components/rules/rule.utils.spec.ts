@@ -1,4 +1,8 @@
-import { RULES_EMPTY_STATE_CUTOVER_NOTE, filterRulesByChannel } from './rule.utils';
+import {
+  RULES_EMPTY_STATE_CUTOVER_NOTE,
+  filterRulesByChannel,
+  formatActionLabel,
+} from './rule.utils';
 import { PostRuleListItemResponse } from '@gitroom/nestjs-libraries/dtos/rules/rule.types';
 
 const listItem = (
@@ -26,6 +30,15 @@ describe('rule.utils cutover copy', () => {
     expect(RULES_EMPTY_STATE_CUTOVER_NOTE).toMatch(/legacy plugs were not migrated/i);
     expect(RULES_EMPTY_STATE_CUTOVER_NOTE).toMatch(/recreate/i);
     expect(RULES_EMPTY_STATE_CUTOVER_NOTE).not.toMatch(/\/plugs/);
+  });
+});
+
+describe('formatActionLabel', () => {
+  it('labels known post-rule actions', () => {
+    expect(formatActionLabel('REMOVE')).toBe('Remove');
+    expect(formatActionLabel('AUTO_REPOST')).toBe('Auto Repost');
+    expect(formatActionLabel('AUTO_PLUG')).toBe('Auto Plug');
+    expect(formatActionLabel('NOTIFY')).toBe('Notify');
   });
 });
 

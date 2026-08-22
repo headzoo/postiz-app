@@ -1778,6 +1778,87 @@ export class ChannelInteractionRepository {
     });
   }
 
+  async clearAllDiscoveredLeads() {
+    return this.withSerializableRetry(async (tx) => {
+      const affectedIntegrations =
+        await tx.channelAudienceLeadBridge.findMany({
+          distinct: ['integrationId'],
+          select: { integrationId: true },
+        });
+      const bridgesDeleted = await tx.channelAudienceLeadBridge.deleteMany({});
+      await tx.channelAudienceMember.updateMany({
+        where: {
+          OR: [
+            { leadBridgeScore: { not: null } },
+            { leadFitScore: { not: null } },
+          ],
+        },
+        data: {
+          leadBridgeScore: null,
+          leadFitScore: null,
+          leadFitReason: null,
+          leadFitConcerns: null,
+          leadFitMatchedTopics: null,
+          leadFitModel: null,
+          leadFitVersion: null,
+          leadFitScoredAt: null,
+        },
+      });
+
+      const orphanWhere: Prisma.ChannelAudienceMemberWhereInput = {
+        membershipState: {
+          in: [
+            ChannelAudienceMembership.UNKNOWN,
+            ChannelAudienceMembership.NOT_FOLLOWER,
+          ],
+        },
+        inboundInteractionCount: 0,
+        leadBridgesAsLead: { none: {} },
+        leadBridgesAsBridge: { none: {} },
+      };
+      const orphans = await tx.channelAudienceMember.findMany({
+        where: orphanWhere,
+        select: { integrationId: true, externalId: true },
+      });
+      if (orphans.length) {
+        const memberKeys = orphans.map((orphan) => ({
+          integrationId: orphan.integrationId,
+          counterpartyExternalId: orphan.externalId,
+        }));
+        await tx.channelAudienceNote.deleteMany({
+          where: { OR: memberKeys },
+        });
+        await tx.channelAudienceListMember.deleteMany({
+          where: { OR: memberKeys },
+        });
+        await tx.channelAudienceMemberGrade.deleteMany({
+          where: { OR: memberKeys },
+        });
+        await tx.channelRelationshipGradeSnapshot.deleteMany({
+          where: { OR: memberKeys },
+        });
+        await tx.channelAudienceMemberTriageIgnore.deleteMany({
+          where: { OR: memberKeys },
+        });
+        await tx.channelAudienceCultivatePick.deleteMany({
+          where: { OR: memberKeys },
+        });
+        await tx.channelInteractionWindowSummary.deleteMany({
+          where: { OR: memberKeys },
+        });
+      }
+      const orphansDeleted = await tx.channelAudienceMember.deleteMany({
+        where: orphanWhere,
+      });
+
+      return {
+        bridgesDeleted: bridgesDeleted.count,
+        orphansDeleted: orphansDeleted.count,
+        integrationIds: affectedIntegrations.map((row) => row.integrationId),
+      };
+    });
+  }
+
   private warmFollowerWhere(): Prisma.ChannelAudienceMemberWhereInput {
     return {
       membershipState: ChannelAudienceMembership.FOLLOWER,

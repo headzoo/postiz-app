@@ -48,6 +48,7 @@ describe('BlueskyProvider PostRules Capability', () => {
           remove: true,
           autoRepost: true,
           autoPlug: true,
+          notify: true,
         },
         metrics: {
           likes: true,

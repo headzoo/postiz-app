@@ -1027,27 +1027,52 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
       .startOf('day');
     const until = toDay.endOf('day').unix();
     const since = fromDay.unix();
+    const pageId = request.integration.internalId;
+    const accessToken = request.accessToken;
     const response = await fetch(
-      `https://graph.facebook.com/v23.0/${request.integration.internalId}/insights?metric=page_total_media_view_unique,page_media_view,page_post_engagements,page_daily_follows&access_token=${request.accessToken}&period=day&since=${since}&until=${until}`
+      `https://graph.facebook.com/v23.0/${pageId}/insights?metric=page_total_media_view_unique,page_media_view,page_post_engagements,page_daily_follows,page_follows&access_token=${accessToken}&period=day&since=${since}&until=${until}`
     );
     const body = await response.json();
+    let data = body?.data || [];
     if (!response.ok || body?.error) {
-      throw new Error('Facebook analytics request failed');
+      // Retry without page_follows when Meta rejects that metric.
+      const fallback = await fetch(
+        `https://graph.facebook.com/v23.0/${pageId}/insights?metric=page_total_media_view_unique,page_media_view,page_post_engagements,page_daily_follows&access_token=${accessToken}&period=day&since=${since}&until=${until}`
+      );
+      const fallbackBody = await fallback.json();
+      if (!fallback.ok || fallbackBody?.error) {
+        throw new Error('Facebook analytics request failed');
+      }
+      data = fallbackBody?.data || [];
     }
-    const data = body?.data || [];
-    const definitions: Record<string, { metricKey: string; label: string }> = {
+    const definitions: Record<
+      string,
+      { metricKey: string; label: string; valueMode: 'sum' | 'latest' }
+    > = {
       page_total_media_view_unique: {
         metricKey: 'page_impressions',
         label: 'Page Impressions',
+        valueMode: 'sum',
       },
-      page_media_view: { metricKey: 'media_views', label: 'Media views' },
+      page_media_view: {
+        metricKey: 'media_views',
+        label: 'Media views',
+        valueMode: 'sum',
+      },
       page_post_engagements: {
         metricKey: 'post_engagements',
         label: 'Posts Engagement',
+        valueMode: 'sum',
       },
       page_daily_follows: {
         metricKey: 'page_followers',
         label: 'Page followers',
+        valueMode: 'sum',
+      },
+      page_follows: {
+        metricKey: 'followers',
+        label: 'Followers',
+        valueMode: 'latest',
       },
     };
     const sumValue = (value: unknown) =>
@@ -1058,23 +1083,50 @@ export class FacebookProvider extends SocialAbstract implements SocialProvider {
           )
         : Number(value) || 0;
 
+    const points = data.flatMap((metric: any) => {
+      const definition = definitions[metric.name];
+      return definition
+        ? (metric.values || []).map((value: any) => ({
+            metricKey: definition.metricKey,
+            label: definition.label,
+            valueMode: definition.valueMode,
+            value: sumValue(value.value),
+            day: dayjs.utc(value.end_time).format('YYYY-MM-DD'),
+          }))
+        : [];
+    });
+
+    if (!points.some((point: { metricKey: string }) => point.metricKey === 'followers')) {
+      try {
+        const pageResponse = await fetch(
+          `https://graph.facebook.com/v23.0/${pageId}?fields=followers_count&access_token=${accessToken}`
+        );
+        const pageBody = await pageResponse.json();
+        if (
+          pageResponse.ok &&
+          !pageBody?.error &&
+          typeof pageBody?.followers_count === 'number'
+        ) {
+          points.push({
+            metricKey: 'followers',
+            label: 'Followers',
+            valueMode: 'latest' as const,
+            value: pageBody.followers_count,
+            day: toDay.format('YYYY-MM-DD'),
+          });
+        }
+      } catch {
+        // Keep other metrics when the total follower lookup fails.
+      }
+    }
+
     return paginateDailyAnalyticsCapture(
       request,
       {
         fromDay: fromDay.format('YYYY-MM-DD'),
         toDay: toDay.format('YYYY-MM-DD'),
       },
-      data.flatMap((metric: any) => {
-        const definition = definitions[metric.name];
-        return definition
-          ? (metric.values || []).map((value: any) => ({
-              ...definition,
-              valueMode: 'sum' as const,
-              value: sumValue(value.value),
-              day: dayjs.utc(value.end_time).format('YYYY-MM-DD'),
-            }))
-          : [];
-      }),
+      points
     );
   }
 

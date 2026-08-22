@@ -92,6 +92,20 @@ describe('CreatePostRuleDto', () => {
     ).toBe(true);
   });
 
+  it('accepts NOTIFY with polling configuration', async () => {
+    expect(
+      await run({
+        name: 'Reply alert',
+        action: 'NOTIFY',
+        initialDelayHours: 1,
+        evaluationIntervalHours: 6,
+        maxEvaluations: 8,
+        conditionMatch: 'ANY',
+        conditions: [{ metric: 'REPLIES', operator: 'GTE', threshold: 1 }],
+      })
+    ).toHaveLength(0);
+  });
+
   it('rejects absolute timestamp reschedule input', async () => {
     const errors = await run({
       ...baseRemove,

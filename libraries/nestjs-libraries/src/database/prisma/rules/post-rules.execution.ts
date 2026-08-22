@@ -10,7 +10,10 @@ import {
   PostRuleManualRescheduleConfig,
   PostRuleNormalizedMetrics,
 } from '@gitroom/nestjs-libraries/dtos/rules/rule.types';
-import { POST_RULE_MAX_EVALUATIONS } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.domain';
+import {
+  isPollingPostRuleAction,
+  POST_RULE_MAX_EVALUATIONS,
+} from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.domain';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -108,8 +111,26 @@ export const evaluatePostRuleConditions = (
   };
 };
 
-export const isPollingPostRuleAction = (action: PostRuleAction): boolean =>
-  action === 'AUTO_REPOST' || action === 'AUTO_PLUG';
+export const buildPostRuleNotifyMessage = (input: {
+  ruleName: string;
+  providerIdentifier: string;
+  metrics: PostRuleNormalizedMetrics;
+  releaseURL?: string | null;
+}): { subject: string; message: string } => {
+  const subject = `Rule "${input.ruleName}" matched`;
+  const metricParts: string[] = [];
+  if (typeof input.metrics.likes === 'number') {
+    metricParts.push(`${input.metrics.likes} likes`);
+  }
+  if (typeof input.metrics.replies === 'number') {
+    metricParts.push(`${input.metrics.replies} replies`);
+  }
+  const metricsText =
+    metricParts.length > 0 ? metricParts.join(', ') : 'updated engagement';
+  const link = input.releaseURL || `${process.env.FRONTEND_URL || ''}/calendar`;
+  const message = `Your ${input.providerIdentifier} post matched rule "${input.ruleName}" (${metricsText}). ${link}`;
+  return { subject, message };
+};
 
 export const postRuleEvaluationCount = (rule: {
   action: PostRuleAction;

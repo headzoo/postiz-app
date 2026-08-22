@@ -13,7 +13,7 @@ describe('XProvider PostRules Capability', () => {
   beforeEach(() => {
     // Ensure X analytics is enabled for tests
     delete process.env.DISABLE_X_ANALYTICS;
-    
+
     provider = new XProvider();
     mockIntegration = {
       id: 'test-integration-id',
@@ -41,6 +41,7 @@ describe('XProvider PostRules Capability', () => {
           remove: true,
           autoRepost: true,
           autoPlug: true,
+          notify: true,
         },
         metrics: {
           likes: true,
@@ -52,10 +53,10 @@ describe('XProvider PostRules Capability', () => {
     it('should return undefined when X analytics disabled', () => {
       const originalEnv = process.env.DISABLE_X_ANALYTICS;
       process.env.DISABLE_X_ANALYTICS = '1';
-      
+
       const newProvider = new XProvider();
       expect(newProvider.postRules).toBeUndefined();
-      
+
       process.env.DISABLE_X_ANALYTICS = originalEnv;
     });
   });

@@ -215,6 +215,9 @@ export const AdminScheduleComponent: FC = () => {
       modal.openModal({
         closeOnClickOutside: true,
         withCloseButton: false,
+        top: 40,
+        height: 'calc(100dvh - 80px)',
+        size: '100%',
         classNames: {
           modal: 'w-[100%] max-w-[900px] text-textColor',
         },
@@ -452,7 +455,7 @@ export const AdminScheduleComponent: FC = () => {
       toaster.show(
         t(
           'admin_schedule_lead_bridge_trigger_success',
-          'Lead discovery triggered. The workflow is now running.'
+          'Lead discovery reset started. All discovered leads are being cleared, then at least 20 new leads will be generated.'
         ),
         'success'
       );
@@ -694,7 +697,13 @@ export const AdminScheduleComponent: FC = () => {
         </div>
         <div className="text-[13px]">
           {leadBridge.data?.cadence?.label ||
-            'Idle up to 1 hour when quiet; daily crawl caps apply'}
+            'Idle up to 1 hour when quiet; Trigger now clears all discovered leads, generates at least 20, then resumes the idle crawler'}
+        </div>
+        <div className="text-[13px] opacity-70">
+          {t(
+            'admin_schedule_lead_bridge_trigger_help',
+            'Trigger now deletes all discovered leads globally, generates at least 20 new leads, then resumes the hourly idle crawler.'
+          )}
         </div>
         <div className="text-[13px]">
           {t('admin_schedule_status', 'Status')}: {leadBridge.data?.status}

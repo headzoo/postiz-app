@@ -126,6 +126,11 @@ export type ChannelAnalyticsCapturePage =
   | {
     kind: 'post_lifetime';
     points: ChannelAnalyticsPostLifetimePoint[];
+    /**
+     * Optional account-level daily points (e.g. follower totals) persisted
+     * alongside post_lifetime capture without updating coverage windows.
+     */
+    accountPoints?: ChannelAnalyticsDatedPoint[];
     nextCursor?: string;
   };
 
@@ -173,6 +178,7 @@ export type PostRulesCapabilityAction = {
   remove?: boolean;
   autoRepost?: boolean;
   autoPlug?: boolean;
+  notify?: boolean;
 };
 
 export type PostRulesCapabilityMetadata = {

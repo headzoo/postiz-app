@@ -135,16 +135,52 @@ describe('AdminScheduleWorkflowService', () => {
     expect(status.cadence.label).toContain('warm crawls');
   });
 
-  it('starts and signals the lead bridge workflow', async () => {
+  it('terminates the idle lead bridge workflow and starts an admin burst', async () => {
     const describe = jest.fn().mockResolvedValue({
       status: { name: 'RUNNING' },
       startTime: new Date('2026-08-21T00:00:00.000Z'),
     });
-    const signal = jest.fn().mockResolvedValue(undefined);
+    const terminate = jest.fn().mockResolvedValue(undefined);
+    const start = jest.fn().mockResolvedValue(undefined);
+    const append = jest.fn().mockResolvedValue(undefined);
+    const service = createService(
+      {
+        getHandle: jest.fn().mockReturnValue({ describe, terminate }),
+        start,
+      },
+      { countActiveAutoposts: jest.fn() },
+      { append }
+    );
+
+    await service.triggerLeadBridge();
+    expect(terminate).toHaveBeenCalledWith('Admin lead discovery burst trigger');
+    expect(start).toHaveBeenCalledWith(
+      'channelLeadBridgeAdminTriggerWorkflowV1',
+      expect.objectContaining({
+        taskQueue: 'main',
+        args: [{}],
+      })
+    );
+    expect(String(start.mock.calls[0][1].workflowId)).toContain(
+      'channel-lead-bridge-admin-trigger-v1-'
+    );
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scheduleKey: 'lead-bridge',
+        message: expect.stringContaining('burst triggered'),
+      })
+    );
+  });
+
+  it('starts an admin burst when the idle workflow is missing', async () => {
+    const describe = jest.fn().mockRejectedValue({
+      name: 'WorkflowNotFoundError',
+      message: 'not found',
+    });
     const start = jest.fn().mockResolvedValue(undefined);
     const service = createService(
       {
-        getHandle: jest.fn().mockReturnValue({ describe, signal }),
+        getHandle: jest.fn().mockReturnValue({ describe }),
         start,
       },
       { countActiveAutoposts: jest.fn() }
@@ -152,35 +188,10 @@ describe('AdminScheduleWorkflowService', () => {
 
     await service.triggerLeadBridge();
     expect(start).toHaveBeenCalledWith(
-      'channelLeadBridgeWorkflowV1',
+      'channelLeadBridgeAdminTriggerWorkflowV1',
       expect.objectContaining({
-        workflowId: 'channel-lead-bridge-workflow-v1',
         taskQueue: 'main',
-        args: [{}],
       })
     );
-    expect(signal).toHaveBeenCalledWith('channelLeadBridge');
-  });
-
-  it('signals an already-running lead bridge workflow', async () => {
-    const describe = jest.fn().mockResolvedValue({
-      status: { name: 'RUNNING' },
-      startTime: new Date('2026-08-21T00:00:00.000Z'),
-    });
-    const signal = jest.fn().mockResolvedValue(undefined);
-    const start = jest.fn().mockRejectedValue({
-      name: 'WorkflowExecutionAlreadyStartedError',
-      message: 'already started',
-    });
-    const service = createService(
-      {
-        getHandle: jest.fn().mockReturnValue({ describe, signal }),
-        start,
-      },
-      { countActiveAutoposts: jest.fn() }
-    );
-
-    await service.triggerLeadBridge();
-    expect(signal).toHaveBeenCalledWith('channelLeadBridge');
   });
 });

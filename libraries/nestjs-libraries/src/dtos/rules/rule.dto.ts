@@ -38,6 +38,7 @@ import {
   POST_RULE_MAX_DELAY_HOURS,
   POST_RULE_MAX_EVALUATIONS,
   POST_RULE_MAX_RESCHEDULE_ATTEMPTS,
+  isPollingPostRuleAction,
   validatePostRuleDefinition,
 } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.domain';
 
@@ -153,9 +154,8 @@ export class CreatePostRuleDto {
   @Max(POST_RULE_MAX_DELAY_HOURS)
   initialDelayHours!: number;
 
-  @ValidateIf(
-    (value: CreatePostRuleDto) =>
-      value.action === 'AUTO_REPOST' || value.action === 'AUTO_PLUG'
+  @ValidateIf((value: CreatePostRuleDto) =>
+    isPollingPostRuleAction(value.action)
   )
   @Type(() => Number)
   @IsInt()
@@ -163,9 +163,8 @@ export class CreatePostRuleDto {
   @Max(POST_RULE_MAX_DELAY_HOURS)
   evaluationIntervalHours?: number;
 
-  @ValidateIf(
-    (value: CreatePostRuleDto) =>
-      value.action === 'AUTO_REPOST' || value.action === 'AUTO_PLUG'
+  @ValidateIf((value: CreatePostRuleDto) =>
+    isPollingPostRuleAction(value.action)
   )
   @Type(() => Number)
   @IsInt()
@@ -214,7 +213,7 @@ export class CreatePostRuleDto {
   private readonly _postRuleDefinition!: true;
 }
 
-export class UpdatePostRuleDto extends CreatePostRuleDto {}
+export class UpdatePostRuleDto extends CreatePostRuleDto { }
 
 export class ReplacePostRuleAssignmentsDto {
   @IsArray()

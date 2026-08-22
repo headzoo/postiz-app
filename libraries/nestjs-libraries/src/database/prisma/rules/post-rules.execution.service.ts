@@ -36,7 +36,7 @@ import {
 } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.execution.repository';
 import {
   evaluatePostRuleConditions,
-  isPollingPostRuleAction,
+  buildPostRuleNotifyMessage,
   orderPostGroupForRemoval,
   POST_RULE_STALE_CLAIM_MS,
   postRuleEvaluationCount,
@@ -45,6 +45,8 @@ import {
   PostRuleSkipReason,
   resolveManualRescheduleDate,
 } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.execution';
+import { isPollingPostRuleAction } from '@gitroom/nestjs-libraries/database/prisma/rules/post-rules.domain';
+import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service';
 
 dayjs.extend(utc);
 
@@ -55,6 +57,7 @@ const ACTION_METADATA_KEYS: Record<
   REMOVE: 'remove',
   AUTO_REPOST: 'autoRepost',
   AUTO_PLUG: 'autoPlug',
+  NOTIFY: 'notify',
 };
 
 const METRIC_METADATA_KEYS: Record<
@@ -88,8 +91,9 @@ export class PostRulesExecutionService {
     private _integrationManager: IntegrationManager,
     private _refreshIntegrationService: RefreshIntegrationService,
     private _postsService: PostsService,
-    private _pipelineService: PipelineService
-  ) {}
+    private _pipelineService: PipelineService,
+    private _notificationService: NotificationService
+  ) { }
 
   /**
    * Turns a freshly published post into durable evaluation work. Called once per
@@ -424,6 +428,33 @@ export class PostRulesExecutionService {
       );
     }
 
+    if (rule.action === 'NOTIFY') {
+      const { subject, message } = buildPostRuleNotifyMessage({
+        ruleName: rule.name,
+        providerIdentifier: claim.post.integration.providerIdentifier,
+        metrics,
+        releaseURL: claim.post.releaseURL,
+      });
+      await this._notificationService.inAppNotification(
+        claim.run.organizationId,
+        subject,
+        message,
+        false
+      );
+      return this.complete(
+        claim,
+        {
+          matched: true,
+          action: rule.action,
+          rule: snapshot,
+          message: subject,
+        },
+        metrics,
+        'COMPLETED',
+        true
+      );
+    }
+
     const content = ((rule.actionConfig || {}) as PostRuleAutoPlugActionConfig)
       .content;
     if (!content || !content.trim()) {
@@ -604,8 +635,8 @@ export class PostRulesExecutionService {
         message: attemptLimitReached
           ? `Reschedule attempt limit of ${maxRescheduleAttempts} was reached, the post was removed without another reschedule`
           : successorPostId
-          ? 'The post was rescheduled and the published copy was removed'
-          : 'The post was removed',
+            ? 'The post was rescheduled and the published copy was removed'
+            : 'The post was removed',
       },
       metrics,
       'COMPLETED',
@@ -753,9 +784,9 @@ export class PostRulesExecutionService {
       settings: parseJson<Record<string, unknown>>(root.settings, {}),
       tags: (((root as unknown as { tags?: { tag: { name: string } }[] }).tags ||
         []) as { tag: { name: string } }[]).map((entry) => ({
-        value: entry.tag.name,
-        label: entry.tag.name,
-      })),
+          value: entry.tag.name,
+          label: entry.tag.name,
+        })),
       value: ordered.map((entry) => ({
         content: entry.content,
         image: parseJson<unknown[]>(entry.image, []),
@@ -775,8 +806,7 @@ export class PostRulesExecutionService {
     );
     if (invalid) {
       throw new Error(
-        `${invalid.name}: ${
-          invalid.settingsError || invalid.errors || 'the content is invalid'
+        `${invalid.name}: ${invalid.settingsError || invalid.errors || 'the content is invalid'
         }`
       );
     }

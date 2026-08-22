@@ -201,6 +201,7 @@ export class IntegrationManager {
           if (metadata.actions.remove) actions.push('REMOVE');
           if (metadata.actions.autoRepost) actions.push('AUTO_REPOST');
           if (metadata.actions.autoPlug) actions.push('AUTO_PLUG');
+          if (metadata.actions.notify) actions.push('NOTIFY');
 
           const metrics: string[] = [];
           if (metadata.metrics.likes) metrics.push('LIKES');

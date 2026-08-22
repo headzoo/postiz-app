@@ -21,6 +21,7 @@ describe('ChannelAnalyticsService', () => {
   const createRepository = () => ({
     persistDailyPage: jest.fn().mockResolvedValue({ persisted: 1 }),
     persistPostLifetimePage: jest.fn().mockResolvedValue({ persisted: 1 }),
+    persistAccountDailyPoints: jest.fn().mockResolvedValue({ persisted: 1 }),
     finalizeDailyCapture: jest.fn(),
     finalizePostLifetimeCapture: jest.fn(),
     recordFailure: jest.fn(),
@@ -58,7 +59,7 @@ describe('ChannelAnalyticsService', () => {
 
   it('rejects invalid provider values before persistence', async () => {
     const service = createService(createRepository());
-    expect(() =>
+    await expect(
       service.persistCapturePage('org', 'integration', new Date(), {
         kind: 'daily',
         coverage: { fromDay: '2026-08-15', toDay: '2026-08-15' },
@@ -72,7 +73,7 @@ describe('ChannelAnalyticsService', () => {
           },
         ],
       })
-    ).toThrow(BadRequestException);
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('returns sum, average, and latest window values with trends', async () => {
@@ -261,4 +262,52 @@ describe('ChannelAnalyticsService', () => {
     expect(engagement).toMatchObject({ total: 6, trend: null });
     expect(followers).toMatchObject({ total: 120, trend: 33.33333333333333 });
   });
+
+
+  it('persists post_lifetime accountPoints without coverage helpers', async () => {
+    const repository = createRepository();
+    const service = createService(repository);
+    const snapshotAt = new Date('2026-08-15T12:00:00.000Z');
+    await service.persistCapturePage('org', 'integration', snapshotAt, {
+      kind: 'post_lifetime',
+      points: [
+        {
+          externalPostId: 'tweet-1',
+          metricKey: 'like_count',
+          label: 'Likes',
+          valueMode: 'sum',
+          value: 3,
+        },
+      ],
+      accountPoints: [
+        {
+          metricKey: 'followers',
+          label: 'Followers',
+          valueMode: 'latest',
+          value: 1200,
+          day: '2026-08-15',
+        },
+      ],
+    });
+    expect(repository.persistPostLifetimePage).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      snapshotAt,
+      [expect.objectContaining({ externalPostId: 'tweet-1', metricKey: 'like_count' })]
+    );
+    expect(repository.persistAccountDailyPoints).toHaveBeenCalledWith(
+      'org',
+      'integration',
+      [
+        expect.objectContaining({
+          metricKey: 'followers',
+          valueMode: expect.anything(),
+          day: new Date('2026-08-15T00:00:00.000Z'),
+          value: 1200,
+        }),
+      ]
+    );
+    expect(repository.persistDailyPage).not.toHaveBeenCalled();
+  });
+
 });

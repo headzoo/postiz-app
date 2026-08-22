@@ -8,6 +8,7 @@ import {
   AuthTokenDetails,
   ChannelAnalyticsCaptureRequest,
   ChannelAnalyticsCapturePage,
+  ChannelAnalyticsDatedPoint,
   ChannelInteractionDirection,
   ChannelInteractionKind,
   ChannelInteractionKindCoverage,
@@ -2204,6 +2205,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         remove: true,
         autoRepost: true,
         autoPlug: true,
+        notify: true,
       },
       metrics: {
         likes: true,
@@ -3675,6 +3677,14 @@ export class XProvider extends SocialAbstract implements SocialProvider {
         request.fromDay || dayjs.utc(request.snapshotAt).subtract(100, 'day')
       )
       .startOf('day');
+    const snapshotDay = dayjs.utc(request.snapshotAt).format('YYYY-MM-DD');
+    const accountPoints = request.cursor
+      ? []
+      : await this.captureFollowerAccountPoints(
+        client,
+        request.integration.internalId,
+        snapshotDay
+      );
     const timeline = await client.v2.userTimeline(request.integration.internalId, {
       'tweet.fields': ['id'],
       'user.fields': [],
@@ -3687,12 +3697,13 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       max_results: Math.min(Math.max(request.pageSize, 1), 100),
       ...(request.cursor ? { pagination_token: request.cursor } : {}),
     });
-    const tweetIds = timeline.data.data.map((tweet) => tweet.id);
+    const tweetIds = timeline.data.data?.map((tweet) => tweet.id) || [];
     if (!tweetIds.length) {
       return {
         kind: 'post_lifetime',
         points: [],
-        ...(timeline.meta.next_token
+        ...(accountPoints.length ? { accountPoints } : {}),
+        ...(timeline.meta?.next_token
           ? { nextCursor: timeline.meta.next_token }
           : {}),
       };
@@ -3712,7 +3723,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
 
     return {
       kind: 'post_lifetime',
-      points: tweets.data.flatMap((tweet) =>
+      points: (tweets.data || []).flatMap((tweet) =>
         Object.entries(metricLabels).flatMap(([metricKey, label]) => {
           const value = tweet.public_metrics?.[
             metricKey as keyof typeof tweet.public_metrics
@@ -3730,10 +3741,42 @@ export class XProvider extends SocialAbstract implements SocialProvider {
             : [];
         })
       ),
-      ...(timeline.meta.next_token
+      ...(accountPoints.length ? { accountPoints } : {}),
+      ...(timeline.meta?.next_token
         ? { nextCursor: timeline.meta.next_token }
         : {}),
     };
+  }
+
+  private async captureFollowerAccountPoints(
+    client: TwitterApi,
+    userId: string,
+    day: string
+  ): Promise<ChannelAnalyticsDatedPoint[]> {
+    try {
+      const user = await client.v2.user(userId, {
+        'user.fields': ['public_metrics'],
+      });
+      const followers = user.data?.public_metrics?.followers_count;
+      if (typeof followers !== 'number') {
+        return [];
+      }
+      return [
+        {
+          metricKey: 'followers',
+          label: 'Followers',
+          valueMode: 'latest',
+          value: followers,
+          day,
+        },
+      ];
+    } catch (error) {
+      console.log(
+        `X follower total capture failed for ${userId}; continuing with post metrics`,
+        error
+      );
+      return [];
+    }
   }
 
   async analytics(

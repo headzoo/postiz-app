@@ -209,7 +209,8 @@ export const RuleEditor: FC<{
     );
   }
 
-  const needsRepetition = action === 'AUTO_REPOST' || action === 'AUTO_PLUG';
+  const needsRepetition =
+    action === 'AUTO_REPOST' || action === 'AUTO_PLUG' || action === 'NOTIFY';
   const needsReschedule = action === 'REMOVE';
 
   return (
@@ -259,6 +260,14 @@ export const RuleEditor: FC<{
             {t(
               'auto_plug_action_description',
               'Add a follow-up plug (comment/thread) if conditions are met.'
+            )}
+          </p>
+        )}
+        {action === 'NOTIFY' && (
+          <p className="text-[12px] opacity-70">
+            {t(
+              'notify_action_description',
+              'Send an in-app notification when conditions are met. Checks continue until the rule matches or max evaluations is reached.'
             )}
           </p>
         )}

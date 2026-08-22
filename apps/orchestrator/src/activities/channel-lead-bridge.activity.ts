@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Activity, ActivityMethod } from 'nestjs-temporal-core';
+import { Activity, ActivityMethod, TemporalService } from 'nestjs-temporal-core';
 import dayjs from 'dayjs';
 import { ChannelInteractionRepository } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.repository';
 import { ChannelInteractionService } from '@gitroom/nestjs-libraries/database/prisma/channel-interactions/channel-interaction.service';
@@ -11,6 +11,11 @@ import { SocialProvider } from '@gitroom/nestjs-libraries/integrations/social/so
 import { Integration } from '@prisma/client';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { AdminScheduleLogService } from '@gitroom/nestjs-libraries/database/prisma/admin-schedule-logs/admin-schedule-log.service';
+import {
+  LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED,
+  LEAD_BRIDGE_WORKFLOW_ID,
+  LEAD_BRIDGE_WORKFLOW_TYPE,
+} from '@gitroom/nestjs-libraries/temporal/lead-bridge.schedule';
 
 export type ChannelLeadBridgeCandidate = {
   id: string;
@@ -29,7 +34,8 @@ export class ChannelLeadBridgeActivity {
     private _integrationService: IntegrationService,
     private _integrationManager: IntegrationManager,
     private _refreshIntegrationService: RefreshIntegrationService,
-    private _adminScheduleLogService: AdminScheduleLogService
+    private _adminScheduleLogService: AdminScheduleLogService,
+    private _temporalService: TemporalService
   ) { }
 
   @ActivityMethod()
@@ -155,6 +161,152 @@ export class ChannelLeadBridgeActivity {
       });
     }
     return result;
+  }
+
+  @ActivityMethod()
+  async clearDiscoveredLeadsV1() {
+    const result =
+      await this._channelInteractionService.clearAllDiscoveredLeadsForAdminBurst();
+    this._logger.log(
+      `Lead discovery admin clear: bridges=${result.bridgesDeleted} orphans=${result.orphansDeleted} redis=${result.redisKeysDeleted}`
+    );
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'lead-bridge',
+      message: `Lead discovery cleared ${result.bridgesDeleted} bridge(s) and ${result.orphansDeleted} orphan lead(s)`,
+      meta: result,
+    });
+    return result;
+  }
+
+  @ActivityMethod()
+  async crawlNextWarmFollowerBurstV1(
+    request: {
+      after?: string;
+      maxApplied?: number;
+    } = {}
+  ) {
+    const listed = await this.listDueCandidatesV1({ after: request.after });
+    const candidate = listed.candidates[0] as
+      | ChannelLeadBridgeCandidate
+      | undefined;
+    if (!candidate) {
+      return {
+        exhausted: true as const,
+        applied: 0,
+        candidateId: undefined as string | undefined,
+      };
+    }
+
+    const integration = await this.getIntegration(candidate);
+    if (!integration || integration.disabled || integration.deletedAt) {
+      return {
+        exhausted: false as const,
+        applied: 0,
+        candidateId: candidate.id,
+      };
+    }
+    let provider: SocialProvider;
+    try {
+      provider = this._integrationManager.getSocialIntegration(
+        integration.providerIdentifier
+      );
+    } catch {
+      return {
+        exhausted: false as const,
+        applied: 0,
+        candidateId: candidate.id,
+      };
+    }
+    if (!provider.memberFollowers) {
+      return {
+        exhausted: false as const,
+        applied: 0,
+        candidateId: candidate.id,
+      };
+    }
+
+    const live = await this.withRefreshedToken(integration, provider);
+    const maxApplied = Math.max(
+      1,
+      request.maxApplied ?? LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED
+    );
+    const result =
+      await this._channelInteractionService.crawlLeadBridgesForIntegration(
+        live,
+        {
+          ignoreDailyLimit: true,
+          maxApplied,
+        }
+      );
+    this._logger.log(
+      `Lead discovery burst crawl for ${live.id} (${integration.providerIdentifier}): ${JSON.stringify(
+        result
+      )}`
+    );
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'lead-bridge',
+      message: `Lead discovery burst crawl for ${live.id} (${integration.providerIdentifier}) applied ${result.applied}`,
+      meta: { integrationId: live.id, result },
+    });
+    return {
+      exhausted: false as const,
+      applied: result.applied || 0,
+      candidateId: candidate.id,
+    };
+  }
+
+  @ActivityMethod()
+  async resumeIdleLeadBridgeV1(request: {
+    applied: number;
+    reachedTarget: boolean;
+  }) {
+    const workflow = this._temporalService.client?.getRawClient()?.workflow;
+    if (!workflow) {
+      throw new Error(
+        'Temporal workflow client unavailable during lead bridge resume'
+      );
+    }
+    try {
+      await workflow.start(LEAD_BRIDGE_WORKFLOW_TYPE, {
+        workflowId: LEAD_BRIDGE_WORKFLOW_ID,
+        taskQueue: 'main',
+        args: [{}],
+      });
+    } catch (error) {
+      const value = error as { name?: string; message?: string };
+      const alreadyStarted =
+        value?.name === 'WorkflowExecutionAlreadyStartedError' ||
+        !!value?.message?.toLowerCase().includes('already started');
+      if (!alreadyStarted) {
+        throw error;
+      }
+    }
+    try {
+      await workflow
+        .getHandle(LEAD_BRIDGE_WORKFLOW_ID)
+        .signal('channelLeadBridge');
+    } catch (error) {
+      this._logger.warn(
+        'Idle lead bridge workflow was not poked after admin burst',
+        error
+      );
+    }
+
+    const message = request.reachedTarget
+      ? `Lead discovery burst finished with ${request.applied} new lead(s); idle workflow resumed`
+      : `Lead discovery burst stopped at ${request.applied} lead(s) before reaching ${LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED}; idle workflow resumed`;
+    await this._adminScheduleLogService.append({
+      scheduleKey: 'lead-bridge',
+      level: request.reachedTarget ? 'INFO' : 'WARN',
+      message,
+      meta: {
+        applied: request.applied,
+        target: LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED,
+        reachedTarget: request.reachedTarget,
+        workflowId: LEAD_BRIDGE_WORKFLOW_ID,
+      },
+    });
+    return { resumed: true as const, ...request };
   }
 
   private getIntegration(candidate: ChannelLeadBridgeCandidate) {

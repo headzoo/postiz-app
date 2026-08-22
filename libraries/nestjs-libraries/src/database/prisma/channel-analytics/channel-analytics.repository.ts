@@ -164,6 +164,50 @@ export class ChannelAnalyticsRepository {
     });
   }
 
+  /**
+   * Upsert account-level daily points (e.g. follower totals) without touching
+   * pending coverage. Used by post_lifetime captures that sidecar totals.
+   */
+  async persistAccountDailyPoints(
+    organizationId: string,
+    integrationId: string,
+    points: AnalyticsDailyPointInput[]
+  ) {
+    if (!points.length) {
+      return { persisted: 0 };
+    }
+    return this.inTransaction(async (tx) => {
+      await this.assertOwnedIntegration(tx, organizationId, integrationId);
+      for (const point of points) {
+        await tx.channelAnalyticsDailyPoint.upsert({
+          where: {
+            integrationId_day_metricKey: {
+              integrationId,
+              day: point.day,
+              metricKey: point.metricKey,
+            },
+          },
+          create: {
+            organizationId,
+            integrationId,
+            ...point,
+            currentSnapshotAt: null,
+            previousSnapshotAt: null,
+          },
+          update: {
+            label: point.label,
+            valueMode: point.valueMode,
+            displayUnit: point.displayUnit,
+            value: point.value,
+            currentSnapshotAt: null,
+            previousSnapshotAt: null,
+          },
+        });
+      }
+      return { persisted: points.length };
+    });
+  }
+
   async finalizeDailyCapture(
     organizationId: string,
     integrationId: string,

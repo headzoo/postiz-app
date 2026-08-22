@@ -34,6 +34,7 @@ const ACTION_LABELS: Record<PostRuleAction, string> = {
   REMOVE: 'Remove post',
   AUTO_REPOST: 'Auto repost',
   AUTO_PLUG: 'Auto plug',
+  NOTIFY: 'Send notification',
 };
 
 const METRIC_LABELS: Record<PostRuleConditionMetric, string> = {
@@ -50,7 +51,7 @@ export class PostRulesService {
   constructor(
     private _postRulesRepository: PostRulesRepository,
     private _integrationManager: IntegrationManager
-  ) {}
+  ) { }
 
   getCapabilities(): PostRuleCapabilitiesResponse {
     const providerMap = this._integrationManager.getPostRulesCapabilities();

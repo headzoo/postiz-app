@@ -1030,6 +1030,7 @@ export class BlueskyProvider extends SocialAbstract implements SocialProvider {
         remove: true,
         autoRepost: true,
         autoPlug: true,
+        notify: true,
       },
       metrics: {
         likes: true,

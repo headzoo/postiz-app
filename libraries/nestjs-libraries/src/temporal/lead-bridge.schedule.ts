@@ -4,6 +4,13 @@ const DAY_MS = 24 * HOUR_MS;
 export const LEAD_BRIDGE_WORKFLOW_TYPE = 'channelLeadBridgeWorkflowV1';
 export const LEAD_BRIDGE_WORKFLOW_ID = 'channel-lead-bridge-workflow-v1';
 
+export const LEAD_BRIDGE_ADMIN_TRIGGER_WORKFLOW_TYPE =
+  'channelLeadBridgeAdminTriggerWorkflowV1';
+export const LEAD_BRIDGE_ADMIN_TRIGGER_WORKFLOW_ID_PREFIX =
+  'channel-lead-bridge-admin-trigger-v1';
+/** Minimum newly-applied leads an admin burst trigger should produce. */
+export const LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED = 20;
+
 /** Max warm followers whose follower lists we crawl per integration per UTC day. */
 export const LEAD_BRIDGE_DAILY_LIMIT = 5;
 export const LEAD_BRIDGE_PAGE_SIZE = 100;

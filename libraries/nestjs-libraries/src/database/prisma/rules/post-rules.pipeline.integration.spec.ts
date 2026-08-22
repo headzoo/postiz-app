@@ -1,17 +1,17 @@
 jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
-  IntegrationManager: class IntegrationManager {},
+  IntegrationManager: class IntegrationManager { },
 }));
 jest.mock(
   '@gitroom/nestjs-libraries/integrations/refresh.integration.service',
-  () => ({ RefreshIntegrationService: class RefreshIntegrationService {} })
+  () => ({ RefreshIntegrationService: class RefreshIntegrationService { } })
 );
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/posts/posts.service',
-  () => ({ PostsService: class PostsService {} })
+  () => ({ PostsService: class PostsService { } })
 );
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.service',
-  () => ({ PipelineService: class PipelineService {} })
+  () => ({ PipelineService: class PipelineService { } })
 );
 
 import { PostRulesExecutionService } from './post-rules.execution.service';
@@ -121,6 +121,7 @@ const createService = () => {
   (service as any)._refreshIntegrationService = { refresh: jest.fn() };
   (service as any)._postsService = postsService;
   (service as any)._pipelineService = pipelineService;
+  (service as any)._notificationService = { inAppNotification: jest.fn() };
 
   executionRepository.claimEvaluation.mockResolvedValue({
     outcome: 'CLAIMED',

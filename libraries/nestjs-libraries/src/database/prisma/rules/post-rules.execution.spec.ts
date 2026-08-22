@@ -1,23 +1,28 @@
 jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
-  IntegrationManager: class IntegrationManager {},
+  IntegrationManager: class IntegrationManager { },
 }));
 jest.mock(
   '@gitroom/nestjs-libraries/integrations/refresh.integration.service',
-  () => ({ RefreshIntegrationService: class RefreshIntegrationService {} })
+  () => ({ RefreshIntegrationService: class RefreshIntegrationService { } })
 );
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/posts/posts.service',
-  () => ({ PostsService: class PostsService {} })
+  () => ({ PostsService: class PostsService { } })
 );
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.service',
-  () => ({ PipelineService: class PipelineService {} })
+  () => ({ PipelineService: class PipelineService { } })
+);
+jest.mock(
+  '@gitroom/nestjs-libraries/database/prisma/notifications/notification.service',
+  () => ({ NotificationService: class NotificationService { } })
 );
 
 import { PostRulesExecutionRepository } from './post-rules.execution.repository';
 import { PostRulesExecutionService } from './post-rules.execution.service';
 import {
   evaluatePostRuleConditions,
+  buildPostRuleNotifyMessage,
   orderPostGroupForRemoval,
   POST_RULE_STALE_CLAIM_MS,
   postRuleEvaluationCount,
@@ -27,7 +32,7 @@ import {
 const PUBLISHED_AT = new Date('2026-08-20T10:00:00.000Z');
 
 const capabilityMetadata = {
-  actions: { remove: true, autoRepost: true, autoPlug: true },
+  actions: { remove: true, autoRepost: true, autoPlug: true, notify: true },
   metrics: { likes: true, replies: true },
 };
 
@@ -43,45 +48,46 @@ const integration = {
 } as any;
 
 const rootPost = (overrides: Record<string, unknown> = {}) =>
-  ({
-    id: 'post-1',
-    organizationId: 'org-1',
-    integrationId: 'channel-1',
-    group: 'group-1',
-    state: 'PUBLISHED',
-    publishDate: PUBLISHED_AT,
-    releaseId: 'tweet-1',
-    settings: JSON.stringify({ __type: 'x' }),
-    image: '[]',
-    content: 'hello',
-    delay: 0,
-    deletedAt: null,
-    platformDeletedAt: null,
-    parentPostId: null,
-    integration,
-    pipelineQueueItem: null,
-    ...overrides,
-  } as any);
+({
+  id: 'post-1',
+  organizationId: 'org-1',
+  integrationId: 'channel-1',
+  group: 'group-1',
+  state: 'PUBLISHED',
+  publishDate: PUBLISHED_AT,
+  releaseId: 'tweet-1',
+  releaseURL: 'https://x.com/user/status/tweet-1',
+  settings: JSON.stringify({ __type: 'x' }),
+  image: '[]',
+  content: 'hello',
+  delay: 0,
+  deletedAt: null,
+  platformDeletedAt: null,
+  parentPostId: null,
+  integration,
+  pipelineQueueItem: null,
+  ...overrides,
+} as any);
 
 const rule = (overrides: Record<string, unknown> = {}) =>
-  ({
-    id: 'rule-1',
-    organizationId: 'org-1',
-    name: 'Remove flops',
-    enabled: true,
-    action: 'REMOVE',
-    initialDelayHours: 24,
-    evaluationIntervalHours: null,
-    maxEvaluations: null,
-    conditionMatch: 'ANY',
-    conditions: [],
-    actionConfig: {},
-    rescheduleConfig: null,
-    maxRescheduleAttempts: null,
-    integrations: [{ integrationId: 'channel-1' }],
-    pipelines: [],
-    ...overrides,
-  } as any);
+({
+  id: 'rule-1',
+  organizationId: 'org-1',
+  name: 'Remove flops',
+  enabled: true,
+  action: 'REMOVE',
+  initialDelayHours: 24,
+  evaluationIntervalHours: null,
+  maxEvaluations: null,
+  conditionMatch: 'ANY',
+  conditions: [],
+  actionConfig: {},
+  rescheduleConfig: null,
+  maxRescheduleAttempts: null,
+  integrations: [{ integrationId: 'channel-1' }],
+  pipelines: [],
+  ...overrides,
+} as any);
 
 const createService = () => {
   const executionRepository = {
@@ -107,7 +113,10 @@ const createService = () => {
   };
   const integrationManager = {
     getPostRulesCapabilities: jest.fn().mockReturnValue({
-      x: { actions: ['REMOVE', 'AUTO_REPOST', 'AUTO_PLUG'], metrics: ['LIKES', 'REPLIES'] },
+      x: {
+        actions: ['REMOVE', 'AUTO_REPOST', 'AUTO_PLUG', 'NOTIFY'],
+        metrics: ['LIKES', 'REPLIES'],
+      },
     }),
     getSocialIntegration: jest.fn().mockReturnValue({ postRules: capability }),
   };
@@ -119,6 +128,7 @@ const createService = () => {
     validatePosts: jest.fn(),
   };
   const pipelineService = { enqueue: jest.fn() };
+  const notificationService = { inAppNotification: jest.fn() };
 
   const service = Object.create(
     PostRulesExecutionService.prototype
@@ -128,6 +138,7 @@ const createService = () => {
   (service as any)._refreshIntegrationService = refreshIntegrationService;
   (service as any)._postsService = postsService;
   (service as any)._pipelineService = pipelineService;
+  (service as any)._notificationService = notificationService;
 
   return {
     service,
@@ -136,6 +147,7 @@ const createService = () => {
     integrationManager,
     postsService,
     pipelineService,
+    notificationService,
   };
 };
 
@@ -833,6 +845,107 @@ describe('PostRulesExecutionService.processEvaluation', () => {
     expect(skipped.actionResult?.skippedReason).toBe(
       'ACTION_CONFIG_UNAVAILABLE'
     );
+  });
+
+  it('keeps polling after a non-matching notify evaluation', async () => {
+    const { service, executionRepository, capability, notificationService } =
+      createService();
+    executionRepository.claimEvaluation.mockResolvedValue(
+      claimed({
+        evaluationCount: 3,
+        rule: rule({
+          action: 'NOTIFY',
+          evaluationIntervalHours: 6,
+          maxEvaluations: 3,
+          conditions: [{ metric: 'REPLIES', operator: 'GTE', threshold: 1 }],
+        }),
+      })
+    );
+    capability.loadMetrics.mockResolvedValue({
+      status: 'success',
+      metrics: { likes: 4, replies: 0 },
+    });
+
+    const result = await service.processEvaluation(request);
+
+    expect(result.status).toBe('COMPLETED');
+    expect(result.terminalRun).toBe(false);
+    expect(notificationService.inAppNotification).not.toHaveBeenCalled();
+    expect(capability.repost).not.toHaveBeenCalled();
+    expect(capability.addPlugReply).not.toHaveBeenCalled();
+  });
+
+  it('sends one in-app notification when notify conditions match', async () => {
+    const { service, executionRepository, capability, notificationService } =
+      createService();
+    executionRepository.claimEvaluation.mockResolvedValue(
+      claimed({
+        evaluationCount: 3,
+        rule: rule({
+          name: 'Reply alert',
+          action: 'NOTIFY',
+          evaluationIntervalHours: 6,
+          maxEvaluations: 3,
+          conditions: [{ metric: 'REPLIES', operator: 'GTE', threshold: 1 }],
+        }),
+      })
+    );
+    capability.loadMetrics.mockResolvedValue({
+      status: 'success',
+      metrics: { likes: 10, replies: 12 },
+    });
+
+    const result = await service.processEvaluation(request);
+
+    expect(notificationService.inAppNotification).toHaveBeenCalledWith(
+      'org-1',
+      'Rule "Reply alert" matched',
+      expect.stringContaining('12 replies'),
+      false
+    );
+    expect(capability.repost).not.toHaveBeenCalled();
+    expect(capability.addPlugReply).not.toHaveBeenCalled();
+    expect(result.terminalRun).toBe(true);
+    expect(result.actionResult?.matched).toBe(true);
+    expect(result.actionResult?.action).toBe('NOTIFY');
+  });
+});
+
+describe('buildPostRuleNotifyMessage', () => {
+  it('includes metrics and release URL', () => {
+    expect(
+      buildPostRuleNotifyMessage({
+        ruleName: 'Reply alert',
+        providerIdentifier: 'threads',
+        metrics: { likes: 3, replies: 12 },
+        releaseURL: 'https://www.threads.com/@u/post/abc',
+      })
+    ).toEqual({
+      subject: 'Rule "Reply alert" matched',
+      message:
+        'Your threads post matched rule "Reply alert" (3 likes, 12 replies). https://www.threads.com/@u/post/abc',
+    });
+  });
+
+  it('falls back to the calendar when release URL is missing', () => {
+    const previous = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = 'https://app.example.com';
+    try {
+      expect(
+        buildPostRuleNotifyMessage({
+          ruleName: 'Likes alert',
+          providerIdentifier: 'x',
+          metrics: { likes: 100 },
+          releaseURL: null,
+        }).message
+      ).toContain('https://app.example.com/calendar');
+    } finally {
+      if (previous === undefined) {
+        delete process.env.FRONTEND_URL;
+      } else {
+        process.env.FRONTEND_URL = previous;
+      }
+    }
   });
 });
 

@@ -10,6 +10,9 @@ export const POST_RULE_MAX_EVALUATIONS = 50;
 export const POST_RULE_MAX_DELAY_HOURS = 8760;
 export const POST_RULE_MAX_RESCHEDULE_ATTEMPTS = 100;
 
+export const isPollingPostRuleAction = (action: PostRuleAction): boolean =>
+  action === 'AUTO_REPOST' || action === 'AUTO_PLUG' || action === 'NOTIFY';
+
 const ABSOLUTE_RESCHEDULE_KEYS = new Set([
   'date',
   'scheduledAt',
@@ -92,8 +95,7 @@ export const validatePostRuleDefinition = (
     });
   }
 
-  const isPollingAction =
-    input.action === 'AUTO_REPOST' || input.action === 'AUTO_PLUG';
+  const isPollingAction = isPollingPostRuleAction(input.action);
 
   if (isPollingAction) {
     if (

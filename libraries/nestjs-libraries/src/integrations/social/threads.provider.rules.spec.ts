@@ -26,6 +26,7 @@ describe('ThreadsProvider PostRules Capability', () => {
         actions: {
           remove: true,
           autoPlug: true,
+          notify: true,
         },
         metrics: {
           likes: true,

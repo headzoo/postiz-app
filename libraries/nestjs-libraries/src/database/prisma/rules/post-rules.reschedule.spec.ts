@@ -1,17 +1,17 @@
 jest.mock('@gitroom/nestjs-libraries/integrations/integration.manager', () => ({
-  IntegrationManager: class IntegrationManager {},
+  IntegrationManager: class IntegrationManager { },
 }));
 jest.mock(
   '@gitroom/nestjs-libraries/integrations/refresh.integration.service',
-  () => ({ RefreshIntegrationService: class RefreshIntegrationService {} })
+  () => ({ RefreshIntegrationService: class RefreshIntegrationService { } })
 );
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/posts/posts.service',
-  () => ({ PostsService: class PostsService {} })
+  () => ({ PostsService: class PostsService { } })
 );
 jest.mock(
   '@gitroom/nestjs-libraries/database/prisma/pipelines/pipeline.service',
-  () => ({ PipelineService: class PipelineService {} })
+  () => ({ PipelineService: class PipelineService { } })
 );
 
 import { PostRulesExecutionService } from './post-rules.execution.service';
@@ -33,45 +33,45 @@ const integration = {
 } as any;
 
 const rootPost = (overrides: Record<string, unknown> = {}) =>
-  ({
-    id: 'post-1',
-    organizationId: 'org-1',
-    integrationId: 'channel-1',
-    group: 'group-1',
-    state: 'PUBLISHED',
-    publishDate: new Date('2026-08-20T10:00:00.000Z'),
-    releaseId: 'tweet-1',
-    settings: JSON.stringify({ __type: 'x' }),
-    image: '[]',
-    content: 'hello',
-    delay: 0,
-    deletedAt: null,
-    platformDeletedAt: null,
-    parentPostId: null,
-    integration,
-    pipelineQueueItem: null,
-    ...overrides,
-  } as any);
+({
+  id: 'post-1',
+  organizationId: 'org-1',
+  integrationId: 'channel-1',
+  group: 'group-1',
+  state: 'PUBLISHED',
+  publishDate: new Date('2026-08-20T10:00:00.000Z'),
+  releaseId: 'tweet-1',
+  settings: JSON.stringify({ __type: 'x' }),
+  image: '[]',
+  content: 'hello',
+  delay: 0,
+  deletedAt: null,
+  platformDeletedAt: null,
+  parentPostId: null,
+  integration,
+  pipelineQueueItem: null,
+  ...overrides,
+} as any);
 
 const removeRule = (overrides: Record<string, unknown> = {}) =>
-  ({
-    id: 'rule-1',
-    organizationId: 'org-1',
-    name: 'Remove flops',
-    enabled: true,
-    action: 'REMOVE',
-    initialDelayHours: 24,
-    evaluationIntervalHours: null,
-    maxEvaluations: null,
-    conditionMatch: 'ANY',
-    conditions: [],
-    actionConfig: {},
-    rescheduleConfig: null,
-    maxRescheduleAttempts: null,
-    integrations: [{ integrationId: 'channel-1' }],
-    pipelines: [],
-    ...overrides,
-  } as any);
+({
+  id: 'rule-1',
+  organizationId: 'org-1',
+  name: 'Remove flops',
+  enabled: true,
+  action: 'REMOVE',
+  initialDelayHours: 24,
+  evaluationIntervalHours: null,
+  maxEvaluations: null,
+  conditionMatch: 'ANY',
+  conditions: [],
+  actionConfig: {},
+  rescheduleConfig: null,
+  maxRescheduleAttempts: null,
+  integrations: [{ integrationId: 'channel-1' }],
+  pipelines: [],
+  ...overrides,
+} as any);
 
 const createService = () => {
   const executionRepository = {
@@ -120,6 +120,7 @@ const createService = () => {
   (service as any)._refreshIntegrationService = { refresh: jest.fn() };
   (service as any)._postsService = postsService;
   (service as any)._pipelineService = { enqueue: jest.fn() };
+  (service as any)._notificationService = { inAppNotification: jest.fn() };
 
   return { service, executionRepository, capability, postsService };
 };

@@ -841,4 +841,31 @@ describe('ChannelAnalyticsRepository', () => {
       contributors: [],
     });
   });
+
+
+  it('upserts account daily points without touching sync coverage', async () => {
+    const { repository, tx } = createHarness();
+    await repository.persistAccountDailyPoints('org', 'integration', [
+      {
+        metricKey: 'followers',
+        label: 'Followers',
+        valueMode: 'LATEST' as any,
+        value: 1200,
+        day: new Date('2026-08-15T00:00:00Z'),
+      },
+    ]);
+    expect(tx.channelAnalyticsDailyPoint.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          integrationId_day_metricKey: {
+            integrationId: 'integration',
+            day: new Date('2026-08-15T00:00:00Z'),
+            metricKey: 'followers',
+          },
+        },
+      })
+    );
+    expect(tx.channelAnalyticsSyncState.upsert).not.toHaveBeenCalled();
+  });
+
 });

@@ -14,10 +14,12 @@ import {
   PIPELINE_SCHEDULER_WORKFLOW_ID,
 } from './admin-schedule.workflow';
 import {
+  LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED,
+  LEAD_BRIDGE_ADMIN_TRIGGER_WORKFLOW_ID_PREFIX,
+  LEAD_BRIDGE_ADMIN_TRIGGER_WORKFLOW_TYPE,
   LEAD_BRIDGE_DAILY_LIMIT,
   LEAD_BRIDGE_IDLE_MS,
   LEAD_BRIDGE_WORKFLOW_ID,
-  LEAD_BRIDGE_WORKFLOW_TYPE,
 } from './lead-bridge.schedule';
 
 export type AdminWorkflowCadence = {
@@ -131,21 +133,48 @@ export class AdminScheduleWorkflowService {
     return this.describeWorkflow(LEAD_BRIDGE_WORKFLOW_ID, {
       unit: 'hour',
       interval: idleHours,
-      label: `Idle up to ${idleHours} hour(s) when quiet; max ${LEAD_BRIDGE_DAILY_LIMIT} warm crawls per channel per UTC day`,
+      label: `Idle up to ${idleHours} hour(s) when quiet; max ${LEAD_BRIDGE_DAILY_LIMIT} warm crawls per channel per UTC day. Trigger now clears all discovered leads, generates at least ${LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED}, then resumes the idle crawler.`,
     });
   }
 
   async triggerLeadBridge() {
-    await this.ensureWorkflowStarted(LEAD_BRIDGE_WORKFLOW_TYPE, LEAD_BRIDGE_WORKFLOW_ID, [
-      {},
-    ]);
-    await this.signalWorkflow(LEAD_BRIDGE_WORKFLOW_ID, 'channelLeadBridge');
+    await this.terminateWorkflowIfRunning(
+      LEAD_BRIDGE_WORKFLOW_ID,
+      'Admin lead discovery burst trigger'
+    );
+    const workflowId = `${LEAD_BRIDGE_ADMIN_TRIGGER_WORKFLOW_ID_PREFIX}-${makeId(8)}`;
+    await this.startOneShot(
+      LEAD_BRIDGE_ADMIN_TRIGGER_WORKFLOW_TYPE,
+      workflowId,
+      [{}]
+    );
     await this._adminScheduleLogService.append({
       scheduleKey: 'lead-bridge',
-      message: 'Lead discovery workflow signaled',
-      meta: { workflowId: LEAD_BRIDGE_WORKFLOW_ID },
+      message: `Lead discovery burst triggered (clear all leads, generate at least ${LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED})`,
+      meta: {
+        workflowId,
+        idleWorkflowId: LEAD_BRIDGE_WORKFLOW_ID,
+        minApplied: LEAD_BRIDGE_ADMIN_BURST_MIN_APPLIED,
+      },
     });
     return this.getLeadBridgeStatus();
+  }
+
+  private async terminateWorkflowIfRunning(
+    workflowId: string,
+    reason: string
+  ) {
+    try {
+      const handle = this.workflowClient().getHandle(workflowId);
+      const description = await handle.describe();
+      if (description.status.name === 'RUNNING') {
+        await handle.terminate(reason);
+      }
+    } catch (error) {
+      if (!this.isMissingOrClosed(error)) {
+        throw error;
+      }
+    }
   }
 
   private async describeWorkflow(
@@ -214,10 +243,6 @@ export class AdminScheduleWorkflowService {
     }
   }
 
-  private async signalWorkflow(workflowId: string, signalName: string) {
-    await this.workflowClient().getHandle(workflowId).signal(signalName);
-  }
-
   private workflowClient() {
     const client = this._temporalService.client?.getRawClient()?.workflow;
     if (!client) {
@@ -232,6 +257,17 @@ export class AdminScheduleWorkflowService {
     return (
       value?.name === 'WorkflowNotFoundError' ||
       message.includes('not found')
+    );
+  }
+
+  private isMissingOrClosed(error: unknown) {
+    const value = error as { name?: string; message?: string };
+    const message = value?.message?.toLowerCase() || '';
+    return (
+      this.isMissing(error) ||
+      value?.name === 'WorkflowExecutionAlreadyCompletedError' ||
+      message.includes('already completed') ||
+      message.includes('already closed')
     );
   }
 
